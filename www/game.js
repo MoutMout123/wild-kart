@@ -2115,26 +2115,26 @@ function musicStyleFor(th) { const d = th.decor; return ({ prairie: 'pop', beach
 // 5 appuis sur le numéro de version (Réglages) ou appui long sur la mini-carte en course : un petit champ discret apparaît.
 const Secret = { armed: false, last: -99 };
 function secretCheck(v) { if (String(v || '').trim().toLowerCase() !== 'dbca') return false; const R = G.race;
-  if (R && ['race', 'countdown', 'intro'].includes(R.state) && R.player && !R.player.finished && R.state === 'race') policeStart(R.player); else Secret.armed = true; return true; }
+  if (R && ['race', 'countdown', 'intro'].includes(R.state) && R.player && !R.player.finished && R.state === 'race' && !G.paused) policeStart(R.player); else Secret.armed = true; return true; }
 function policeStart(by) { const R = G.race; if (!R || !G.W) return; if ((R.t || 0) - Secret.last < 15) return; Secret.last = R.t || 0;
   if (R.online) netEmit({ e: 'police', ex: by && by.netId }); policeSweep(by); }
 function policeSweep(exK) {
   const S = G.W.S; const ks = G.karts.filter((k) => k !== exK && !k.finished); if (!ks.length) return; let lo = Infinity, hi = -Infinity; for (const k of ks) { lo = Math.min(lo, k.prog); hi = Math.max(hi, k.prog); }
   const span = (hi - lo) * S.seg, sp = (Math.max(75, span / 3) + 70) / S.seg; if (G.police && G.police.mesh) G.police.mesh.visible = false;
-  G.police = { s: lo - 30, n: ks.length, t: 0, out: 0, sp, ex: exK, done: new Set(), mesh: (G.police && G.police.mesh) || null };
+  const ref = exK || G.race.player; G.police = { s: (ref ? ref.prog : lo) + 14, n: ks.length, t: 0, out: 0, sp: Math.max(8, (ref ? Math.abs(ref.speed) : 30) * .55) / S.seg, ex: exK, done: new Set(), mesh: (G.police && G.police.mesh) || null };
+  for (const k of ks) { G.police.done.add(k); cageKart(k); }
   if (!G.police.mesh || G.police.mesh.parent !== G.W.scene) { G.police.mesh = policeCarMesh(); G.W.scene.add(G.police.mesh); }
   G.police.mesh.visible = true; banner('Contrôle de police !', 2.2, true); AudioSys.sfx('police'); vibrate([60, 40, 60]);
 }
 function policeUpdate(dt) { const R = G.race; if (!R) return;
   if (Secret.armed && R.state === 'race' && R.t > 6 && R.player && !R.player.finished) { Secret.armed = false; policeStart(R.player); }
   const P = G.police; if (!P) return; const S = G.W.S, N = S.N; P.s += P.sp * dt; P.t += dt;
-  for (const k of G.karts) { if (k === P.ex || k.finished || P.done.has(k)) continue; if (P.s >= k.prog) { P.done.add(k); cageKart(k); } }
   const fi = ((P.s % N) + N) % N, i = Math.floor(fi), j = (i + 1) % N, f = fi - i, m = P.mesh;
   if (m) { m.position.set(lerp(S.px[i], S.px[j], f), lerp(S.py[i], S.py[j], f) + .1, lerp(S.pz[i], S.pz[j], f)); m.rotation.y = S.hd[i]; const on = Math.floor((G.W.clock || 0) * 8) % 2 === 0;
     m.userData.l1.material.color.set(on ? '#ff2a3a' : '#3a0a10'); m.userData.l2.material.color.set(on ? '#1a2a5a' : '#2a6aff'); }
-  if (P.done.size >= P.n || P.t > 9) P.out += dt; if (P.out > 1.2) { if (m) m.visible = false; G.police = null; }
+  if (P.t > 4.5) P.out += dt; if (P.out > .3) { if (m) m.visible = false; G.police = null; }
 }
-function cageKart(k) { if (!k.isRemote) { k.cage = 4.5; k.boost = 0; if (k.drift) endDrift(k, false); } k.cageVis = 4.5; if (k.isPlayer) { banner('Au trou ! 4 secondes', 1.6, true); vibrate(80); AudioSys.sfx('hit'); } }
+function cageKart(k) { if (!k.isRemote) { k.cage = 5; k.boost = 0; if (k.drift) endDrift(k, false); } k.cageVis = 5; if (k.isPlayer) { banner('Au trou ! 5 secondes', 1.6, true); vibrate(80); AudioSys.sfx('hit'); } }
 function cageStep(k, dt) { if (!(k.cage > 0)) return false; k.cage -= dt; k.speed = 0; k.vy = 0; k.air = null; return true; }
 function policeCarMesh() { const g = new T.Group();
   const body = new T.Mesh(rbox(2.5, 1.2, 5, .35), stdMat('#fffdf7', .35, .3)); body.position.y = 1; g.add(body);
@@ -2152,7 +2152,7 @@ function cageMesh() { const g = new T.Group(), m = stdMat('#3a3a48', .4, .8);
   const top = new T.Mesh(new T.CircleGeometry(2.2, 20), new T.MeshStandardMaterial({ color: '#3a3a48', transparent: true, opacity: .5, side: T.DoubleSide })); top.rotation.x = -Math.PI / 2; top.position.y = 2.8; g.add(top); return g; }
 function cageVisual(k, M, dt) { if (!(k.cageVis > 0) && !M.cage) return; if (!M.cage) { M.cage = cageMesh(); G.W.scene.add(M.cage); }
   k.cageVis = Math.max(0, (k.cageVis || 0) - dt); const on = k.cageVis > 0; M.cage.visible = on; if (!on) return;
-  const drop = clamp((4.5 - k.cageVis) / .35, 0, 1); M.cage.position.set(k.x, k.y + (1 - drop) * 8, k.z); }
+  const drop = clamp((5 - k.cageVis) / .35, 0, 1); M.cage.position.set(k.x, k.y + (1 - drop) * 8, k.z); }
 // interface : numéro de version + champ discret ; appui long sur la mini-carte en course
 (function secretUI() {
   const ver = $('#set-ver'), inp = $('#secret-in'); let taps = 0, last = 0;

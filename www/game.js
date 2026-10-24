@@ -2038,8 +2038,29 @@ Object.assign(AudioSys, {
     }
   },
   // ---------- musique ----------
+  // musique pré-calculée : la boucle complète est rendue une fois (hors temps réel) puis jouée en boucle.
+  // Plus aucune note programmée pendant la course : le son ne coupe plus quand le téléphone est chargé.
   startMusic(spec) {
-    this.stopMusic(); if (!this.ctx || !spec) return; const c = this.ctx, style = spec.style || 'pop', bpm = spec.bpm, sd = 60 / bpm / 4; let step = 0, next = c.currentTime + .12;
+    this.stopMusic(); if (!this.ctx || !spec) return; const tok = this.musTok, key = JSON.stringify(spec);
+    const play = (buf, wait) => { if (tok !== this.musTok || !this.ctx) return; if (this.seq) { clearInterval(this.seq); this.seq = null; }
+      try { const c = this.ctx, src = c.createBufferSource(), g = c.createGain(), t = c.currentTime + (wait || .05); src.buffer = buf; src.loop = true; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + .4); src.connect(g); g.connect(this.music); src.start(t); this.musSrc = src; } catch (e) { /* rien */ } };
+    this.musCache = this.musCache || new Map(); if (this.musCache.has(key)) { play(this.musCache.get(key)); return; }
+    // en attendant la boucle pré-calculée : musique jouée en direct, puis relais en douceur
+    this.liveMusic(spec, 0, true);
+    this.musPend = this.musPend || {}; let pr = this.musPend[key]; if (!pr) { try { pr = this.renderMusic(spec); } catch (e) { pr = null; } if (!pr) return; this.musPend[key] = pr; pr.finally(() => { delete this.musPend[key]; }).catch(() => {}); }
+    pr.then((buf) => { this.musCache.set(key, buf); while (this.musCache.size > 2) this.musCache.delete(this.musCache.keys().next().value); play(buf, .9); }).catch(() => { /* on garde la musique en direct */ });
+  },
+  renderMusic(spec) {
+    const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (!OC) return null;
+    const steps = 32 * 16, sd = 60 / spec.bpm / 4, sr = 22050, oc = new OC(1, Math.ceil((steps * sd + .1) * sr), sr);
+    const real = { ctx: this.ctx, music: this.music, musRev: this.musRev, master: this.master, sfxRev: this.sfxRev };
+    try { this.ctx = oc; const mus = oc.createGain(); mus.connect(oc.destination); const rv = oc.createConvolver(); rv.buffer = this.impulse(1.2, 2.8); const ro = oc.createGain(); ro.gain.value = 1.9; rv.connect(ro); ro.connect(oc.destination);
+      const mr = oc.createGain(); mr.gain.value = .32; mr.connect(rv); Object.assign(this, { music: mus, musRev: mr, master: mus, sfxRev: mr }); this.liveMusic(spec, steps); }
+    finally { Object.assign(this, real); }
+    return oc.startRendering();
+  },
+  liveMusic(spec, offline, keep) {
+    if (!offline && !keep) this.stopMusic(); if (!this.ctx || !spec) return; const c = this.ctx, style = spec.style || 'pop', bpm = spec.bpm, sd = 60 / bpm / 4; let step = 0, next = c.currentTime + .12;
     const m2f = (m) => 440 * Math.pow(2, (m - 69) / 12), root = spec.root, prog = spec.prog, rnd = seeded(bpm * 131 + root * 7 + prog.length);
     const minor = prog[0][1] - prog[0][0] === 3; const scale = minor ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
     // mélodie : un motif de 2 mesures, rejoué avec variations ; notes de l'accord sur les temps forts
@@ -2053,10 +2074,10 @@ Object.assign(AudioSys, {
       spooky: { kick: [0, 11], snare: [8], hat: 4, swing: .1, bass: 'soft', lead: [['sine', 0, .8], ['triangle', 9, .5]], cut: 2200, pad: true },
       space: { kick: [0, 8], snare: [12], hat: 2, swing: 0, bass: 'arp', lead: [['sine', 0, .7], ['sawtooth', 7, .3]], cut: 2400, pad: true } }[style] || null;
     const S = P || P0;
-    this.seq = setInterval(() => {
-      if (c.state !== 'running') { if (document.visibilityState === 'visible') c.resume().catch(() => {}); return; }
+    const tick = () => {
+      if (!offline && c.state !== 'running') { if (document.visibilityState === 'visible') c.resume().catch(() => {}); return; }
       if (next < c.currentTime) { const miss = Math.ceil((c.currentTime + .12 - next) / sd); step += miss; next += miss * sd; }
-      while (next < c.currentTime + .8) {
+      while (offline ? step < offline : next < c.currentTime + .8) {
         const bar = Math.floor(step / 16), s = step % 16, sec = Math.floor(bar / 8) % 4, ch = prog[bar % prog.length], d = next - c.currentTime + (s % 2 ? S.swing * sd : 0), M = this.music;
         const full = sec === 1 || sec === 3, intro = sec === 0 && bar < 2, brk = sec === 2 && bar % 8 < 4;
         // batterie
@@ -2078,11 +2099,12 @@ Object.assign(AudioSys, {
           this.note(m2f(mm + 12), sd * mt.len * .95, { delay: d, vol: .045, osc: S.lead, cut: S.cut, vib: 12, dest: M, rel: .08, rev: .35, revBus: this.musRev }); } }
         step++; next += sd;
       }
-    }, 120);
+    };
+    if (offline) { tick(); return; } this.seq = setInterval(tick, 120);
   },
   kick(d, v = 1) { const c = this.ctx, t = c.currentTime + d, o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + .12); g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(.5 * v, t + .004); g.gain.exponentialRampToValueAtTime(.001, t + .32); o.connect(g); g.connect(this.music); o.start(t); o.stop(t + .35); this.noise(.012, .08 * v, 3000, d, this.music, 1); },
   snare(d) { this.noise(.16, .16, 1900, d, this.music, .8); const c = this.ctx, t = c.currentTime + d, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(140, t + .08); g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.001, t + .12); o.connect(g); g.connect(this.music); o.start(t); o.stop(t + .14); const r = c.createGain(); r.gain.value = .3; g.connect(r); r.connect(this.musRev); },
-  stopMusic() { if (this.seq) { clearInterval(this.seq); this.seq = null; } },
+  stopMusic() { this.musTok = (this.musTok || 0) + 1; if (this.seq) { clearInterval(this.seq); this.seq = null; } if (this.musSrc) { try { this.musSrc.stop(); } catch (e) { /* rien */ } this.musSrc = null; } },
 });
 const P0 = { kick: [0, 8], snare: [4, 12], hat: 2, swing: 0, bass: 'oct', lead: [['square', -5, .5], ['square', 5, .5]], cut: 2600, pad: true };
 // style musical selon l'ambiance du circuit
@@ -2437,7 +2459,7 @@ function finishLocate(k, P, best) {
   const S = G.W.S;
   const ex = k.x - P.px[best], ez = k.z - P.pz[best];
   k.lat = ex * P.rx[best] + ez * P.rz[best];
-  const along = ex * P.fx[best] + ez * P.fz[best];
+  const along = ex * P.fx[best] + ez * P.fz[best]; k.along = along;
   let j = along >= 0 ? best + 1 : best - 1; j = P.closed ? (j + P.N) % P.N : clamp(j, 0, P.N - 1);
   k.groundY = lerp(P.py[best], P.py[j], Math.min(1, Math.abs(along) / P.seg));
   if (P === S) { k.mainIdx = best; k.prog = (k.lap - 1) * S.N + best + along / S.seg; }
@@ -3747,19 +3769,23 @@ function kickerLaunch(k, W) {
 function sectionOf(k) { const S = G.W.S; if (!(k.lap >= 1)) return 1; return clamp(Math.floor(clamp(k.idx, 0, S.N - 1) / S.N * 3) + 1, 1, 3); }
 
 // ---------- rendu des karts et caméra dans les zones tordues ----------
+const _wa = new T.Vector3(), _wb = new T.Vector3(), _qa = new T.Quaternion(), _qb = new T.Quaternion();
+function warpSeg(k) { const S = G.W.S, N = S.N, i = clamp(k.idx, 0, N - 1), a = k.along || 0; let j = a >= 0 ? (i + 1) % N : (i - 1 + N) % N; const t = clamp(Math.abs(a) / (S.seg || 2), 0, 1); return [i, j, t]; }
+function warpAtK(k, lat, h, out) { const S = G.W.S, [i, j, t] = warpSeg(k); warpAt(S, i, lat, h, _wa); warpAt(S, j, lat, h, _wb); return out.copy(_wa).lerp(_wb, t); }
 const _wp = new T.Vector3(), _wf2 = new T.Vector3(), _wu2 = new T.Vector3(), _camUp = new T.Vector3(0, 1, 0);
 function warpKartPose(k, M) {
   // remplace position/orientation du kart par celles de la piste repliée ; renvoie true si appliqué
-  if (!inWarp(k)) return false; const S = G.W.S, i = clamp(k.idx, 0, S.N - 1), h = Math.max(0, k.y - k.groundY);
-  warpAt(S, i, k.lat, h + .1, M.g.position);
-  warpFrameQuat(S, i, angDiff(S.hd[i], k.h) + k.spinAng + (k.driftVis || 0), k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0, M.g.quaternion);
+  if (!inWarp(k)) return false; const S = G.W.S, [i, j, t] = warpSeg(k), h = Math.max(0, k.y - k.groundY);
+  warpAtK(k, k.lat, h + .1, M.g.position);
+  const yaw = angDiff(S.hd[i], k.h) + k.spinAng + (k.driftVis || 0), rl = k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0;
+  warpFrameQuat(S, i, yaw, rl, _qa); warpFrameQuat(S, j, yaw, rl, _qb); M.g.quaternion.copy(_qa).slerp(_qb, t);
   return true;
 }
-function warpDir(k, outF, outU) { const S = G.W.S, i = clamp(k.idx, 0, S.N - 1), j = i * 3, d = angDiff(S.hd[i], k.vh);
-  outU.set(S.wu[j], S.wu[j + 1], S.wu[j + 2]); outF.set(S.wf[j], S.wf[j + 1], S.wf[j + 2]).multiplyScalar(Math.cos(d)).addScaledVector(_wx.set(S.wr[j], S.wr[j + 1], S.wr[j + 2]), -Math.sin(d)).normalize(); }
+function warpDir(k, outF, outU) { const S = G.W.S, [i0, i1, t] = warpSeg(k), a = i0 * 3, b = i1 * 3, d = angDiff(S.hd[i0], k.vh), L = (A, o) => A[a + o] + (A[b + o] - A[a + o]) * t;
+  outU.set(L(S.wu, 0), L(S.wu, 1), L(S.wu, 2)).normalize(); outF.set(L(S.wf, 0), L(S.wf, 1), L(S.wf, 2)).normalize().multiplyScalar(Math.cos(d)).addScaledVector(_wx.set(L(S.wr, 0), L(S.wr, 1), L(S.wr, 2)).normalize(), -Math.sin(d)).normalize(); }
 function warpCamera(k, dt, portrait) {
   if (!inWarp(k)) { _camUp.lerp(_wu2.set(0, 1, 0), 1 - Math.exp(-dt * 4)); camera.up.copy(_camUp); return false; }
-  const S = G.W.S, i = clamp(k.idx, 0, S.N - 1); warpAt(S, i, k.lat, Math.max(0, k.y - k.groundY) + 1.4, _wp); warpDir(k, _wf2, _wu2);
+  warpAtK(k, k.lat, Math.max(0, k.y - k.groundY) + 1.4, _wp); warpDir(k, _wf2, _wu2);
   const dist = portrait ? 10.5 : 8.8, hgt = portrait ? 3.6 : 2.8;
   tmpV.copy(_wp).addScaledVector(_wf2, -dist).addScaledVector(_wu2, hgt);
   if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * 10));

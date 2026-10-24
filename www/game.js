@@ -1946,11 +1946,15 @@ Object.assign(AudioSys, {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
     try { const C = window.AudioContext || window.webkitAudioContext; this.ctx = new C(); } catch (e) { return; }
     const c = this.ctx;
+    if (!this.wake) { this.wake = () => { const x = this.ctx; if (x && x.state !== 'running' && document.visibilityState === 'visible') x.resume().catch(() => {}); };
+      window.addEventListener('focus', this.wake); window.addEventListener('pageshow', this.wake);
+      for (const ev of ['pointerdown', 'touchend', 'keydown']) window.addEventListener(ev, this.wake, { passive: true });
+      try { c.onstatechange = () => { if (c.state !== 'running') setTimeout(this.wake, 300); }; } catch (e) { /* rien */ } }
     // chaîne : effets + musique → compresseur → sortie ; une réverbération partagée
     this.comp = c.createDynamicsCompressor(); this.comp.threshold.value = -16; this.comp.knee.value = 12; this.comp.ratio.value = 3.5; this.comp.attack.value = .004; this.comp.release.value = .18; this.comp.connect(c.destination);
     this.master = c.createGain(); this.master.gain.value = SAVE.sound ? .75 : 0; this.master.connect(this.comp);
     this.music = c.createGain(); this.music.gain.value = SAVE.music ? .28 : 0; this.music.connect(this.comp);
-    this.rev = c.createConvolver(); this.rev.buffer = this.impulse(1.8, 2.6); this.revOut = c.createGain(); this.revOut.gain.value = .55; this.rev.connect(this.revOut); this.revOut.connect(this.comp);
+    this.rev = c.createConvolver(); this.rev.buffer = this.impulse(1.2, 2.8); this.revOut = c.createGain(); this.revOut.gain.value = .55; this.rev.connect(this.revOut); this.revOut.connect(this.comp);
     this.musRev = c.createGain(); this.musRev.gain.value = .32; this.musRev.connect(this.rev); this.sfxRev = c.createGain(); this.sfxRev.gain.value = .18; this.sfxRev.connect(this.rev);
     const len = c.sampleRate; const buf = c.createBuffer(1, len, c.sampleRate); const d = buf.getChannelData(0); for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1; this.noiseBuf = buf;
     // moteur : 3 oscillateurs + grondement filtré, vitesses simulées (rapports)
@@ -2050,7 +2054,9 @@ Object.assign(AudioSys, {
       space: { kick: [0, 8], snare: [12], hat: 2, swing: 0, bass: 'arp', lead: [['sine', 0, .7], ['sawtooth', 7, .3]], cut: 2400, pad: true } }[style] || null;
     const S = P || P0;
     this.seq = setInterval(() => {
-      while (next < c.currentTime + .25) {
+      if (c.state !== 'running') { if (document.visibilityState === 'visible') c.resume().catch(() => {}); return; }
+      if (next < c.currentTime) { const miss = Math.ceil((c.currentTime + .12 - next) / sd); step += miss; next += miss * sd; }
+      while (next < c.currentTime + .8) {
         const bar = Math.floor(step / 16), s = step % 16, sec = Math.floor(bar / 8) % 4, ch = prog[bar % prog.length], d = next - c.currentTime + (s % 2 ? S.swing * sd : 0), M = this.music;
         const full = sec === 1 || sec === 3, intro = sec === 0 && bar < 2, brk = sec === 2 && bar % 8 < 4;
         // batterie
@@ -2072,7 +2078,7 @@ Object.assign(AudioSys, {
           this.note(m2f(mm + 12), sd * mt.len * .95, { delay: d, vol: .045, osc: S.lead, cut: S.cut, vib: 12, dest: M, rel: .08, rev: .35, revBus: this.musRev }); } }
         step++; next += sd;
       }
-    }, 40);
+    }, 120);
   },
   kick(d, v = 1) { const c = this.ctx, t = c.currentTime + d, o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + .12); g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(.5 * v, t + .004); g.gain.exponentialRampToValueAtTime(.001, t + .32); o.connect(g); g.connect(this.music); o.start(t); o.stop(t + .35); this.noise(.012, .08 * v, 3000, d, this.music, 1); },
   snare(d) { this.noise(.16, .16, 1900, d, this.music, .8); const c = this.ctx, t = c.currentTime + d, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(140, t + .08); g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.001, t + .12); o.connect(g); g.connect(this.music); o.start(t); o.stop(t + .14); const r = c.createGain(); r.gain.value = .3; g.connect(r); r.connect(this.musRev); },
@@ -2147,6 +2153,23 @@ function cageVisual(k, M, dt) { if (!(k.cageVis > 0) && !M.cage) return; if (!M.
   const put = (O, T2) => { for (const k in T2) if (O[k]) { const [speed, accel, handling, weight, off] = T2[k]; Object.assign(O[k], { speed, accel, handling, weight, off }); } };
   put(BODIES, B); put(WHEELS, Wh);
 })();
+
+/* ================= v11 : progression continue sur les raccourcis + anti-téléportation ================= */
+// progression « main » d'un échantillon de raccourci : position réelle dans les bouches, interpolée au milieu (aucun saut)
+function branchMainProg(B, j, along) { const S = G.W.S, N = S.N;
+  if (!B.mp) { const rel = (m) => ((m - B.i0 + (N >> 1)) % N + N) % N - (N >> 1), mp = new Float32Array(B.N), a = clamp(B.noseA, 0, B.N - 1), b = clamp(B.noseB, a, B.N - 1);
+    for (let q = 0; q < B.N; q++) mp[q] = rel(B.map[q]);
+    const ra = mp[a], rb = Math.max(mp[b], ra); for (let q = a; q <= b; q++) mp[q] = ra + (rb - ra) * (b > a ? (q - a) / (b - a) : 0);
+    for (let q = 1; q < B.N; q++) if (mp[q] < mp[q - 1]) mp[q] = mp[q - 1]; B.mp = mp; }
+  const q = clamp(j, 0, B.N - 1), q2 = clamp(j + (along >= 0 ? 1 : -1), 0, B.N - 1), f = Math.min(1, Math.abs(along) / B.seg);
+  return B.i0 + B.mp[q] + (B.mp[q2] - B.mp[q]) * f; }
+// si le kart se retrouve très loin de la route suivie (changement de route raté), on le rattache à la route la plus proche au lieu de le pousser contre un mur lointain
+function relocateAny(k) { const W = G.W, S = W.S, N = S.N; let bestP = k.P || S, bi = k.idx, bd = Infinity;
+  const tryP = (P, from, span) => { const [i, d] = nearestOn(P, k.x, k.z, from, span); if (d < bd) { bd = d; bestP = P; bi = i; } };
+  const mi = (k.P || S) === S ? k.idx : (k.mainIdx || 0); tryP(S, mi, 40);
+  for (const B of W.branches) { const span = ((B.i1 - B.i0) % N + N) % N, r = ((mi - B.i0) % N + N) % N; if (r > span + 30 && N - r > 30) continue;
+    const guess = k.P === B ? k.idx : clamp(Math.round(Math.min(r, span) / Math.max(1, span) * (B.N - 1)), 0, B.N - 1); tryP(B, guess, 60); }
+  if (bestP !== k.P || bi !== k.idx) { k.P = bestP; k.idx = bi; finishLocate(k, bestP, bi); } }
 
 /* ================= Entrées ================= */
 const Input = { keys: {}, pad: { left: false, right: false, drift: false, item: false }, itemEdge: false, tiltAngle: 0, tiltSeen: false, tiltSteer: 0, digSteer: 0, useTilt: false, listening: false };
@@ -2384,14 +2407,14 @@ function openSide(P, i) {
   if (P === W.S) { for (const B of W.branches) if (inWin(i, B.winA) || inWin(i, B.winB)) return B.side; return 0; }
   return (i <= P.jA + 3 || i >= P.jB - 3) ? -P.side : 0;
 }
-function nearestOn(P, x, z, from, span) {
-  let best = from, bd = Infinity;
-  for (let o = -span; o <= span; o++) { let i = from + o; if (P.closed) i = ((i % P.N) + P.N) % P.N; else if (i < 0 || i >= P.N) continue; const d = (x - P.px[i]) ** 2 + (z - P.pz[i]) ** 2; if (d < bd) { bd = d; best = i; } }
+function nearestOn(P, x, z, from, span, pen = 0) {
+  let best = from, bd = Infinity, bs = Infinity;
+  for (let o = -span; o <= span; o++) { let i = from + o; if (P.closed) i = ((i % P.N) + P.N) % P.N; else if (i < 0 || i >= P.N) continue; const d = (x - P.px[i]) ** 2 + (z - P.pz[i]) ** 2; const sc = d + (o < 0 ? pen * o * o : 0); if (sc < bs) { bs = sc; bd = d; best = i; } }
   return [best, bd];
 }
 function trackLocate(k) {
   const W = G.W, S = W.S, N = S.N; const P = k.P || S; k.P = P;
-  const [best, bd] = nearestOn(P, k.x, k.z, clamp(k.idx, 0, P.N - 1), 14);
+  const [best, bd] = nearestOn(P, k.x, k.z, clamp(k.idx, 0, P.N - 1), 14, .06);
   if (P === S) {
     for (const B of W.branches) if (best >= B.i0 - 4 && best <= B.winA[1] + 8) {
       const [bj, bbd] = nearestOn(B, k.x, k.z, clamp(best - B.i0, 0, B.N - 1), 30);
@@ -2418,7 +2441,7 @@ function finishLocate(k, P, best) {
   let j = along >= 0 ? best + 1 : best - 1; j = P.closed ? (j + P.N) % P.N : clamp(j, 0, P.N - 1);
   k.groundY = lerp(P.py[best], P.py[j], Math.min(1, Math.abs(along) / P.seg));
   if (P === S) { k.mainIdx = best; k.prog = (k.lap - 1) * S.N + best + along / S.seg; }
-  else { const fr = clamp((best + along / P.seg) / (P.N - 1), 0, 1), mi = P.i0 + fr * (P.i1 - P.i0); k.mainIdx = Math.round(mi) % S.N; k.prog = (k.lap - 1) * S.N + mi; if (k.mainIdx > S.N * .4 && k.mainIdx < S.N * .6) k.halfway = true; }
+  else { const mi = P.map ? branchMainProg(P, best, along) : P.i0 + clamp((best + along / P.seg) / (P.N - 1), 0, 1) * (P.i1 - P.i0); k.mainIdx = Math.round(mi) % S.N; k.prog = (k.lap - 1) * S.N + mi; if (k.mainIdx > S.N * .4 && k.mainIdx < S.N * .6) k.halfway = true; }
 }
 // point situé n échantillons devant le kart, en suivant éventuellement un embranchement
 function aheadOn(k, n, wantB) {
@@ -2777,6 +2800,7 @@ function kartPhysics(k, inp, dt) {
   k.x += Math.sin(k.vh) * k.speed * dt * ws; k.z += Math.cos(k.vh) * k.speed * dt * ws;
   { const wd = envWind(W, k); if (wd && P0 === S) { k.x += S.rx[j0] * wd * dt; k.z += S.rz[j0] * wd * dt; } }
   trackLocate(k);
+  { const P1 = k.P || S, lim1 = P1.lim || W.lim; if (Math.abs(k.lat) > lim1 + 8 && !(P1.glide && P1.glide[k.idx])) relocateAny(k); }
   // ---- murs (en l'air au-dessus d'un ravin : plus de liberté, retour doux vers la route) ----
   const P = k.P || S, i = k.idx, lim = P.lim || W.lim, os = openSide(P, i), overGap = !!(P.glide && P.glide[i]);
   const limH = overGap ? lim * 1.5 : lim;
@@ -2787,7 +2811,7 @@ function kartPhysics(k, inp, dt) {
   if (eo && !k.air && !overGap && Math.abs(k.lat) > (P.hw || W.hw) + W.curbW + 1) { startFall(k); return; }
   gateBlock(k, W);
   if (!eo && Math.abs(k.lat) > limW && !(os && !gl && Math.sign(k.lat) === os && Math.abs(k.lat) < lim + 40)) {
-    const s = Math.sign(k.lat), push = Math.abs(k.lat) - limW; k.x -= P.rx[i] * s * push; k.z -= P.rz[i] * s * push; k.lat = s * limW;
+    const s = Math.sign(k.lat), push = Math.min(Math.abs(k.lat) - limW, 3); k.x -= P.rx[i] * s * push; k.z -= P.rz[i] * s * push; k.lat -= s * push;
     const vx = Math.sin(k.vh), vz = Math.cos(k.vh); const vl = (vx * P.rx[i] + vz * P.rz[i]) * s;
     if (vl > 0) {
       const nx = vx - P.rx[i] * s * vl * 1.15, nz = vz - P.rz[i] * s * vl * 1.15; k.vh = Math.atan2(nx, nz); k.h += angDiff(k.h, k.vh) * .55;
@@ -3751,12 +3775,14 @@ function agBump(A, B) { const S = G.W.S; if (!S.ag) return false; const a = inWa
 function buildEdges(S, def) { if (!def.edges || !def.edges.length) return; const N = S.N; S.nowall = new Uint8Array(N);
   for (const [a, b, sd] of def.edges) { const i0 = Math.floor(a * N), i1 = Math.floor(b * N); for (let i = i0; i <= i1 + (i1 < i0 ? N : 0); i++) S.nowall[i % N] |= sd === 0 ? 3 : sd < 0 ? 1 : 2; } }
 function edgeOpen(P, i, lat) { const S = G.W.S; return P === S && S.nowall && (S.nowall[i] & (lat < 0 ? 1 : 2)); }
-function startFall(k) { k.fallT = 1.25; k.fallVy = 2; if (k.drift) endDrift(k, false); k.boost = 0; if (k.isPlayer) { banner(G.W.th.lava ? 'Grillé !' : G.W.th.underwater ? 'Plouf !' : 'Chute !', 1.2, true); AudioSys.sfx('fall'); vibrate([30, 40, 30]); } }
+function startFall(k) { k.fallT = .9; k.fallVy = 2; if (k.drift) endDrift(k, false); k.boost = 0; if (k.isPlayer) { banner(G.W.th.lava ? 'Grillé !' : G.W.th.underwater ? 'Plouf !' : 'Chute !', 1.2, true); AudioSys.sfx('fall'); vibrate([30, 40, 30]); } }
 function fallStep(k, dt) {
   k.fallT -= dt; k.fallVy -= 26 * dt; k.y += k.fallVy * dt; k.x += Math.sin(k.vh) * k.speed * dt * .6; k.z += Math.cos(k.vh) * k.speed * dt * .6; k.speed *= Math.pow(.4, dt);
   if (k.fallT > 0) return;
-  const S = G.W.S, N = S.N; let i = ((clamp(k.idx, 0, N - 1) - 10) % N + N) % N; for (let q = 0; q < 30 && (S.glide[i] || (S.wz && S.wz[i])); q++) i = (i - 2 + N) % N;
-  k.P = S; k.idx = i; k.x = S.px[i]; k.z = S.pz[i]; k.y = k.groundY = S.py[i] + 6; k.h = k.vh = S.hd[i]; k.speed = 0; k.lat = 0; k.fallT = 0; k.ghost = Math.max(k.ghost || 0, 1.6); k.droneT = 1.4; k.air = 'jump'; k.vy = 0;
+  const S = G.W.S, N = S.N, bad = (j) => S.glide[j] || (S.wz && S.wz[j]); let i = Math.min(clamp(k.idx, 0, N - 1) + 2, N - 1);
+  // on repose le kart là où il est tombé (un peu devant), jamais loin en arrière : on cherche la case libre la plus proche, en avant d'abord
+  if (bad(i)) { let f = i, b2 = i, nf = 0, nb = 0; while (bad(f) && nf < 400 && f < N - 1) { f++; nf++; } if (bad(f)) nf = 1e9; while (bad(b2) && nb < 400) { b2 = (b2 - 1 + N) % N; nb++; } i = nf <= nb * 2 ? f : b2; }
+  k.P = S; k.idx = i; k.x = S.px[i]; k.z = S.pz[i]; k.y = k.groundY = S.py[i] + 3; k.h = k.vh = S.hd[i]; k.speed = k.maxSpeed * .35; k.lat = 0; k.fallT = 0; k.ghost = Math.max(k.ghost || 0, 1.6); k.droneT = 1.4; k.air = 'jump'; k.vy = 0;
   if (k.isPlayer) AudioSys.sfx('drone');
 }
 // drone de dépannage (visuel)
@@ -5797,7 +5823,7 @@ $('#p-quit').onclick = () => { AudioSys.sfx('click'); toMenu(); };
 $('#p-inv').onclick = () => { SAVE.invert = !SAVE.invert; store(); toast(SAVE.invert ? 'Direction inversée.' : 'Direction normale.'); AudioSys.sfx('click'); };
 $('#calib-inv').onclick = () => { SAVE.invert = !SAVE.invert; store(); toast(SAVE.invert ? 'Direction inversée.' : 'Direction normale.'); AudioSys.sfx('click'); };
 $('#p-calib').onclick = () => { AudioSys.sfx('click'); ensureMotion().then((ok) => { if (ok) Input.useTilt = SAVE.control === 'tilt'; }); UI.afterCalib = () => show('pause'); show('calib'); };
-document.addEventListener('visibilitychange', () => { if (document.hidden) { if (G.race && !G.race.online && ['race', 'countdown', 'intro'].includes(G.race.state) && !G.paused) togglePause(); AudioSys.engine(0, false); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden && AudioSys.ctx && AudioSys.ctx.state === 'suspended') AudioSys.ctx.resume(); if (document.hidden) { if (G.race && !G.race.online && ['race', 'countdown', 'intro'].includes(G.race.state) && !G.paused) togglePause(); AudioSys.engine(0, false); } });
 
 /* installation */
 let deferredPrompt = null;

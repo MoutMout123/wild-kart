@@ -1,0 +1,82 @@
+name: Fabriquer l'APK Android
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Installer Capacitor
+        run: npm install --no-audit --no-fund
+
+      - name: Préparer le projet Android
+        run: |
+          npx cap add android
+          node scripts/patch-native.cjs
+          npx capacitor-assets generate --android --iconBackgroundColor "#17143a" --iconBackgroundColorDark "#17143a" --splashBackgroundColor "#17143a" --splashBackgroundColorDark "#17143a"
+          npx cap sync android
+
+      - name: Numéro de version
+        run: |
+          sed -i "s/versionCode 1$/versionCode ${{ github.run_number }}/" android/app/build.gradle
+          sed -i "s/versionName \"1.0\"/versionName \"11.${{ github.run_number }}\"/" android/app/build.gradle
+          grep -n "versionCode\|versionName" android/app/build.gradle
+
+      - name: Compiler
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: Clé de signature (créée une seule fois, puis réutilisée)
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KS_PASS" ]; then echo "::error::Ajoute le secret KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions)"; exit 1; fi
+          mkdir -p signing
+          if [ ! -f signing/wildkart.jks ]; then
+            keytool -genkeypair -keystore signing/wildkart.jks -alias wildkart -keyalg RSA -keysize 2048 -validity 10000 -storepass "$KS_PASS" -keypass "$KS_PASS" -dname "CN=Wild Kart, O=Wild Kart, C=FR"
+            git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+            git add signing/wildkart.jks; git commit -m "Clé de signature de l'appli [skip ci]"; git push
+          fi
+
+      - name: Signer
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          IN=android/app/build/outputs/apk/release/app-release-unsigned.apk
+          "$BT/zipalign" -f -p 4 "$IN" aligned.apk
+          "$BT/apksigner" sign --ks signing/wildkart.jks --ks-key-alias wildkart --ks-pass env:KS_PASS --key-pass env:KS_PASS --out wild-kart.apk aligned.apk
+          "$BT/apksigner" verify wild-kart.apk
+          ls -la wild-kart.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wild-kart-apk
+          path: wild-kart.apk
+
+      - name: Publier
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v11-${{ github.run_number }}
+          name: Wild Kart v11 (${{ github.run_number }})
+          body: "Télécharge wild-kart.apk ci-dessous, ouvre-le sur ton téléphone Android et touche Installer."
+          files: wild-kart.apk

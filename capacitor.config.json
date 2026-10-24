@@ -1,0 +1,15 @@
+{
+  "appId": "fr.wildkart.jeu",
+  "appName": "Wild Kart",
+  "webDir": "www",
+  "backgroundColor": "#17143a",
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#17143a"
+  },
+  "ios": {
+    "contentInset": "never",
+    "backgroundColor": "#17143a",
+    "scrollEnabled": false
+  }
+}

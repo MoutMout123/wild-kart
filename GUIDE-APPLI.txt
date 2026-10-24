@@ -1,0 +1,125 @@
+WILD KART — fabriquer l'appli Android et iPhone (guide pas à pas)
+==================================================================
+
+Ce dossier est le projet de l'appli (Capacitor 8). Le jeu lui-même est dans « www ».
+Tu compiles une fois sur ton ordinateur, puis tu envoies l'appli à tes amis.
+
+Ce qu'il te faut
+   - Android : un ordinateur Windows, Mac ou Linux.
+   - iPhone : un Mac (obligatoire, Apple ne permet pas autrement).
+   - Une connexion Internet pendant la préparation (téléchargements).
+
+
+ÉTAPE 1 — Préparer l'ordinateur (une seule fois)
+   1. Installe Node.js 22 ou plus récent (version « LTS ») : https://nodejs.org
+   2. Décompresse wild-kart-app.zip où tu veux (par exemple dans Documents).
+   3. Ouvre un terminal dans ce dossier :
+        - Windows : ouvre le dossier, clic droit dans le vide > « Ouvrir dans le Terminal ».
+        - Mac : clic droit sur le dossier > Services > « Nouveau terminal au dossier ».
+   4. Tape :   npm install
+      (1 à 3 minutes, des avertissements jaunes sont normaux)
+
+
+ÉTAPE 2 — ANDROID : fabriquer le fichier .apk
+   1. Installe Android Studio, version « Otter 2025.2.1 » ou plus récente :
+      https://developer.android.com/studio
+      Au premier lancement, accepte l'installation standard (il télécharge le SDK Android).
+   2. Dans le terminal du dossier :   npm run preparer-android
+      (crée le dossier « android », met le jeu en paysage plein écran, écran toujours allumé,
+       vibrations, icône et écran de démarrage)
+   3. Tape :   npm run android
+      Android Studio s'ouvre sur le projet. Attends la fin de la synchronisation Gradle
+      (barre de progression en bas à droite, plusieurs minutes la première fois).
+   4. Fabrique l'APK signé (à faire pour l'envoyer à tes amis) :
+        - Menu Build > Generate Signed App Bundle or APK…
+        - Choisis « APK » > Next.
+        - Key store path : « Create new… ». Choisis un emplacement (ex. Documents/wildkart.jks),
+          un mot de passe, un alias (ex. wildkart), et remplis au moins ton nom. OK.
+          IMPORTANT : garde ce fichier .jks et ses mots de passe. Il faut LE MÊME pour chaque
+          mise à jour, sinon les téléphones refuseront d'installer la nouvelle version.
+        - Next > choisis « release » > Create.
+        - Quand c'est fini, clique sur « locate » : le fichier est
+          android/app/release/app-release.apk  → renomme-le wild-kart.apk.
+      (Plus rapide pour tester sur TON téléphone : Build > Build App Bundle(s) / APK(s) >
+       Build APK(s) ; fichier android/app/build/outputs/apk/debug/app-debug.apk)
+   5. Installer sur un téléphone Android :
+        - Envoie wild-kart.apk (WhatsApp, Google Drive, câble USB, e-mail…).
+        - Sur le téléphone, ouvre le fichier. Si Android le demande, autorise
+          « Installer des applis inconnues » pour l'appli qui l'ouvre (Fichiers, WhatsApp…).
+        - Touche Installer. Si Play Protect avertit : « Plus de détails » > « Installer quand même ».
+      Variante câble : active le débogage USB sur le téléphone (Paramètres > À propos >
+      touche 7 fois « Numéro de build », puis Options pour les développeurs > Débogage USB),
+      branche-le, choisis-le en haut d'Android Studio et appuie sur ▶.
+
+
+ÉTAPE 3 — IPHONE
+   Préparation (Mac) :
+   1. Installe Xcode 26 ou plus récent depuis le Mac App Store, ouvre-le une fois et laisse-le
+      installer ses composants (dont « iOS »).
+   2. Dans le terminal du dossier :   npm run preparer-ios
+   3. Tape :   npm run ios      (Xcode s'ouvre sur le projet)
+   4. Dans Xcode, à gauche, clique sur « App » (icône bleue), puis l'onglet
+      « Signing & Capabilities » :
+        - coche « Automatically manage signing » ;
+        - Team : « Add an Account… » et connecte ton identifiant Apple, puis choisis-le ;
+        - si Xcode dit que l'identifiant est déjà pris, change « Bundle Identifier »
+          (ex. fr.wildkart.jeu.tonprenom).
+
+   Option A — gratuit, sur TON iPhone uniquement (l'appli expire au bout de 7 jours) :
+   5. Branche l'iPhone au Mac avec un câble, déverrouille-le, touche « Se fier ».
+   6. Sur l'iPhone : Réglages > Confidentialité et sécurité > Mode développeur > activer
+      (l'iPhone redémarre).
+   7. En haut de Xcode, choisis ton iPhone dans la liste des appareils, puis ▶.
+   8. Première fois : sur l'iPhone, Réglages > Général > VPN et gestion de l'appareil >
+      ton identifiant > Se fier. Relance l'appli.
+      Au bout de 7 jours, rebranche et appuie à nouveau sur ▶.
+
+   Option B — distribution privée à tes amis avec TestFlight (recommandé pour une soirée) :
+      Il faut un compte Apple Developer Program (99 € par an) : https://developer.apple.com/programs
+   5. Sur https://appstoreconnect.apple.com : Apps > « + » > Nouvelle app.
+      Plateforme iOS, nom « Wild Kart », langue Français, identifiant de lot = le Bundle
+      Identifier de Xcode, référence (SKU) : wildkart.
+   6. Dans Xcode : choisis « Any iOS Device (arm64) » en haut, puis menu Product > Archive.
+   7. La fenêtre Organizer s'ouvre : Distribute App > App Store Connect > Distribute.
+   8. Dans App Store Connect > ton app > TestFlight : attends que la version soit « prête »
+      (10 à 30 min).
+        - Testeurs internes (jusqu'à 100 personnes ajoutées à ton équipe App Store Connect) :
+          disponible tout de suite.
+        - Testeurs externes (amis, jusqu'à 10 000) : crée un groupe, ajoute la version,
+          active le « lien public ». La première version passe une vérification rapide d'Apple
+          (souvent moins d'un jour).
+   9. Tes amis installent l'appli « TestFlight » depuis l'App Store, ouvrent ton lien
+      d'invitation et touchent Installer. Chaque version reste valable 90 jours.
+
+
+METTRE À JOUR L'APPLI (quand tu reçois une nouvelle version du jeu)
+   1. Remplace le dossier « www » par celui de la nouvelle version
+      (ne touche pas aux dossiers « android » et « ios »).
+   2. Dans le terminal :   npm run maj
+   3. Android : refais l'étape 2.4 avec le MÊME fichier .jks, puis installe le nouvel APK
+      par-dessus l'ancien (les réglages et le garage sont gardés).
+      iPhone (TestFlight) : dans Xcode, onglet General, augmente « Build » (2, 3, 4…),
+      puis refais les étapes 6 à 8.
+
+
+JOUER EN LIGNE AVEC L'APPLI
+   - Rien à changer : « Jouer en ligne » marche directement (connexion entre téléphones).
+   - Android et iPhone peuvent jouer ensemble dans la même partie.
+
+
+SUPPRIMER NETLIFY (l'ancien lien web)
+   L'appli n'a plus besoin du site Netlify. Une fois que tout le monde a l'appli :
+   1. Va sur https://app.netlify.com et ouvre ton projet.
+   2. Project configuration > General > tout en bas « Danger zone » > Delete project.
+   3. Confirme en tapant le nom du projet.
+   Sur les téléphones, supprime aussi l'ancienne icône web « Wild Kart » de l'écran d'accueil
+   (appui long > Supprimer), pour ne pas la confondre avec l'appli.
+
+
+EN CAS DE PROBLÈME
+   - « npm » n'est pas reconnu : redémarre l'ordinateur après avoir installé Node.js.
+   - Android Studio : « SDK location not found » : ouvre Tools > SDK Manager et installe
+     « Android SDK Platform 36 », puis File > Sync Project with Gradle Files.
+   - Xcode : « No Account for Team » : refais l'étape 3.4 (Team).
+   - L'appli s'ouvre mais l'écran reste noir : dans le terminal, refais  npm run maj
+     puis recompile.

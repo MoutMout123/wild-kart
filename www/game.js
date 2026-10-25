@@ -2299,9 +2299,26 @@ function wkB32dec(s) { let bits = 0, val = 0; const out = []; for (const ch of s
 function wkCands(code) { const s = String(code || '').toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1').replace(/[^0-9A-Z]/g, ''); const out = []; let i = s.indexOf('WK'); while (i >= 0) { if (s.length - i - 2 >= 116) out.push(s.slice(i + 2, i + 118)); i = s.indexOf('WK', i + 1); } if (!out.length && s.length >= 116) out.push(s.slice(0, 116)); return out; }
 function wkParseOne(body) { const u = wkB32dec(body); if (!u || u.length < 72) return null; const msg = u.slice(0, 8), sig = u.slice(8, 72); if (msg[0] !== 1) return null; const exp = ((msg[1] << 24) >>> 0) + (msg[2] << 16) + (msg[3] << 8) + msg[4]; return { msg, sig, exp: exp * 1000 }; }
 function wkParseAll(code) { return wkCands(code).map(wkParseOne).filter(Boolean); }
+/* liste du chef (codes annulés, joueurs bloqués), signée : « WKL.<données>.<signature> » */
+function wkB64u(u8) { let s = ''; for (const b of u8) s += String.fromCharCode(b); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function wkB64uDec(t) { try { const s = atob(String(t).replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((t.length + 3) % 4)); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; } catch (e) { return null; } }
+const wkHex = (u8) => Array.from(u8, (b) => b.toString(16).padStart(2, '0')).join('');
+const wkCodeId = (p) => wkHex(p.msg.slice(1, 8));
+function wkListParse(text, pk) { const m = /WKL\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)/.exec(String(text || '').replace(/\s+/g, '')); if (!m) return null; const body = wkB64uDec(m[1]), sig = wkB64uDec(m[2]); if (!body || !sig || sig.length !== 64) return null;
+  let ok = false; try { ok = nacl.sign.detached.verify(body, sig, pk); } catch (e) { ok = false; } if (!ok) return null; let j; try { j = JSON.parse(new TextDecoder().decode(body)); } catch (e) { return null; }
+  if (!j || typeof j.s !== 'number') return null; return { text: m[0], s: j.s, r: (j.r || []).map(String), b: (j.b || []).map(String) }; }
+
+// liste du chef : codes annulés et joueurs bloqués (transmise de téléphone en téléphone)
+const CHEF = { s: 0, r: new Set(), b: new Set() };
+function chefListLoad() { const L = SAVE.chefList ? wkListParse(SAVE.chefList, WK_PK) : null; CHEF.s = L ? L.s : 0; CHEF.r = new Set(L ? L.r : []); CHEF.b = new Set(L ? L.b : []); }
+function chefListApply(text, quiet) { const L = wkListParse(text, WK_PK); if (!L || L.s <= CHEF.s) return false; SAVE.chefList = L.text; store(); chefListLoad(); if (!quiet) toast('Liste du chef mise à jour.', 2500); setTimeout(accessTick, 0); return true; }
+const chefBanned = () => typeof frMyId === 'function' && SAVE.fid && CHEF.b.has(SAVE.fid);
+chefListLoad();
 function accessCheck(code) {
   let p = null; for (const c of wkParseAll(code)) { let ok = false; try { ok = typeof nacl !== 'undefined' && nacl.sign.detached.verify(c.msg, c.sig, WK_PK); } catch (e) { ok = false; } if (ok) { p = c; break; } }
   if (!p) return { ok: false, why: 'Code incorrect.' };
+  if (chefBanned()) return { ok: false, why: 'Le chef t\'a bloqué.', exp: p.exp };
+  if (CHEF.r.has(wkCodeId(p))) return { ok: false, why: 'Ce code a été annulé par le chef. Demande-lui un nouveau code.', exp: p.exp };
   const now = Date.now(), seen = Math.max(now, SAVE.accSeen || 0);
   if (now < (SAVE.accSeen || 0) - 10 * 60e3) return { ok: false, why: 'L\'heure du téléphone a été reculée : remets la bonne heure.', exp: p.exp };
   if (seen >= p.exp) return { ok: false, why: 'Code expiré le ' + new Date(p.exp).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) + '. Demande un nouveau code au chef.', exp: p.exp };
@@ -2311,13 +2328,14 @@ const Gate = { el: null };
 function gateText(exp) { return 'Code valable jusqu\'au ' + new Date(exp).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + '.'; }
 function gateShow(why) {
   if (!Gate.el) { const d = document.createElement('div'); d.id = 'gate';
-    d.innerHTML = '<div class="gate-box"><h2>Wild Kart</h2><p>Entre le code d\'accès donné par le chef de partie.</p><textarea id="gate-in" rows="3" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="WK…"></textarea><p class="gate-msg" id="gate-msg"></p><p class="gate-fid">Ton identifiant ami : <b id="gate-fid"></b><br>Un ami qui a déjà le code peut te l\'envoyer depuis l\'écran Amis.</p><button class="btn red" id="gate-ok"><span>Valider</span></button></div>';
+    d.innerHTML = '<div class="gate-box"><h2>Wild Kart</h2><p>Entre le code d\'accès donné par le chef de partie.</p><textarea id="gate-in" rows="3" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="WK…"></textarea><p class="gate-msg" id="gate-msg"></p><p class="gate-fid">Ton identifiant ami : <b id="gate-fid"></b><br>Un ami qui a déjà le code peut te l\'envoyer depuis l\'écran Amis.</p><button class="btn ghost" id="gate-close"><span>Fermer</span></button> <button class="btn red" id="gate-ok"><span>Valider</span></button></div>';
     document.body.appendChild(d); Gate.el = d;
-    const go = () => { const v = $('#gate-in').value, r = accessCheck(v); if (r.ok) { SAVE.access = v.trim(); SAVE.accSeen = Math.max(Date.now(), SAVE.accSeen || 0); store(); gateHide(); toast(gateText(r.exp), 4000); } else { $('#gate-msg').textContent = r.why; } };
-    $('#gate-ok').onclick = go; $('#gate-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }); }
+    const go = () => { const v = $('#gate-in').value; const gotList = chefListApply(v, true); if (gotList && !/WK[0-9A-Z\s-]{100,}/i.test(v.replace(/WKL\.[A-Za-z0-9_.-]+/g, ''))) { $('#gate-msg').textContent = 'Liste du chef mise à jour.'; if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); return; } const r = accessCheck(v); if (r.ok) { SAVE.access = v.trim(); SAVE.accSeen = Math.max(Date.now(), SAVE.accSeen || 0); store(); gateHide(); toast(gateText(r.exp), 4000); } else { $('#gate-msg').textContent = r.why; } };
+    $('#gate-ok').onclick = go; $('#gate-close').onclick = () => { if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); }; $('#gate-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }); }
+  { const cl = $('#gate-close'); if (cl) cl.hidden = !(SAVE.access && accessCheck(SAVE.access).ok); }
   $('#gate-msg').textContent = why || ''; { const f = $('#gate-fid'); if (f && typeof frMyId === 'function') f.textContent = frMyId(); } Gate.el.hidden = false; G.locked = true; }
 function gateHide() { if (Gate.el) Gate.el.hidden = true; G.locked = false; accessInfo(); }
-function accessInfo() { const el = $('#set-acc'); if (!el) return; const r = SAVE.access ? accessCheck(SAVE.access) : null; el.textContent = r && r.ok ? gateText(r.exp) : 'Pas de code valide.'; }
+function accessInfo() { const el = $('#set-acc'); if (!el) return; const r = SAVE.access ? accessCheck(SAVE.access) : null; el.textContent = (r && r.ok ? gateText(r.exp) : 'Pas de code valide.') + (CHEF.s ? ' Liste du chef du ' + new Date(CHEF.s).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) + '.' : ''); }
 function accessTick() { // vérifie le code au démarrage, puis chaque minute (jamais en pleine course)
   if (SAVE.access) { const now = Date.now(); if (now > (SAVE.accSeen || 0)) { SAVE.accSeen = now; store(); } }
   const r = SAVE.access ? accessCheck(SAVE.access) : { ok: false, why: '' };
@@ -2359,10 +2377,11 @@ function frStart() {
 function frSend(fid, msg, cb) {
   if (!FR.peer || !FR.open) { cb && cb(false); return; } let done = false; const fin = (ok) => { if (done) return; done = true; FR.status.set(fid, ok); cb && cb(ok); setTimeout(() => { try { c.close(); } catch (e) { /* rien */ } }, 1500); };
   let c; try { c = FR.peer.connect(frPeerId(fid), { reliable: true }); } catch (e) { fin(false); return; }
-  c.on('open', () => { try { c.send(Object.assign({ from: frMe() }, msg)); fin(true); } catch (e) { fin(false); } }); c.on('error', () => fin(false)); setTimeout(() => fin(false), 6000);
+  c.on('open', () => { try { c.send(Object.assign({ from: frMe(), cl: SAVE.chefList || '' }, msg)); fin(true); } catch (e) { fin(false); } }); c.on('error', () => fin(false)); setTimeout(() => fin(false), 6000);
 }
 function frOnData(c, d) {
   if (!d || typeof d !== 'object' || !d.from || typeof d.from.id !== 'string') return; const who = String(d.from.name || d.from.id).slice(0, 12), fid = frNorm(d.from.id) || d.from.id;
+  if (d.cl) chefListApply(d.cl, true);
   FR.status.set(fid, true); { const f = frList().find((x) => x.id === fid); if (f && who && f.name !== who) { f.name = who; store(); } }
   if (d.t === 'hi') { if (frAddFriend(fid, who)) toast(who + ' t\'a ajouté en ami.', 3500); frRender(); }
   else if (d.t === 'inv' && /^[A-Z]{4}$/.test(String(d.code || ''))) frNotify(who + ' t\'invite dans sa partie en ligne (' + d.code + ').', 'Rejoindre', () => { show('online'); $('#on-code').value = d.code; netJoin(d.code); });
@@ -5372,10 +5391,12 @@ function netCreate() {
 function hostRelay(d, except) { for (const [id, c] of Net.conns) if (id !== except && c.open) { try { c.send(d); } catch (e) { /* connexion fermée */ } } }
 function hostBroadcast(d) { hostRelay(d, null); }
 function lobbyPlayers() { return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away })); }
-function hostBroadcastLobby() { hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace }); renderOnline(); }
+function hostBroadcastLobby() { hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '' }); renderOnline(); }
 function hostOnData(conn, d) {
   if (!d || typeof d !== 'object') return;
   if (d.t === 'hello') {
+    if (d.cl && chefListApply(d.cl, true)) hostBroadcastLobby();
+    if (d.fid && CHEF.b.has(String(d.fid))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
     const id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
     let p = Net.players.find((x) => x.id === id);
     if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
@@ -5427,7 +5448,7 @@ function clientConnect() {
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
   const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'peer-unavailable' }); }, 12000);
   c.on('open', () => {
-    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID });
+    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), cl: SAVE.chefList || '' });
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');
     SAVE.lastCode = Net.code; SAVE.lastCodeAt = Date.now(); store();
   });
@@ -5455,7 +5476,8 @@ function clientOnData(d) {
   switch (d.t) {
     case 'ping': if (d.r && d.r[Net.id] != null) Net.ping = d.r[Net.id]; if (Net.hc && Net.hc.open) { try { Net.hc.send({ t: 'pong', c: d.c }); } catch (e) { /* rien */ } } break;
     case 'busy': toast('La partie est pleine (8 joueurs).', 4500); netReset(); renderOnline(); break;
-    case 'lobby': Net.players = d.players || []; Net.settings = Object.assign(Net.settings, d.settings || {}); if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings') show('online'); renderOnline(); } break;
+    case 'banned': toast('Le chef t\'a bloqué : impossible de rejoindre cette partie.', 5000); netReset(); renderOnline(); break;
+    case 'lobby': if (d.cl) chefListApply(d.cl, true); Net.players = d.players || []; Net.settings = Object.assign(Net.settings, d.settings || {}); if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings') show('online'); renderOnline(); } break;
     case 'start': netStartRace(d); break;
     case 'resume': if (!(G.race && G.race.online && G.race.raceId === d.start.raceId)) { const m = Object.assign({}, d.start, { delay: (d.start.delay || 7000) - (d.elapsed || 0) }); netStartRace(m); } break;
     case 'sts': if (Array.isArray(d.l)) for (const s of d.l) if (s && s[0] !== Net.id) applyRemote(s); break;

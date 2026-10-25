@@ -97,9 +97,9 @@ OBJETS (19, avec une rareté : la lueur autour de la case objet l'indique)
      Boule disco (onde qui renverse les karts proches et efface les pièges), Grappin (s'accroche
      au kart devant et te tire vers lui).
    - Très rares : Étoile, Éclair.
-   Vrai tirage au hasard selon la rareté : environ 45 % communs, 32 % peu communs, 18 % rares,
-   5 % très rares. Les derniers ont un peu plus d'objets rares. Presque jamais deux fois de suite
-   le même.
+   Vrai tirage au hasard selon la rareté, la même chance pour tout le monde quelle que soit la
+   place : 45 % communs, 32 % peu communs, 18 % rares, 5 % très rares. Presque jamais deux fois
+   de suite le même.
 
 SON : nouvelle musique pour chaque univers (pop, funk, house, latino, rock, ambiance spatiale…),
    moteur qui passe les vitesses, crissements de drift, nouveaux bruitages. Volumes dans Réglages.

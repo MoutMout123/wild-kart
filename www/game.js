@@ -3973,22 +3973,12 @@ const RARITY_NAME = { c: 'Commun', u: 'Peu commun', r: 'Rare', v: 'Très rare' }
 ITEM_KEYS.length = 0; ITEM_KEYS.push(...Object.keys(RARITY));
 // r = 0 : en tête, r = 1 : loin derrière ; chaque rareté a un poids qui dépend de r, réparti entre ses objets
 function itemOdds11(k) {
-  const ks = G.karts.filter((o) => !o.finished), n = Math.max(2, G.karts.length); let lead = -Infinity; for (const o of ks) lead = Math.max(lead, o.prog);
-  const place = k ? k.place : 4, pf = clamp((place - 1) / (n - 1), 0, 1), gap = k && isFinite(lead) ? Math.max(0, (lead - k.prog) * G.W.S.seg) : 0, df = clamp(gap / 700, 0, 1);
-  const r = clamp(pf * .6 + df * .4, 0, 1), L = (a, b) => a + (b - a) * r;
-  // part de chaque rareté : en tête ~54/32/13/1 %, au milieu ~45/32/18/5 %, loin derrière ~34/31/24/11 %
-  const tier = { c: L(54, 34), u: L(32, 31), r: L(13, 24), v: L(1, 11) };
+  // même chance pour tout le monde, quelle que soit la place : 45 % communs, 32 % peu communs, 18 % rares, 5 % très rares
+  const tier = { c: 45, u: 32, r: 18, v: 5 };
   const count = {}; for (const it in RARITY) count[RARITY[it]] = (count[RARITY[it]] || 0) + 1;
   const w = {}; for (const it in RARITY) w[it] = tier[RARITY[it]] / count[RARITY[it]];
-  // objets inutiles en tête (rien devant soi)
-  if (place === 1) { w.rocket = 0; w.confettis = 0; w.eclair = 0; w.grappin = 0; w.aspirateur *= .3; w.etoile *= .3; }
-  const R = G.race, now = R ? R.t : 0;
-  if (G.lastEclair != null && now - G.lastEclair < 20) w.eclair *= .1;
-  if (G.lastConfetti != null && now - G.lastConfetti < 12) w.confettis *= .2;
-  if (G.karts.some((o) => o.star > 0)) w.etoile *= .3;
-  // variété : presque jamais deux fois de suite le même, et un petit bonus pour ce qu'on n'a pas encore eu
+  // variété : presque jamais deux fois de suite le même objet
   const hist = (k && k.lastItems) || []; hist.forEach((it, i) => { if (w[it] != null) w[it] *= [.12, .45, .75, .9][i] || 1; });
-  if (k) { k.seenItems = k.seenItems || new Set(); for (const it in w) if (!k.seenItems.has(it)) w[it] *= 1.3; }
   return w;
 }
 function rollItem11(place, k) {

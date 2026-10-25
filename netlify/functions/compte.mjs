@@ -90,7 +90,8 @@ export default async (req) => {
   }
   if (b.a === 'fpoll') {
     const me = b.me || {}; if (!FID.test(String(me.id))) return err('Identifiant invalide.');
-    const pk = 'p/' + me.id, pr = await st.get(pk, { type: 'json' }); if (!pr || now - pr.t > 40e3 || pr.n !== nm(me.name)) await st.setJSON(pk, { t: now, n: nm(me.name) });
+    const pk = 'p/' + me.id, pr = await st.get(pk, { type: 'json' }), stt = me.st && typeof me.st === 'object' && JSON.stringify(me.st).length < 600 ? me.st : null;
+    if (!pr || now - pr.t > 40e3 || pr.n !== nm(me.name) || JSON.stringify(pr.st || null) !== JSON.stringify(stt)) await st.setJSON(pk, { t: now, n: nm(me.name), st: stt, pu: String(me.pu || '').slice(0, 16) });
     const mk = 'm/' + me.id; let L = (await st.get(mk, { type: 'json' })) || []; const ack = +b.ack || 0;
     if (ack && L.some((x) => x.at <= ack)) { L = L.filter((x) => x.at > ack); await st.setJSON(mk, L); }
     const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter((x) => FID.test(x)))].slice(0, 80), online = {};
@@ -120,6 +121,10 @@ export default async (req) => {
   }
   if (b.a === 'clset') { const L = wkListParse(b.cl, CHEF_PK); if (!L) return err('Liste du chef invalide.');
     const cur = wkListParse(await st.get('chef/list', { type: 'text' }), CHEF_PK); if (!cur || L.s > cur.s) await st.set('chef/list', L.text); return out({ ok: true }); }
+  if (b.a === 'live') { if (!chefOk(b)) return err('Réservé au chef.', 403);
+    const { blobs } = await st.list({ prefix: 'p/' }), live = [];
+    await Promise.all(blobs.map(async (x) => { const p = await st.get(x.key, { type: 'json' }); if (!p) return; if (Date.now() - p.t > 60 * 86400e3) { await st.delete(x.key); return; } if (Date.now() - p.t < 150e3) live.push(Object.assign({ fid: x.key.slice(2) }, p)); }));
+    return out({ ok: true, now: Date.now(), live }); }
   if (b.a === 'codeadd' || b.a === 'codes') {
     if (!chefOk(b)) return err('Réservé au chef.', 403);
     if (b.a === 'codeadd') { const p = wkParseAll(b.code || '').find((x) => nacl.sign.detached.verify(x.msg, x.sig, CHEF_PK)); if (!p) return err('Code invalide.'); await codeSeen(st, p, null); return out({ ok: true }); }

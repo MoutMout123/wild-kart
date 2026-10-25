@@ -2590,9 +2590,16 @@ async function acctCall(a, body) {
   catch (e) { return { e: 'Pas de connexion au serveur des comptes (' + (e && e.name === 'AbortError' ? 'trop lent' : 'réseau') + ').' }; } finally { clearTimeout(tm); } }
 function acctPack() { const o = {}; for (const k in SAVE) if (!ACC_SKIP.has(k)) o[k] = SAVE[k]; return o; }
 // remplace les données du téléphone par celles du compte, puis relance le jeu
-function acctApply(r) { for (const k of Object.keys(SAVE)) if (!ACC_SKIP.has(k)) delete SAVE[k];
+function acctApply(r) { const keep = { friends: SAVE.friends, groups: SAVE.groups, fidOld: SAVE.fidOld, records: SAVE.records, access: SAVE.access };
+  for (const k of Object.keys(SAVE)) if (!ACC_SKIP.has(k)) delete SAVE[k];
   for (const k in DEFAULT_SAVE) if (!ACC_SKIP.has(k)) SAVE[k] = DEFAULT_SAVE[k]; Object.assign(SAVE, r.save || {}); if (r.fid) SAVE.fid = r.fid;
-  SAVE.acct = { u: r.pseudo, tok: r.tok, at: r.at || Date.now() }; store(); }
+  // fusion : on ne perd jamais un ami, un groupe ou un record d'un téléphone à l'autre (appli + site sur le même compte)
+  const uni = (a, b, key) => { const out = Array.isArray(a) ? a.slice() : []; for (const x of Array.isArray(b) ? b : []) if (x && !out.some((y) => y && y[key] === x[key])) out.push(x); return out; };
+  SAVE.friends = uni(SAVE.friends, keep.friends, 'id').filter((f) => f.id !== SAVE.fid); SAVE.groups = uni(SAVE.groups, keep.groups, 'code');
+  SAVE.fidOld = [...new Set((SAVE.fidOld || []).concat(keep.fidOld || []))].slice(-10);
+  const rec = Object.assign({}, SAVE.records || {}); const mn = (a, b) => (a && b ? Math.min(a, b) : a || b || undefined); for (const [k, v] of Object.entries(keep.records || {})) { const o = rec[k] || {}; rec[k] = Object.assign({}, v, o, { lap: mn(o.lap, v && v.lap), race: mn(o.race, v && v.race) }); } SAVE.records = rec;
+  if (!(SAVE.access && accessCheck(SAVE.access).ok) && keep.access && accessCheck(keep.access).ok) SAVE.access = keep.access;
+  SAVE.acct = { u: r.pseudo, tok: r.tok, at: r.at || Date.now() }; store(); ACU.timer = 0; setTimeout(() => { if (SAVE.acct) acctUpload(); }, 3000); }
 // sauvegarde automatique (quelques secondes après un changement)
 function acctDirty() { if (!SAVE.acct || ACU.applying) return; clearTimeout(ACU.timer); ACU.timer = setTimeout(acctUpload, Math.max(4000, 20000 - (Date.now() - ACU.lastUp))); }
 async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const r = await acctCall('save', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, save: acctPack() });
@@ -2660,6 +2667,52 @@ async function updApply() { try { if (typeof acctUpload === 'function' && SAVE.a
 // le chef a demandé une mise à jour pour tous
 function updForced(u) { if (!u || u <= (SAVE.updSeen || 0)) return; const first = !SAVE.updSeen; SAVE.updSeen = u; store(); if (first && !UPD.remote) { /* première liste vue : on vérifie quand même */ } UPD.forced = true; setTimeout(() => updCheck(), 500); }
 setTimeout(() => { updCheck(); setInterval(updCheck, 5 * 60e3); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updCheck(); }); }, 5000);
+
+/* ================= v13 : mise en relation par le serveur Wild Kart (remplace le service PeerJS, souvent en panne) ================= */
+// Les téléphones s'échangent leur « adresse » WebRTC par le serveur (2 petits messages), puis jouent en direct entre eux.
+// Même façon de s'en servir que PeerJS : new WKPeer(id), peer.connect(id), on('open' | 'connection' | 'data' | 'close' | 'error').
+class WKEmit { constructor() { this._h = {}; } on(e, f) { (this._h[e] = this._h[e] || []).push(f); return this; } emit(e, ...a) { for (const f of (this._h[e] || []).slice()) { try { f(...a); } catch (x) { console.error(x); } } } }
+const wkRand = (n) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (b) => (b % 36).toString(36)).join(''); };
+const wkIce = () => (window.peerjs && peerjs.util && peerjs.util.defaultConfig) || { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+const wkIceDone = (pc) => new Promise((res) => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 2500); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
+class WKConn extends WKEmit {
+  constructor(owner, remote, cid, pc) { super(); this._o = owner; this.peer = remote; this.cid = cid; this.pc = pc; this.open = false; this._dead = false;
+    pc.onconnectionstatechange = () => { const s = pc.connectionState; if (s === 'failed' || s === 'closed') this._closed(); else if (s === 'disconnected') setTimeout(() => { if (pc.connectionState === 'disconnected') this._closed(); }, 6000); }; }
+  _bind(ch) { this.ch = ch; ch.onopen = () => { this.open = true; this._o._loop(); this.emit('open'); }; ch.onmessage = (ev) => { let d; try { d = JSON.parse(ev.data); } catch (e) { return; } this.emit('data', d); };
+    ch.onclose = () => this._closed(); ch.onerror = () => { if (!this.open) this.emit('error', { type: 'webrtc' }); }; }
+  send(d) { if (this.open && this.ch && this.ch.readyState === 'open') this.ch.send(JSON.stringify(d)); }
+  close() { this._closed(); }
+  _closed() { if (this._dead) return; this._dead = true; this.open = false; try { this.ch && this.ch.close(); } catch (e) { /* rien */ } try { this.pc.close(); } catch (e) { /* rien */ } this._o._conns.delete(this.cid); this.emit('close'); }
+}
+class WKPeer extends WKEmit {
+  constructor(id) { super(); this.host = typeof id === 'string'; this.id = this.host ? id : 'wkp-' + wkRand(12); this.open = false; this.destroyed = false; this.disconnected = false; this._conns = new Map(); this._fails = 0; setTimeout(() => this._reg(), 0); }
+  async _reg() { const r = await acctCall('sigreg', { id: this.id }); if (this.destroyed) return;
+    if (!r.ok) { this.emit('error', { type: r.code === 'unavailable-id' ? 'unavailable-id' : 'server-error' }); return; }
+    this.open = true; this.emit('open', this.id); this._loop(); }
+  // l'hôte écoute toujours (nouveaux joueurs, retours) ; un invité seulement pendant qu'il se connecte
+  _loop() { if (this.destroyed || !this.open) return; clearTimeout(this._t); const pending = [...this._conns.values()].some((c) => !c.open);
+    if (!this.host && !pending) return; this._t = setTimeout(() => this._poll(), pending ? 700 : document.visibilityState === 'visible' ? 3000 : 8000); }
+  async _poll() { if (this.destroyed) return; const r = await acctCall('sigpoll', { id: this.id }); if (this.destroyed) return;
+    if (!r.ok) { if (++this._fails >= 5 && !this.disconnected) { this.disconnected = true; this.emit('disconnected'); } }
+    else { this._fails = 0; this.disconnected = false; for (const m of r.msgs || []) this._onSig(m); }
+    this._loop(); }
+  reconnect() { this.disconnected = false; this._fails = 0; this._poll(); }
+  destroy() { if (this.destroyed) return; this.destroyed = true; clearTimeout(this._t); for (const c of [...this._conns.values()]) c.close(); acctCall('sigdel', { id: this.id }); this.emit('close'); }
+  connect(remote) { const cid = wkRand(10), pc = new RTCPeerConnection(wkIce()), c = new WKConn(this, remote, cid, pc); this._conns.set(cid, c); c._bind(pc.createDataChannel('wk', { ordered: true }));
+    (async () => { try { await pc.setLocalDescription(await pc.createOffer()); await wkIceDone(pc); if (c._dead) return;
+        const r = await acctCall('sigsend', { id: remote, msg: { k: 'offer', from: this.id, cid, sdp: pc.localDescription.sdp } });
+        if (!r.ok) { if (r.code === 'peer-unavailable') this.emit('error', { type: 'peer-unavailable' }); c.emit('error', { type: r.code || 'server-error' }); c._closed(); return; }
+        this._loop(); this._poll(); } catch (e) { c.emit('error', { type: 'webrtc' }); c._closed(); } })();
+    setTimeout(() => { if (!c.open && !c._dead) { c.emit('error', { type: 'timeout' }); c._closed(); } }, 25000); return c; }
+  async _onSig(m) {
+    if (m.k === 'offer') { if (this._conns.has(m.cid)) return; const pc = new RTCPeerConnection(wkIce()), c = new WKConn(this, m.from, m.cid, pc); this._conns.set(m.cid, c); pc.ondatachannel = (ev) => c._bind(ev.channel); this.emit('connection', c);
+      try { await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await wkIceDone(pc);
+        const r = await acctCall('sigsend', { id: m.from, msg: { k: 'answer', from: this.id, cid: m.cid, sdp: pc.localDescription.sdp } }); if (!r.ok) c._closed(); } catch (e) { c._closed(); } }
+    else if (m.k === 'answer') { const c = this._conns.get(m.cid); if (c && !c._dead && !c._ans) { c._ans = true; try { await c.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }); } catch (e) { c._closed(); } } }
+  }
+}
+// tests : window.TK_PEER_OPTS → ancien service PeerJS
+const netPeer = (id) => (window.TK_PEER_OPTS ? (id ? new Peer(id, PEER_OPTS()) : new Peer(PEER_OPTS())) : new WKPeer(id));
 
 /* ================= Entrées ================= */
 const Input = { keys: {}, pad: { left: false, right: false, drift: false, item: false }, itemEdge: false, tiltAngle: 0, tiltSeen: false, tiltSteer: 0, digSteer: 0, useTilt: false, listening: false };
@@ -5580,7 +5633,7 @@ const present = () => Net.players.filter((p) => !p.away);
 /* ---- hôte ---- */
 function netCreate() {
   if (!netUsable()) return; AudioSys.init(); prepControls(); netReset(); Net.host = true; Net.code = randCode(); netStatus('Création de la partie…');
-  const peer = new Peer(NET_PREFIX + Net.code, PEER_OPTS()); Net.peer = peer;
+  const peer = netPeer(NET_PREFIX + Net.code); Net.peer = peer;
   peer.on('open', (id) => { Net.pid = id; Net.id = UID; Net.players = [{ id: UID, name: SAVE.name || 'Hôte', cfg: myCfg(), host: true }]; netStatus('Partie créée. Donne le code à tes potes.'); renderOnline(); });
   peer.on('error', (e) => { if (e.type === 'unavailable-id' && !Net.players.length) { try { peer.destroy(); } catch (x) { /* rien */ } netCreate(); return; } if (e.type === 'peer-unavailable' || Net.players.length) return; netFail(e); });
   peer.on('connection', (conn) => {
@@ -5640,7 +5693,7 @@ function netJoin(code) {
   netNewPeer();
 }
 function netNewPeer() {
-  const peer = new Peer(PEER_OPTS()); Net.peer = peer;
+  const peer = netPeer(); Net.peer = peer;
   peer.on('open', (id) => { if (Net.peer !== peer) return; Net.pid = id; Net.id = UID; clientConnect(); });
   peer.on('error', (e) => { if (Net.peer !== peer) return; if (Net.rejoining || Net.lastHost) return; netFail(e); });
   peer.on('disconnected', () => { setTimeout(() => { try { if (Net.peer === peer && !peer.destroyed && peer.disconnected) peer.reconnect(); } catch (e) { /* rien */ } }, 500); });
@@ -5648,7 +5701,7 @@ function netNewPeer() {
 function clientConnect() {
   const peer = Net.peer; if (!peer || peer.destroyed) return;
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
-  const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'peer-unavailable' }); }, 12000);
+  const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'peer-unavailable' }); }, 22000);
   c.on('open', () => {
     if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], cl: SAVE.chefList || '' });
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');

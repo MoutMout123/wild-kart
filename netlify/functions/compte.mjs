@@ -63,6 +63,19 @@ export default async (req) => {
   const pseudo = String(b.pseudo || '').trim(); const getU = () => st.get(ukey(pseudo), { type: 'json' });
   const putU = (u) => st.setJSON(ukey(pseudo), u);
 
+  // ---------- mise en relation des parties en ligne (échange des adresses WebRTC) ----------
+  if (/^sig(reg|poll|send|del)$/.test(String(b.a))) {
+    const id = String(b.id || ''), t0 = Date.now(); if (!/^[A-Za-z0-9-]{3,48}$/.test(id)) return err('Identifiant invalide.');
+    const sk = 's/' + id, qp = 'q/' + id + '/';
+    if (b.a === 'sigreg') { const r = await st.get(sk, { type: 'json' }); if (r && t0 - r.t < 120e3 && r.k !== b.k) return out({ ok: false, code: 'unavailable-id', e: 'Déjà pris.' });
+      await st.setJSON(sk, { t: t0, k: b.k || '' }); return out({ ok: true }); }
+    if (b.a === 'sigpoll') { await st.setJSON(sk, { t: t0 }); const { blobs } = await st.list({ prefix: qp }); const msgs = [];
+      for (const x of blobs) { const m = await st.get(x.key, { type: 'json' }); await st.delete(x.key); if (m && t0 - (m.at || 0) < 60e3) msgs.push(m); } return out({ ok: true, msgs }); }
+    if (b.a === 'sigsend') { const r = await st.get(sk, { type: 'json' }); if (!r || t0 - r.t > 120e3) return out({ ok: false, code: 'peer-unavailable', e: 'Aucune partie avec ce code.' });
+      const m = b.msg; if (!m || typeof m !== 'object' || JSON.stringify(m).length > 20000) return err('Message invalide.');
+      await st.setJSON(qp + t0 + '-' + crypto.randomBytes(4).toString('hex'), Object.assign({}, m, { at: t0 })); return out({ ok: true }); }
+    const { blobs } = await st.list({ prefix: qp }); for (const x of blobs) await st.delete(x.key); await st.delete(sk); return out({ ok: true });
+  }
   // ---------- amis et groupes (boîte aux lettres + présence) ----------
   const GC = /^G-[A-Z0-9]{6}$/, nm = (x) => String(x || '').slice(0, 12), now = Date.now();
   const pubG = (g) => ({ code: g.code, name: g.name, public: g.public, owner: g.owner, members: g.members });

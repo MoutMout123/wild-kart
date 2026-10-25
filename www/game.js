@@ -2400,7 +2400,7 @@ function frStatus() { try { const R = G.race, live = R && R.state !== 'attract',
 const frStatusV = () => Object.assign(frStatus(), { v: window.TK_VER || '', app: !!window.TK_APP });
 function frAddFriend(id, name) { if (!id || id === frMyId()) return false; const L = frList(); const f = L.find((x) => x.id === id); if (f) { if (name) f.name = name; store(); return false; } L.push({ id, name: name || id.split('-')[0] }); store(); return true; }
 // ---------- présence et messages : le jeu passe au serveur toutes les 20 secondes ----------
-function frStart() { if (FR.timer) return; let n = 0; FR.timer = setInterval(() => { if (document.visibilityState !== 'visible') return; const racing = G.race && G.race.state !== 'attract'; n++; if (UI.screen === 'chef' && CHU.tab === 'direct') frPoll(); else if (racing ? n % 9 === 0 : n % 3 === 0) frPoll(); }, 5000); frPoll();
+function frStart() { if (FR.timer) return; let n = 0; FR.timer = setInterval(() => { if (document.visibilityState !== 'visible') return; const racing = G.race && G.race.state !== 'attract'; n++; if (UI.screen === 'chef' && CHU.tab === 'direct') frPoll(); else if (racing ? n % 9 === 0 : (grList().length || UI.screen === 'friends' || Net.peer) ? true : n % 3 === 0) frPoll(); }, 5000); frPoll();   // dans un groupe : toutes les 5 s (invitations rapides)
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') frPoll(); }); }
 function frRestart() { FR.since = 0; frPoll(); }
 const frIds = () => { const ids = new Set(frList().map((f) => f.id)); for (const g of grList()) for (const m of g.members) ids.add(m.id); ids.delete(frMyId()); return [...ids]; };
@@ -2817,14 +2817,16 @@ const wkIceReady = () => Promise.race([wkIceLoad(), new Promise((r) => setTimeou
 const wkIce = () => { const base = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }], pj = window.peerjs && peerjs.util && peerjs.util.defaultConfig;
   return { iceServers: (WKICE.list || []).concat(base, pj ? (pj.iceServers || []).filter((x) => String(x.urls).includes('turn')) : []) }; };
 setTimeout(wkIceLoad, 2000);
-const wkIceDone = (pc) => new Promise((res) => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 3500); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
+// on n'attend pas toutes les adresses : dès qu'on a celle du relais (ou une adresse publique), c'est parti
+const wkIceDone = (pc) => new Promise((res) => { if (pc.iceGatheringState === 'complete') return res(); let srf = 0; const go = () => { clearTimeout(t); res(); }, t = setTimeout(res, 2200);
+  pc.addEventListener('icecandidate', (ev) => { const c = ev.candidate && ev.candidate.candidate || ''; if (/ typ relay/.test(c)) setTimeout(go, 150); else if (/ typ srflx/.test(c) && !srf) { srf = setTimeout(go, WKICE.list ? 900 : 300); } }); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
 class WKConn extends WKEmit {
   constructor(owner, remote, cid, pc) { super(); this._o = owner; this.peer = remote; this.cid = cid; this.open = false; this._dead = false; if (pc) this.setPc(pc); }
   setPc(pc) { this.pc = pc; if (this._dead) { try { pc.close(); } catch (e) { /* rien */ } return; }
-    pc.onconnectionstatechange = () => { const s = pc.connectionState; if (s === 'failed' || s === 'closed') this._closed(); else if (s === 'disconnected') setTimeout(() => { if (pc.connectionState === 'disconnected') this._closed(); }, 6000); }; }
+    pc.onconnectionstatechange = () => { const s = pc.connectionState; if (s === 'failed' || s === 'closed') this._closed(); else if (s === 'disconnected') setTimeout(() => { if (pc.connectionState === 'disconnected') this._closed(); }, 12000); }; }
   _bind(ch) { this.ch = ch; ch.onopen = () => { this.open = true; this._o._loop(); this.emit('open'); }; ch.onmessage = (ev) => { let d; try { d = JSON.parse(ev.data); } catch (e) { return; } this.emit('data', d); };
     ch.onclose = () => this._closed(); ch.onerror = () => { if (!this.open) this.emit('error', { type: 'webrtc' }); }; }
-  send(d) { if (this.open && this.ch && this.ch.readyState === 'open') this.ch.send(JSON.stringify(d)); }
+  send(d) { if (!(this.open && this.ch && this.ch.readyState === 'open')) return; if ((d.t === 'sts' || d.t === 'st') && this.ch.bufferedAmount > 48000) return; this.ch.send(JSON.stringify(d)); }
   close() { this._closed(); }
   _closed() { if (this._dead) return; this._dead = true; this.open = false; try { this.ch && this.ch.close(); } catch (e) { /* rien */ } try { this.pc && this.pc.close(); } catch (e) { /* rien */ } this._o._conns.delete(this.cid); this.emit('close'); }
 }
@@ -2838,7 +2840,7 @@ class WKPeer extends WKEmit {
     this.emit('visible', !!this.visible); }
   // l'hôte écoute toujours (nouveaux joueurs, retours) ; un invité seulement pendant qu'il se connecte
   _loop() { if (this.destroyed || !this.open) return; clearTimeout(this._t); const pending = [...this._conns.values()].some((c) => !c.open);
-    if (!this.host && !pending) return; this._t = setTimeout(() => this._poll(), pending ? 700 : document.visibilityState === 'visible' ? 3000 : 8000); }
+    if (!this.host && !pending) return; const racing = G.race && G.race.state !== 'attract'; this._t = setTimeout(() => this._poll(), pending ? 350 : document.visibilityState !== 'visible' ? 8000 : racing ? 2500 : 900); }
   async _poll() { if (this.destroyed) return; const r = await acctCall('sigpoll', { id: this.id }); if (this.destroyed) return;
     if (!r.ok) { if (++this._fails >= 5 && !this.disconnected) { this.disconnected = true; this.emit('disconnected'); } }
     else { this._fails = 0; this.disconnected = false; for (const m of r.msgs || []) this._onSig(m); }
@@ -5908,9 +5910,9 @@ setInterval(() => {
   if (!Net.peer || document.hidden) return; const now = performance.now();
   if (Net.host) {
     hostBroadcast({ t: 'ping', c: now, r: Net.pings ? Object.fromEntries(Net.pings) : {} }); let ch = false;
-    for (const p of Net.players) { if (p.host) continue; const last = Net.seen.get(p.id) || 0; const silent = now - last > 9000; if (silent && !p.away) { p.away = Date.now(); ch = true; } }
+    for (const p of Net.players) { if (p.host) continue; const last = Net.seen.get(p.id) || 0; const silent = now - last > 16000; if (silent && !p.away) { p.away = Date.now(); ch = true; } }
     if (ch) hostBroadcastLobby();
-  } else if (Net.code && Net.lastHost && !Net.rejoining && now - Net.lastHost > 7000) netRejoin();
+  } else if (Net.code && Net.lastHost && !Net.rejoining && now - Net.lastHost > (Net.hc && Net.hc.open ? 15000 : 8000)) netRejoin();
 }, 1500);
 // retour dans l'appli : on rattrape le temps et on vérifie la connexion
 let netHiddenAt = 0;
@@ -5921,7 +5923,7 @@ document.addEventListener('visibilitychange', () => {
   if (!Net.peer) return;
   try { if (Net.peer.disconnected && !Net.peer.destroyed) Net.peer.reconnect(); } catch (e) { /* rien */ }
   if (Net.host) { for (const p of Net.players) if (!p.host && !p.away) Net.seen.set(p.id, performance.now()); }
-  else if (Net.code) setTimeout(() => { if (!document.hidden && !Net.rejoining && performance.now() - Net.lastHost > 2500) netRejoin(); }, 1500);
+  else if (Net.code) setTimeout(() => { if (!document.hidden && !Net.rejoining && performance.now() - Net.lastHost > 6000 && !(Net.hc && Net.hc.open && performance.now() - Net.lastHost < 12000)) netRejoin(); }, 5000);
 });
 
 function netEmit(d) { d.t = d.t || 'ev'; if (!Net.peer) return; if (Net.host) hostBroadcast(d); else if (Net.hc && Net.hc.open) { try { Net.hc.send(d); } catch (e) { /* rien */ } } }

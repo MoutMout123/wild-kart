@@ -1,4 +1,4 @@
-date: Sun Oct 25 20:54:01 UTC 2026
+date: Sun Oct 25 21:00:00 UTC 2026
 url: https://wild-kart-serveur-test.uncreeper5431.workers.dev
 ok: 1
 relais TURN : oui
@@ -11,13 +11,13 @@ deploy:
  ⛅️ wrangler 4.145.0 (update available 4.152.0)
 ───────────────────────────────────────────────
 Total Upload: 102.90 KiB / gzip: 21.99 KiB
-Worker Startup Time: 5 ms
+Worker Startup Time: 6 ms
 Your Worker has access to the following bindings:
 Binding                                                       Resource                  
 env.DB (wild-kart-test)                                       D1 Database               
 env.OLD_API ("https://wild-kart-moutmout.netlify.ap...")      Environment Variable      
 
-Uploaded wild-kart-serveur-test (1.84 sec)
-Deployed wild-kart-serveur-test triggers (0.43 sec)
+Uploaded wild-kart-serveur-test (2.86 sec)
+Deployed wild-kart-serveur-test triggers (0.30 sec)
   https://wild-kart-serveur-test.uncreeper5431.workers.dev
-Current Version ID: a624c1bf-4b10-464d-8d1a-3fc24e96bc10
+Current Version ID: 043b920b-eb2b-42b9-bd47-134716f5ab05

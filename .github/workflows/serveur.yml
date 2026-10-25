@@ -28,6 +28,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           WRANGLER_SEND_METRICS: 'false'
+          CF_TURN_ID: ${{ secrets.CF_TURN_ID }}
+          CF_TURN_TOKEN: ${{ secrets.CF_TURN_TOKEN }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "::error::Ajoute le secret CLOUDFLARE_API_TOKEN"; exit 1; fi
           CIBLE="${{ github.event.inputs.cible }}"; [ -z "$CIBLE" ] && CIBLE=test
@@ -53,11 +55,14 @@ jobs:
           TOML
           sed -i 's/^          //' wrangler.toml
           npx wrangler deploy 2>&1 | tee deploy.log
+          # clés du relais TURN (pour jouer entre réseaux différents)
+          if [ -n "$CF_TURN_ID" ] && [ -n "$CF_TURN_TOKEN" ]; then printf '%s' "$CF_TURN_ID" | npx wrangler secret put TURN_ID; printf '%s' "$CF_TURN_TOKEN" | npx wrangler secret put TURN_TOKEN; echo "relais TURN : oui" > turn.txt; else echo "relais TURN : pas de clé" > turn.txt; fi
           URL=$(grep -o 'https://[a-zA-Z0-9.-]*workers\.dev' deploy.log | head -1)
           if [ -z "$URL" ]; then echo "::error::Adresse du serveur introuvable (sous-domaine workers.dev à créer ?)"; exit 1; fi
           echo "$URL" > "url-$CIBLE.txt"
           OK=0; for i in $(seq 1 15); do curl -s -m 10 -X POST "$URL/api/compte" -d '{"a":"fid","fid":"TEST-1234"}' > essai.txt || true; if grep -q '"ok":true' essai.txt; then OK=1; break; fi; sleep 6; done
-          { echo "date: $(date -u)"; echo "url: $URL"; echo "ok: $OK"; echo "réponse:"; head -c 600 essai.txt; echo; echo "deploy:"; tail -15 deploy.log; } > "etat-$CIBLE.txt"
+          OK_ICE=$(curl -s -m 10 -X POST "$URL/api/compte" -d '{"a":"ice"}' | grep -c 'turn:' || true)
+          { echo "date: $(date -u)"; echo "url: $URL"; echo "ok: $OK"; cat turn.txt; echo "relais actif: $OK_ICE"; echo "réponse:"; head -c 600 essai.txt; echo; echo "deploy:"; tail -15 deploy.log; } > "etat-$CIBLE.txt"
           cd ..; git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
           git add "worker/url-$CIBLE.txt" "worker/etat-$CIBLE.txt"; git commit -m "Adresse du serveur $CIBLE [skip ci]" || true; git pull --rebase && git push
           [ "$OK" = 1 ] || { echo "::error::Le serveur ne répond pas correctement"; exit 1; }

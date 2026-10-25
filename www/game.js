@@ -2809,16 +2809,24 @@ setTimeout(updVerText, 500);
 // Même façon de s'en servir que PeerJS : new WKPeer(id), peer.connect(id), on('open' | 'connection' | 'data' | 'close' | 'error').
 class WKEmit { constructor() { this._h = {}; } on(e, f) { (this._h[e] = this._h[e] || []).push(f); return this; } emit(e, ...a) { for (const f of (this._h[e] || []).slice()) { try { f(...a); } catch (x) { console.error(x); } } } }
 const wkRand = (n) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (b) => (b % 36).toString(36)).join(''); };
-const wkIce = () => (window.peerjs && peerjs.util && peerjs.util.defaultConfig) || { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
-const wkIceDone = (pc) => new Promise((res) => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 2500); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
+// adresses STUN + relais TURN (Cloudflare, donné par notre serveur) : le relais sert quand les deux téléphones sont sur des réseaux différents
+const WKICE = { list: null, at: 0, p: null };
+function wkIceLoad() { if (WKICE.p && Date.now() - WKICE.at < 5 * 3600e3) return WKICE.p; WKICE.at = Date.now();
+  WKICE.p = acctCall('ice', {}).then((r) => { if (r && r.ok && Array.isArray(r.iceServers) && r.iceServers.length) WKICE.list = r.iceServers; }).catch(() => {}); return WKICE.p; }
+const wkIceReady = () => Promise.race([wkIceLoad(), new Promise((r) => setTimeout(r, 3000))]);
+const wkIce = () => { const base = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }], pj = window.peerjs && peerjs.util && peerjs.util.defaultConfig;
+  return { iceServers: (WKICE.list || []).concat(base, pj ? (pj.iceServers || []).filter((x) => String(x.urls).includes('turn')) : []) }; };
+setTimeout(wkIceLoad, 2000);
+const wkIceDone = (pc) => new Promise((res) => { if (pc.iceGatheringState === 'complete') return res(); const t = setTimeout(res, 3500); pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(t); res(); } }); });
 class WKConn extends WKEmit {
-  constructor(owner, remote, cid, pc) { super(); this._o = owner; this.peer = remote; this.cid = cid; this.pc = pc; this.open = false; this._dead = false;
+  constructor(owner, remote, cid, pc) { super(); this._o = owner; this.peer = remote; this.cid = cid; this.open = false; this._dead = false; if (pc) this.setPc(pc); }
+  setPc(pc) { this.pc = pc; if (this._dead) { try { pc.close(); } catch (e) { /* rien */ } return; }
     pc.onconnectionstatechange = () => { const s = pc.connectionState; if (s === 'failed' || s === 'closed') this._closed(); else if (s === 'disconnected') setTimeout(() => { if (pc.connectionState === 'disconnected') this._closed(); }, 6000); }; }
   _bind(ch) { this.ch = ch; ch.onopen = () => { this.open = true; this._o._loop(); this.emit('open'); }; ch.onmessage = (ev) => { let d; try { d = JSON.parse(ev.data); } catch (e) { return; } this.emit('data', d); };
     ch.onclose = () => this._closed(); ch.onerror = () => { if (!this.open) this.emit('error', { type: 'webrtc' }); }; }
   send(d) { if (this.open && this.ch && this.ch.readyState === 'open') this.ch.send(JSON.stringify(d)); }
   close() { this._closed(); }
-  _closed() { if (this._dead) return; this._dead = true; this.open = false; try { this.ch && this.ch.close(); } catch (e) { /* rien */ } try { this.pc.close(); } catch (e) { /* rien */ } this._o._conns.delete(this.cid); this.emit('close'); }
+  _closed() { if (this._dead) return; this._dead = true; this.open = false; try { this.ch && this.ch.close(); } catch (e) { /* rien */ } try { this.pc && this.pc.close(); } catch (e) { /* rien */ } this._o._conns.delete(this.cid); this.emit('close'); }
 }
 class WKPeer extends WKEmit {
   constructor(id) { super(); this.host = typeof id === 'string'; this.id = this.host ? id : 'wkp-' + wkRand(12); this.open = false; this.destroyed = false; this.disconnected = false; this._conns = new Map(); this._fails = 0; setTimeout(() => this._reg(), 0); }
@@ -2834,15 +2842,15 @@ class WKPeer extends WKEmit {
     this._loop(); }
   reconnect() { this.disconnected = false; this._fails = 0; this._poll(); }
   destroy() { if (this.destroyed) return; this.destroyed = true; clearTimeout(this._t); for (const c of [...this._conns.values()]) c.close(); acctCall('sigdel', { id: this.id }); this.emit('close'); }
-  connect(remote) { const cid = wkRand(10), pc = new RTCPeerConnection(wkIce()), c = new WKConn(this, remote, cid, pc); this._conns.set(cid, c); c._bind(pc.createDataChannel('wk', { ordered: true }));
-    (async () => { try { await pc.setLocalDescription(await pc.createOffer()); await wkIceDone(pc); if (c._dead) return;
+  connect(remote) { const cid = wkRand(10), c = new WKConn(this, remote, cid, null); this._conns.set(cid, c);
+    (async () => { try { await wkIceReady(); if (c._dead) return; const pc = new RTCPeerConnection(wkIce()); c.setPc(pc); c._bind(pc.createDataChannel('wk', { ordered: true })); await pc.setLocalDescription(await pc.createOffer()); await wkIceDone(pc); if (c._dead) return;
         const r = await acctCall('sigsend', { id: remote, msg: { k: 'offer', from: this.id, cid, sdp: pc.localDescription.sdp } });
         if (!r.ok) { if (r.code === 'peer-unavailable') this.emit('error', { type: 'peer-unavailable' }); c.emit('error', { type: r.code || 'server-error' }); c._closed(); return; }
         this._loop(); this._poll(); } catch (e) { c.emit('error', { type: 'webrtc' }); c._closed(); } })();
-    setTimeout(() => { if (!c.open && !c._dead) { c.emit('error', { type: 'timeout' }); c._closed(); } }, 25000); return c; }
+    setTimeout(() => { if (!c.open && !c._dead) { c.emit('error', { type: 'timeout' }); c._closed(); } }, 30000); return c; }
   async _onSig(m) {
-    if (m.k === 'offer') { if (this._conns.has(m.cid)) return; const pc = new RTCPeerConnection(wkIce()), c = new WKConn(this, m.from, m.cid, pc); this._conns.set(m.cid, c); pc.ondatachannel = (ev) => c._bind(ev.channel); this.emit('connection', c);
-      try { await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await wkIceDone(pc);
+    if (m.k === 'offer') { if (this._conns.has(m.cid)) return; const c = new WKConn(this, m.from, m.cid, null); this._conns.set(m.cid, c); this.emit('connection', c);
+      try { await wkIceReady(); const pc = new RTCPeerConnection(wkIce()); c.setPc(pc); pc.ondatachannel = (ev) => c._bind(ev.channel); await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await wkIceDone(pc);
         const r = await acctCall('sigsend', { id: m.from, msg: { k: 'answer', from: this.id, cid: m.cid, sdp: pc.localDescription.sdp } }); if (!r.ok) c._closed(); } catch (e) { c._closed(); } }
     else if (m.k === 'answer') { const c = this._conns.get(m.cid); if (c && !c._dead && !c._ans) { c._ans = true; try { await c.pc.setRemoteDescription({ type: 'answer', sdp: m.sdp }); } catch (e) { c._closed(); } } }
   }
@@ -5768,7 +5776,7 @@ function netReset() {
   Object.assign(Net, { peer: null, host: false, code: '', id: '', pid: '', hc: null, players: [], inRace: false, sendT: 0, leaving: false, rejoining: false, lastStart: null });
   Net.conns = new Map(); Net.states = new Map(); Net.uidOf = new Map(); Net.seen = new Map(); Net.drops = new Map();
 }
-function netFail(e) { const off = $('#on-offline'); if (off) off.hidden = false; const t = e && e.type; netStatus(t === 'peer-unavailable' ? 'Aucune partie avec ce code.' : t === 'network' || t === 'server-error' || t === 'socket-error' ? 'Pas de connexion au serveur. Vérifie internet et réessaie.' : 'Connexion impossible (' + (t || 'erreur') + ').'); netReset(); renderOnline(); }
+function netFail(e) { const off = $('#on-offline'); if (off) off.hidden = false; const t = e && e.type; netStatus(t === 'hote-injoignable' ? 'Impossible de joindre l\'hôte. Vérifiez que vous avez tous les deux la même version (Réglages, tout en bas), puis réessayez.' : t === 'peer-unavailable' ? 'Aucune partie avec ce code. Vérifie le code, et que vous avez tous les deux la même version (Réglages, tout en bas).' : t === 'network' || t === 'server-error' || t === 'socket-error' ? 'Pas de connexion au serveur. Vérifie internet et réessaie.' : 'Connexion impossible (' + (t || 'erreur') + ').'); netReset(); renderOnline(); }
 const PEER_OPTS = () => Object.assign({ debug: 0 }, window.TK_PEER_OPTS || {});
 function prepControls() {
   if (SAVE.control === 'tilt' && isTouch) ensureMotion().then((ok) => { Input.useTilt = ok; if (ok && !SAVE.calibrated) { UI.afterCalib = () => show('online'); show('calib'); } });
@@ -5847,7 +5855,7 @@ function netNewPeer() {
 function clientConnect() {
   const peer = Net.peer; if (!peer || peer.destroyed) return;
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
-  const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'peer-unavailable' }); }, 22000);
+  const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'hote-injoignable' }); }, 28000);
   c.on('open', () => {
     if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '' });
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');

@@ -33,9 +33,11 @@ AMIS ET GROUPES (écran d'accueil > « Amis et groupes »)
      ton ami reçoit une notification « Rejoindre ».
    - « Envoyer le code » : envoie ton code d'accès à un ami bloqué sur l'écran du code.
    - Groupes : « Créer » (public ou privé avec mot de passe), puis donne le code G-XXXXXX.
-     Les autres le rejoignent avec ce code (et le mot de passe si privé). Dans le groupe :
-     inviter tout le groupe à ta partie, ou envoyer le code d'accès à tout le groupe.
-   - Tout passe directement entre téléphones : un message n'arrive que si l'ami a le jeu ouvert.
+     Les autres le rejoignent avec ce code (et le mot de passe si privé).
+   - Ouvre le groupe > « Inviter » à côté d'un ami : il reçoit « Accepter » (même pour un groupe privé).
+   - Le chef du groupe touche « Lancer une partie du groupe » : tous les membres la rejoignent tout seuls
+     (ceux en pleine course reçoivent « Rejoindre »). Le chef choisit circuit et réglages.
+   - Tout passe par le serveur : les messages attendent que l'ami ouvre le jeu.
 
 JOUER EN LIGNE (tout le monde en même temps)
    - Un joueur touche « Jouer en ligne » > « Créer une partie » et donne le code de 4 lettres.
@@ -139,9 +141,10 @@ OBJETS (19, avec une rareté : la lueur autour de la case objet l'indique)
      Boule disco (onde qui renverse les karts proches et efface les pièges), Grappin (s'accroche
      au kart devant et te tire vers lui).
    - Très rares : Étoile, Éclair.
-   Vrai tirage au hasard selon la rareté, la même chance pour tout le monde quelle que soit la
-   place : 45 % communs, 32 % peu communs, 18 % rares, 5 % très rares. Presque jamais deux fois
-   de suite le même.
+   Tirage au hasard selon la rareté ET ta place : en tête surtout des communs (52 % communs,
+   30 % peu communs, 14 % rares, 4 % très rares), dernier beaucoup plus de rares (22 / 34 / 30 / 14 %).
+   Devant : plus d'objets pour se défendre ; derrière : plus d'objets pour remonter. Presque jamais
+   deux fois de suite le même.
 
 SON : nouvelle musique pour chaque univers (pop, funk, house, latino, rock, ambiance spatiale…),
    moteur qui passe les vitesses, crissements de drift, nouveaux bruitages. Volumes dans Réglages.

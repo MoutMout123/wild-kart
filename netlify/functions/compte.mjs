@@ -98,15 +98,16 @@ export default async (req) => {
     const groups = {}; await Promise.all((Array.isArray(b.groups) ? b.groups : []).map(String).filter((c) => GC.test(c)).slice(0, 20).map(async (c) => { const g = await st.get('g/' + c, { type: 'json' }); groups[c] = g ? pubG(g) : null; }));
     return out({ ok: true, now, msgs: L.filter((x) => x.at > (+b.since || 0)), online, groups });
   }
-  if (b.a === 'gsave' || b.a === 'gjoin' || b.a === 'gleave' || b.a === 'gren') {
+  if (b.a === 'gsave' || b.a === 'gjoin' || b.a === 'gleave' || b.a === 'gren' || b.a === 'ginv') {
     const me = b.me || {}, code = String((b.group && b.group.code) || b.code || ''); if (!FID.test(String(me.id)) || !GC.test(code)) return err('Groupe invalide.');
     const key = 'g/' + code; let g = await st.get(key, { type: 'json' });
     if (b.a === 'gsave') { if (g) return out({ ok: true, group: pubG(g) }); const g0 = b.group;
       g = { code, name: String(g0.name || 'Groupe').slice(0, 24), public: !!g0.public, ph: g0.public ? '' : sha('g' + String(g0.pass || '')), owner: me.id, members: [{ id: me.id, name: nm(me.name) }], at: now };
       const w = await st.setJSON(key, g, { onlyIfNew: true }); if (w && w.modified === false) return err('Code déjà pris, réessaie.'); return out({ ok: true, group: pubG(g) }); }
     if (!g) return err('Groupe introuvable. Vérifie le code.');
-    if (b.a === 'gjoin') { if (!g.public && !same(sha('g' + String(b.pass || '')), g.ph)) return err('Mot de passe incorrect.');
-      if (!g.members.some((x) => x.id === me.id)) { if (g.members.length >= 60) return err('Groupe complet.'); g.members.push({ id: me.id, name: nm(me.name) }); await st.setJSON(key, g); } return out({ ok: true, group: pubG(g) }); }
+    if (b.a === 'ginv') { if (!g.members.some((x) => x.id === me.id)) return err('Tu ne fais pas partie de ce groupe.'); g.inv = [...new Set((g.inv || []).concat((Array.isArray(b.to) ? b.to : []).map(String).filter((x) => FID.test(x))))].slice(-100); await st.setJSON(key, g); return out({ ok: true }); }
+    if (b.a === 'gjoin') { const invited = (g.inv || []).includes(me.id); if (!g.public && !invited && !same(sha('g' + String(b.pass || '')), g.ph)) return err('Mot de passe incorrect.'); if (invited) g.inv = g.inv.filter((x) => x !== me.id);
+      if (!g.members.some((x) => x.id === me.id)) { if (g.members.length >= 60) return err('Groupe complet.'); g.members.push({ id: me.id, name: nm(me.name) }); } await st.setJSON(key, g); return out({ ok: true, group: pubG(g) }); }
     if (b.a === 'gren') { const old = String(b.old || ''); const x = g.members.find((y) => y.id === old); if (x && !g.members.some((y) => y.id === me.id)) { x.id = me.id; x.name = nm(me.name); if (g.owner === old) g.owner = me.id; await st.setJSON(key, g); } return out({ ok: true, group: pubG(g) }); }
     g.members = g.members.filter((x) => x.id !== me.id); if (!g.members.length) await st.delete(key); else { if (g.owner === me.id) g.owner = g.members[0].id; await st.setJSON(key, g); } return out({ ok: true });
   }

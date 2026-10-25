@@ -2044,26 +2044,33 @@ Object.assign(AudioSys, {
   // ---------- musique ----------
   // musique pré-calculée : la boucle complète est rendue une fois (hors temps réel) puis jouée en boucle.
   // Plus aucune note programmée pendant la course : le son ne coupe plus quand le téléphone est chargé.
+  // musique : fichier pré-enregistré du circuit (aucun calcul, rien qui saccade) ; sinon boucle calculée dans les menus ; sinon direct
+  musKey(spec) { return wkStrHash(JSON.stringify(spec)).toString(36); },
+  musLoad(spec) { const key = this.musKey(spec), f = MUSF.list && MUSF.list[key]; if (!f || !this.ctx) return null; this.musPend = this.musPend || {}; if (this.musPend[key]) return this.musPend[key];
+    const pr = fetch('music/' + f.f).then((r) => { if (!r.ok) throw 0; return r.arrayBuffer(); }).then((ab) => new Promise((res, rej) => { try { const p = this.ctx.decodeAudioData(ab, res, rej); if (p && p.then) p.then(res, rej); } catch (e) { rej(e); } }))
+      .then((buf) => { buf.wkLoop = f.loop; this.musCache = this.musCache || new Map(); this.musCache.set(JSON.stringify(spec), buf); while (this.musCache.size > 4) this.musCache.delete(this.musCache.keys().next().value); return buf; });
+    this.musPend[key] = pr; pr.finally(() => { delete this.musPend[key]; }).catch(() => {}); return pr; },
   startMusic(spec) {
-    // jamais de calcul lourd pendant la course : boucle déjà prête (calculée dans les menus) sinon musique en direct,
-    // jouée avec 1,5 s d'avance (ne coupe plus si le téléphone rame), puis relais en douceur au même endroit du morceau
     this.stopMusic(); if (!this.ctx || !spec) return; const tok = this.musTok, key = JSON.stringify(spec), c = this.ctx, live0 = c.currentTime;
     const play = (buf, fade) => { if (tok !== this.musTok || !this.ctx) return;
-      try { const src = c.createBufferSource(), g = c.createGain(), t = c.currentTime + .08, dur = buf.duration, off = fade ? (((t - live0) % dur) + dur) % dur : 0;
-        src.buffer = buf; src.loop = true; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + (fade ? 1.2 : .3)); src.connect(g); g.connect(this.music); src.start(t, off); this.musSrc = src; if (fade) this.liveFade(t, 1.2); } catch (e) { /* rien */ } };
+      try { const src = c.createBufferSource(), g = c.createGain(), t = c.currentTime + .08, dur = buf.wkLoop && buf.wkLoop < buf.duration ? buf.wkLoop : buf.duration, off = fade ? (((t - live0) % dur) + dur) % dur : 0;
+        src.buffer = buf; src.loop = true; src.loopStart = 0; src.loopEnd = dur; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + (fade ? 1.2 : .3)); src.connect(g); g.connect(this.music); src.start(t, off); this.musSrc = src; if (fade) this.liveFade(t, 1.2); } catch (e) { /* rien */ } };
     this.musCache = this.musCache || new Map(); if (this.musCache.has(key)) { play(this.musCache.get(key), false); return; }
+    const file = this.musLoad(spec); if (file) { file.then((buf) => play(buf, false)).catch(() => { if (tok === this.musTok) this.liveMusic(spec, 0, true); }); return; }
     this.liveMusic(spec, 0, true);
     const pr = this.musPend && this.musPend[key]; if (pr) pr.then((buf) => play(buf, true)).catch(() => { /* on garde le direct */ });
   },
-  // calcul de la boucle à l'avance, dans les menus, un morceau à la fois
+  // à l'avance, dans les menus : fichier du circuit (léger) sinon calcul de la boucle, un morceau à la fois
   prewarmMusic(spec) {
     if (!spec) return; const key = JSON.stringify(spec); this.musCache = this.musCache || new Map(); this.musPend = this.musPend || {};
-    if (this.musCache.has(key) || this.musPend[key]) return; if (Object.keys(this.musPend).length) { this.musNext = spec; return; }
+    if (this.musCache.has(key)) return; if (MUSF.list && MUSF.list[this.musKey(spec)]) { if (this.ctx) this.musLoad(spec); return; }
+    if (!MUSF.list && MUSF.wait) { MUSF.wait.then(() => this.prewarmMusic(spec)); return; }
+    if (this.musPend[key]) return; if (Object.keys(this.musPend).length) { this.musNext = spec; return; }
     let pr; try { pr = this.renderMusic(spec); } catch (e) { pr = null; } if (!pr) return; this.musPend[key] = pr;
-    pr.then((buf) => { this.musCache.set(key, buf); while (this.musCache.size > 4) this.musCache.delete(this.musCache.keys().next().value); }).catch(() => {}).finally(() => { delete this.musPend[key]; const n = this.musNext; this.musNext = null; if (n && !(G.race && G.race.state !== 'attract')) setTimeout(() => this.prewarmMusic(n), 300); });
+    pr.then((buf) => { buf.wkLoop = 32 * 16 * 60 / spec.bpm / 4; this.musCache.set(key, buf); while (this.musCache.size > 4) this.musCache.delete(this.musCache.keys().next().value); }).catch(() => {}).finally(() => { delete this.musPend[key]; const n = this.musNext; this.musNext = null; if (n && !(G.race && G.race.state !== 'attract')) setTimeout(() => this.prewarmMusic(n), 300); });
   },
   liveFade(t, d) { if (this.seq) { clearInterval(this.seq); this.seq = null; } const L = this.liveBus; this.liveBus = null; if (!L) return; for (const b of L) { try { b.gain.setValueAtTime(b.gain.value, t); b.gain.linearRampToValueAtTime(0, t + d); } catch (e) { /* rien */ } } setTimeout(() => { for (const b of L) try { b.disconnect(); } catch (e) { /* rien */ } }, (t - this.ctx.currentTime + d) * 1000 + 2000); },
-  renderMusic(spec) {
+  renderMusic(spec) { if (MUSF.noRender) return null;
     const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (!OC) return null;
     const steps = 32 * 16, sd = 60 / spec.bpm / 4, sr = 22050, oc = new OC(1, Math.ceil((steps * sd + .1) * sr), sr);
     const mus = oc.createGain(); mus.connect(oc.destination); const fake = { ctx: oc, music: mus, master: mus, musRev: null, sfxRev: null };
@@ -2079,7 +2086,7 @@ Object.assign(AudioSys, {
   liveMusic(spec, offline, keep, lim0) {
     if (!offline && !keep) this.stopMusic(); if (!this.ctx || !spec) return; const c = this.ctx, style = spec.style || 'pop', bpm = spec.bpm, sd = 60 / bpm / 4; let step = 0, next = c.currentTime + .12, lim = offline ? Math.min(lim0 || offline, offline) : 0;
     let bus = null; if (!offline) { bus = [c.createGain(), c.createGain()]; bus[0].connect(this.music); bus[1].connect(this.musRev); this.liveBus = bus; }
-    const m2f = (m) => 440 * Math.pow(2, (m - 69) / 12), root = spec.root, prog = spec.prog, rnd = seeded(bpm * 131 + root * 7 + prog.length);
+    const m2f = (m) => 440 * Math.pow(2, (m - 69) / 12), root = spec.root, prog = spec.prog, rnd = seeded(bpm * 131 + root * 7 + prog.length + (spec.seed || 0) * 977);
     const minor = prog[0][1] - prog[0][0] === 3; const scale = minor ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
     // mélodie : un motif de 2 mesures, rejoué avec variations ; notes de l'accord sur les temps forts
     const motif = []; for (let s = 0; s < 32; s++) { const strong = s % 4 === 0; const r = rnd(); motif.push(strong ? (r < .8 ? { deg: Math.floor(rnd() * 3), len: rnd() < .5 ? 2 : 3 } : null) : (r < .32 ? { deg: Math.floor(rnd() * 7) - 1, len: 1 + (rnd() < .3 ? 1 : 0), pass: true } : null)); }
@@ -2125,9 +2132,14 @@ Object.assign(AudioSys, {
   snare(d) { this.noise(.16, .16, 1900, d, this.music, .8); const c = this.ctx, t = c.currentTime + d, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(140, t + .08); g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.001, t + .12); o.connect(g); g.connect(this.music); o.start(t); o.stop(t + .14); const r = c.createGain(); r.gain.value = .3; g.connect(r); r.connect(this.musRev); },
   stopMusic() { this.musTok = (this.musTok || 0) + 1; if (this.seq) { clearInterval(this.seq); this.seq = null; } if (this.liveBus && this.ctx) { const L = this.liveBus; this.liveBus = null; for (const b of L) { try { b.gain.setTargetAtTime(0, this.ctx.currentTime, .03); } catch (e) { /* rien */ } } setTimeout(() => { for (const b of L) try { b.disconnect(); } catch (e) { /* rien */ } }, 300); } if (this.musSrc) { try { this.musSrc.stop(); } catch (e) { /* rien */ } this.musSrc = null; } },
 });
+// liste des musiques pré-enregistrées (sur le site)
+const MUSF = { list: null, wait: null }; MUSF.wait = (BUILD === 'pwa' ? fetch('music/index.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({})) : Promise.resolve({})).then((j) => { MUSF.list = j || {}; return MUSF.list; });
 const P0 = { kick: [0, 8], snare: [4, 12], hat: 2, swing: 0, bass: 'oct', lead: [['square', -5, .5], ['square', 5, .5]], cut: 2600, pad: true };
 // style musical selon l'ambiance du circuit
-function musicSpec(t) { const mp = RACE_OPTS.music || 'auto'; if (mp === 'off') return null; return Object.assign({ style: mp !== 'auto' ? mp : t.musicStyle || musicStyleFor(t.theme) }, t.theme.music || { bpm: 124, root: 55, prog: [[0, 4, 7], [5, 9, 12], [-3, 0, 4], [7, 11, 14]] }); }
+function musicSpec0(t) { const mp = RACE_OPTS.music || 'auto'; if (mp === 'off') return null; return Object.assign({ style: mp !== 'auto' ? mp : t.musicStyle || musicStyleFor(t.theme) }, t.theme.music || { bpm: 124, root: 55, prog: [[0, 4, 7], [5, 9, 12], [-3, 0, 4], [7, 11, 14]] }); }
+const wkStrHash = (s) => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; return h; };
+function musicSpec(t) { const sp = musicSpec0(t); if (!sp) return null; const h = wkStrHash(String(t.id || '')); sp.seed = h % 9973;
+  if ((RACE_OPTS.music || 'auto') === 'auto') { sp.root += [0, 2, -2, 3, -3, 5][h % 6]; sp.bpm += [0, 4, -4, 6, -2, 2][(h >>> 3) % 6]; } return sp; }
 function musicStyleFor(th) { const d = th.decor; return ({ prairie: 'pop', beach: 'latin', tropic: 'latin', provence: 'chill', mall: 'funk', city: 'house', safari: 'funk', fair: 'pop', snow: 'chill', glacier: 'chill', reef: 'chill', canyon: 'rock', space: 'space', volcano: 'rock', haunted: 'spooky', sky: 'space', sakura: 'chill', autumn: 'chill', antique: 'latin', forest: 'spooky', jungle: 'latin', moon: 'space', candy: 'pop', desert: 'rock', alpine: 'pop' })[d] || 'pop'; }
 
 /* ================= v11 : code secret ================= */
@@ -2382,7 +2394,7 @@ const grList = () => (SAVE.groups = Array.isArray(SAVE.groups) ? SAVE.groups : [
 function frMe() { return { id: frMyId(), name: String(SAVE.name || 'Joueur').slice(0, 12) }; }
 function frAddFriend(id, name) { if (!id || id === frMyId()) return false; const L = frList(); const f = L.find((x) => x.id === id); if (f) { if (name) f.name = name; store(); return false; } L.push({ id, name: name || id.split('-')[0] }); store(); return true; }
 // ---------- présence et messages : le jeu passe au serveur toutes les 20 secondes ----------
-function frStart() { if (FR.timer) return; FR.timer = setInterval(() => { if (document.visibilityState === 'visible') frPoll(); }, 20000); frPoll();
+function frStart() { if (FR.timer) return; let n = 0; FR.timer = setInterval(() => { if (document.visibilityState !== 'visible') return; const racing = G.race && G.race.state !== 'attract'; if (!racing || ++n % 3 === 0) frPoll(); }, 10000); frPoll();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') frPoll(); }); }
 function frRestart() { FR.since = 0; frPoll(); }
 const frIds = () => { const ids = new Set(frList().map((f) => f.id)); for (const g of grList()) for (const m of g.members) ids.add(m.id); ids.delete(frMyId()); return [...ids]; };
@@ -2423,6 +2435,8 @@ function frOnData(c, d) {
     if (r.ok) { SAVE.access = d.code.trim(); SAVE.accSeen = Math.max(Date.now(), SAVE.accSeen || 0); store(); gateHide(); toast(who + ' t\'a envoyé un code d\'accès. ' + gateText(r.exp), 5000); }
     else toast(who + ' t\'a envoyé un code d\'accès qui ne marche pas : ' + r.why, 5000); }
   else if (d.t === 'gsync' && d.group) grMerge(d.group);
+  else if (d.t === 'ginv' && /^G-[A-Z0-9]{6}$/.test(String(d.code || '')) && !grFind(d.code)) frNotify(who + ' t\'invite dans le groupe « ' + String(d.gname || d.code).slice(0, 24) + ' ».', 'Accepter', () => grJoin(d.code, '', (why) => { if (why) toast(why, 3000); else { toast('Bienvenue dans le groupe !', 2500); frSendMany(((grFind(d.code) || {}).members || []).map((m) => m.id), { t: 'hi' }); } }));
+  else if (d.t === 'gplay' && /^[A-Z]{4}$/.test(String(d.code || ''))) grPlayIn(d, who);
 }
 // notification avec un bouton (invitation)
 function frNotify(text, label, fn) { let el = $('#fr-note'); if (!el) { el = document.createElement('div'); el.id = 'fr-note'; document.body.appendChild(el); }
@@ -2442,6 +2456,16 @@ function grBeacon() { /* plus besoin : les groupes sont sur le serveur */ }
 function grJoin(code, pass, cb) { code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.startsWith('G')) code = code.slice(1); code = 'G-' + code.slice(0, 6);
   if (!/^G-[A-Z0-9]{6}$/.test(code)) { cb('Le code de groupe ressemble à G-ABC123.'); return; }
   acctCall('gjoin', { code, pass, me: frMe() }).then((r) => { if (!r.ok) { cb(r.e || 'Pas de connexion, réessaie.'); return; } grMerge(r.group); for (const m of r.group.members) frAddFriend(m.id, m.name); frSendMany(r.group.members.map((m) => m.id), { t: 'hi' }); cb(''); }); }
+// le chef du groupe lance une partie : tous les membres la rejoignent (tout de suite s'ils sont dans les menus)
+function grPlay(g) { const send = () => { frSendMany(g.members.map((m) => m.id), { t: 'gplay', code: Net.code, group: g.code, gname: g.name }, (ok) => toast(ok ? 'Partie lancée : le groupe arrive !' : 'Pas de connexion au serveur.', 3000)); };
+  if (Net.peer && Net.host && Net.id) { send(); show('online'); return; }
+  if (Net.peer && !Net.host) { toast('Quitte d\'abord la partie où tu es.', 2500); return; }
+  show('online'); netCreate(); let n = 0; const t = setInterval(() => { if (Net.host && Net.id && Net.code) { clearInterval(t); send(); } else if (++n > 40) { clearInterval(t); toast('Impossible de créer la partie.', 3000); } }, 300); }
+function grPlayIn(d, who) { const g = grFind(d.group), label = g ? '« ' + g.name + ' »' : 'ton groupe';
+  const join = () => { if (Net.peer) netReset(); show('online'); $('#on-code').value = d.code; netJoin(d.code); };
+  const busy = (G.race && G.race.state !== 'attract') || Net.peer || G.locked;
+  if (!busy) { toast(who + ' lance une partie pour ' + label + ' : tu le rejoins !', 3000); join(); }
+  else frNotify(who + ' lance une partie pour ' + label + ' (' + d.code + ').', 'Rejoindre', join); }
 // ---------- écran Amis ----------
 const FRU = { tab: 'amis', open: null };
 function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'friends') return; const me = frMyId(), L = frList(), Gs = grList(), inParty = !!(Net.peer && Net.code), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -2462,6 +2486,10 @@ function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'fr
       h += '<div class="group"><div class="fr-row"><span><b>' + esc(g.name) + '</b> <small>' + esc(g.code) + ' · ' + (g.public ? 'public' : 'privé') + ' · ' + g.members.length + ' membre' + (g.members.length > 1 ? 's' : '') + '</small></span><span class="fr-acts"><button class="btn sm" data-gopen="' + esc(g.code) + '"><span>' + (opened ? 'Fermer' : 'Ouvrir') + '</span></button></span></div>';
       if (opened) { h += '<p class="hint">Code du groupe : <b>' + esc(g.code) + '</b>' + (!g.public && g.owner === me ? ' · mot de passe : <b>' + esc(g.pass) + '</b>' : '') + '</p>';
         for (const m of g.members) h += '<div class="fr-row"><span>' + esc(m.name) + ' <small>' + esc(m.id) + (m.id === me ? ' · toi' : ' · ' + st(m.id)) + '</small></span></div>';
+        const out2 = L.filter((f) => !g.members.some((m) => m.id === f.id));
+        h += '<p class="hint"><b>Inviter des amis dans le groupe</b>' + (out2.length ? '' : ' : tous tes amis y sont déjà (ajoute des amis dans l\'onglet Amis).') + '</p>';
+        for (const f of out2) h += '<div class="fr-row"><span>' + esc(f.name) + ' <small>' + esc(f.id) + ' · ' + st(f.id) + '</small></span><span class="fr-acts"><button class="btn sm" data-ginvf="' + esc(g.code) + '|' + esc(f.id) + '"><span>Inviter</span></button></span></div>';
+        h += g.owner === me ? '<div class="row"><button class="btn red" data-gplay="' + esc(g.code) + '"><span>Lancer une partie du groupe</span></button></div><p class="hint">Tous les membres rejoignent ta partie ; tu choisis le circuit et les réglages.</p>' : '<p class="hint">Quand le chef du groupe lance une partie, tu la rejoins tout seul.</p>';
         h += '<div class="row"><button class="btn sm" data-ginv="' + esc(g.code) + '"' + (inParty ? '' : ' disabled') + '><span>Inviter le groupe à ma partie</span></button><button class="btn sm ghost" data-gacc="' + esc(g.code) + '"><span>Envoyer le code d\'accès au groupe</span></button><button class="link" data-gquit="' + esc(g.code) + '">Quitter le groupe</button></div>'; }
       h += '</div>'; }
   }
@@ -2485,6 +2513,9 @@ function frWire() { const q = (s) => $('#fr-root ' + s), qa = (s) => [...documen
     if (priv && pass.length < 3) { toast('Choisis un mot de passe d\'au moins 3 caractères.', 2500); return; } const g = { code: grCode(), name, public: !priv, pass, owner: frMyId(), members: [frMe()] }; acctCall('gsave', { group: g, me: frMe() }).then((r) => { if (!r.ok) { toast(r.e || 'Pas de connexion au serveur.', 3000); return; } grList().push(g); store(); FRU.open = g.code; frRender(); toast('Groupe créé : ' + g.code, 3000); }); };
   const jn = q('#gr-join'); if (jn) jn.onclick = () => { const m = q('#gr-msg'); m.textContent = 'Connexion au groupe…'; grJoin(q('#gr-code').value, q('#gr-jpass').value, (why) => { const m2 = q('#gr-msg'); if (why) { if (m2) m2.textContent = why; } else { frRender(); toast('Bienvenue dans le groupe !', 2500); } }); };
   qa('[data-gopen]').forEach((b) => (b.onclick = () => { FRU.open = FRU.open === b.dataset.gopen ? null : b.dataset.gopen; frRender(); if (FRU.open) frCheckAll(); }));
+  qa('[data-ginvf]').forEach((b) => (b.onclick = () => { const [code, fid] = b.dataset.ginvf.split('|'), g = grFind(code); b.disabled = true;
+    acctCall('ginv', { code, me: frMe(), to: [fid] }).then((r) => { if (!r.ok) { toast(r.e || 'Pas de connexion au serveur.', 2500); b.disabled = false; return; } frSendMany([fid], { t: 'ginv', code, gname: g ? g.name : code }, (ok, on) => toast(on[fid] ? 'Invitation envoyée.' : 'Invitation envoyée (il la verra en ouvrant le jeu).', 2500)); }); }));
+  qa('[data-gplay]').forEach((b) => (b.onclick = () => grPlay(grFind(b.dataset.gplay))));
   qa('[data-ginv]').forEach((b) => (b.onclick = () => { const g = grFind(b.dataset.ginv); const ids = g.members.map((m) => m.id).filter((x) => x !== frMyId()); if (!ids.length) { toast('Personne d\'autre dans le groupe.', 2000); return; }
     frSendMany(ids, { t: 'inv', code: Net.code }, (ok, on) => toast(ok ? 'Invitation envoyée à ' + ids.length + ' (' + Object.values(on).filter(Boolean).length + ' en ligne).' : 'Pas de connexion au serveur.', 3000)); }));
   qa('[data-gacc]').forEach((b) => (b.onclick = () => { const c = accCode(); if (!c) { toast('Tu n\'as pas de code valide à envoyer.', 2500); return; } const g = grFind(b.dataset.gacc); const ids = g.members.map((m) => m.id).filter((x) => x !== frMyId()); if (!ids.length) { toast('Personne d\'autre dans le groupe.', 2000); return; }
@@ -4508,17 +4539,21 @@ const RARITY = { turbo: 'c', oil: 'c', boule: 'c', shield: 'c', colle: 'c', trip
 const RARITY_NAME = { c: 'Commun', u: 'Peu commun', r: 'Rare', v: 'Très rare' };
 ITEM_KEYS.length = 0; ITEM_KEYS.push(...Object.keys(RARITY));
 // r = 0 : en tête, r = 1 : loin derrière ; chaque rareté a un poids qui dépend de r, réparti entre ses objets
-function itemOdds11(k) {
-  // même chance pour tout le monde, quelle que soit la place : 45 % communs, 32 % peu communs, 18 % rares, 5 % très rares
-  const tier = { c: 45, u: 32, r: 18, v: 5 };
+function itemOdds11(k, place) {
+  // rareté ET place : en tête surtout des objets communs, derrière plus de rares et très rares (r = 0 : 1er, r = 1 : dernier)
+  const n = (G.karts && G.karts.length) || 8, p = place || (k && k.place) || 1, r = n > 1 ? clamp((p - 1) / (n - 1), 0, 1) : 0;
+  const tier = { c: 52 - 30 * r, u: 30 + 4 * r, r: 14 + 16 * r, v: 4 + 10 * r };
   const count = {}; for (const it in RARITY) count[RARITY[it]] = (count[RARITY[it]] || 0) + 1;
   const w = {}; for (const it in RARITY) w[it] = tier[RARITY[it]] / count[RARITY[it]];
+  // objets pour se défendre plutôt devant, objets pour remonter plutôt derrière
+  for (const it of ['shield', 'oil', 'boule', 'mine', 'colle', 'bulle']) if (w[it] != null) w[it] *= 1.35 - .6 * r;
+  for (const it of ['turbo', 'rocket', 'etoile', 'grappin', 'ventilo', 'ressort', 'aimant']) if (w[it] != null) w[it] *= .7 + .8 * r;
   // variété : presque jamais deux fois de suite le même objet
   const hist = (k && k.lastItems) || []; hist.forEach((it, i) => { if (w[it] != null) w[it] *= [.12, .45, .75, .9][i] || 1; });
   return w;
 }
 function rollItem11(place, k) {
-  const w = itemOdds11(k); let tot = 0; for (const n in w) tot += w[n]; if (tot <= 0) return 'boule';
+  const w = itemOdds11(k, place); let tot = 0; for (const n in w) tot += w[n]; if (tot <= 0) return 'boule';
   let x = Math.random() * tot, out = 'boule'; for (const n in w) { x -= w[n]; if (x <= 0) { out = n; break; } }
   if (k) { k.seenItems = k.seenItems || new Set(); k.seenItems.add(out); } return out;
 }
@@ -6607,5 +6642,5 @@ $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 // accès pour les tests automatisés
-window.__TK = { accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
+window.__TK = { musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
 })();

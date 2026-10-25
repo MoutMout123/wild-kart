@@ -248,6 +248,17 @@ p{margin:0;line-height:1.4}
 .secret.race{pointer-events:auto;margin:4px 0 0 auto;width:72px;color:#fff;border-bottom-color:rgba(255,255,255,.35)}
 .secret[hidden]{display:none}
 .app #b-install{display:none}
+.fr-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.12);flex-wrap:wrap}.fr-row small{opacity:.75}.fr-acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.fr-add{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}.fr-add input,#gr-pass{flex:1;min-width:140px;font:inherit;padding:9px 10px;border-radius:10px;border:2px solid var(--ink,#17143a);background:var(--paper,#fffdf7);color:var(--ink,#17143a)}
+.fr-me{font-size:20px;letter-spacing:.04em}.fr-tabs{margin:8px 0}b.on{color:#3ee08f}b.off{color:#ff9a8a}
+#fr-note{position:fixed;left:50%;top:max(12px,env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:120;background:#221e52;color:#fffdf7;border:3px solid #ffc531;border-radius:16px;padding:12px 14px;width:min(460px,92vw);box-shadow:0 10px 30px rgba(0,0,0,.4)}#fr-note[hidden]{display:none}#fr-note p{margin:0 0 8px;font-weight:700}
+.gate-fid{font-size:13px;opacity:.85;margin:10px 0 0}
+#gate{position:fixed;inset:0;z-index:100;background:radial-gradient(circle at 50% 30%,#2a2470,#17143a);display:flex;align-items:center;justify-content:center;padding:16px}#gate[hidden]{display:none}
+.gate-box{width:min(520px,100%);background:#221e52;border:3px solid #fffdf7;border-radius:18px;padding:18px;color:#fffdf7;text-align:center}.gate-box h2{margin:0 0 6px;color:#ffc531;font-size:28px}
+.gate-box textarea{width:100%;font:600 14px ui-monospace,Menlo,monospace;padding:10px;border-radius:10px;border:2px solid #3a3480;background:#0f0c2c;color:#fffdf7;word-break:break-all;resize:none}.gate-msg{min-height:1.3em;color:#ff9a8a;font-weight:700;margin:8px 0}
+.musel{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:13px}.musel select{font:inherit;font-weight:700;padding:7px 8px;border-radius:10px;border:2px solid var(--ink,#17143a);background:var(--paper,#fffdf7);color:var(--ink,#17143a)}
+#h-perf{position:absolute;top:calc(max(10px,env(safe-area-inset-top,0px)) + 112px);left:max(16px,env(safe-area-inset-left,0px));font:700 11px/1.2 system-ui,sans-serif;color:#9dffb0;background:rgba(10,8,30,.55);padding:3px 7px;border-radius:6px;pointer-events:none}
+#h-perf.mid{color:#ffd25a}#h-perf.bad{color:#ff6a6a}
 .pausebtn{position:absolute;pointer-events:auto;top:max(10px,env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));
   width:42px;height:42px;border-radius:12px;border:3px solid var(--ink);background:var(--paper);display:flex;gap:5px;align-items:center;justify-content:center;box-shadow:3px 3px 0 var(--ink)}
 .pausebtn i{width:5px;height:16px;background:var(--ink);border-radius:2px}
@@ -498,6 +509,7 @@ body{font-size:16px}
     <button id="b-pause" class="pausebtn" aria-label="Pause"><i></i><i></i></button>
     <div id="h-speed"><b id="h-kmh">0</b> km/h</div>
     <div id="h-banner"></div>
+    <div id="h-perf" hidden></div>
     <div id="h-count"></div>
     <div id="hints" hidden></div>
   </div>
@@ -531,6 +543,7 @@ body{font-size:16px}
         <div class="mgrid">
           <button class="btn blue" data-go="garage"><span>Garage</span></button>
           <button class="btn ghost" data-go="settings"><span>Réglages</span></button>
+          <button class="btn ghost" data-go="friends"><span>Amis et groupes</span></button>
         </div>
         <div class="row small-links">
           <button class="link" id="b-rejoin" data-go="rejoin" hidden>Revenir dans la partie</button>
@@ -549,7 +562,8 @@ body{font-size:16px}
         <div class="foot-opts"><div class="seg" id="cc-seg"><button data-cc="0">50cc</button><button data-cc="1">100cc</button><button data-cc="2">150cc</button></div>
         <div class="seg" id="bot-seg" aria-label="Niveau des bots"><button data-v="0">Facile</button><button data-v="1">Normal</button><button data-v="2">Difficile</button><button data-v="3">Expert</button></div>
         <div class="seg" id="laps-seg" aria-label="Nombre de tours"><button data-v="0">Tours auto</button><button data-v="1">1</button><button data-v="2">2</button><button data-v="3">3</button><button data-v="5">5</button></div>
-        <div class="seg" id="obst-seg" aria-label="Obstacles"><button data-v="1">Obstacles</button><button data-v="0">Sans obstacles</button></div></div>
+        <div class="seg" id="obst-seg" aria-label="Obstacles"><button data-v="1">Obstacles</button><button data-v="0">Sans obstacles</button></div>
+        <label class="musel">Musique <select id="mus-sel" aria-label="Musique"></select></label></div>
         <button class="btn red big" id="b-start"><span>C'est parti</span></button>
       </footer>
     </div>
@@ -599,6 +613,7 @@ body{font-size:16px}
       </div>
       <div class="group"><h3>Affichage</h3>
         <div class="set-row"><span>Fluidité<small>30 i/s chauffe moins le téléphone</small></span><div class="seg" id="set-fps"><button data-v="60">60 i/s</button><button data-v="30">30 i/s</button></div></div>
+        <div class="set-row"><span>Afficher FPS et ping<small>En haut à gauche pendant la course</small></span><button class="tog" id="set-perf" aria-label="Afficher FPS et ping"></button></div>
         <div class="set-row"><span>Graphismes</span><div class="seg" id="set-q"><button data-v="low">Bas</button><button data-v="medium">Moyen</button><button data-v="high">Haut</button></div></div>
       </div>
       <div class="group"><h3>Son</h3>
@@ -606,9 +621,14 @@ body{font-size:16px}
         <div class="set-row"><span>Musique</span><button class="tog" id="set-mus" aria-label="Musique"></button></div>
       </div>
       <p class="hint">Sur ordinateur : ← → pour tourner, ↑ pour accélérer (mode manuel), Espace pour drifter, ↓ pour freiner (reste appuyé pour reculer), E pour l'objet, Échap pour la pause.</p>
+      <div class="group"><h3>Code d'accès</h3><div class="set-row"><span id="set-acc">…</span><button class="btn sm" id="set-acc-change"><span>Changer de code</span></button></div></div>
       <p class="ver" id="set-ver">Wild Kart · version 11</p>
       <input id="secret-in" class="secret" type="text" hidden maxlength="8" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="…">
     </div>
+  </section>
+
+  <section id="s-friends" class="screen" hidden>
+    <div class="panel settings" id="fr-root"></div>
   </section>
 
   <section id="s-calib" class="screen center" hidden>
@@ -668,6 +688,7 @@ body{font-size:16px}
             <div class="opt" id="on-botlvl-row"><span>Niveau des bots</span><div class="chips" id="on-botlvl"></div></div>
             <div class="opt"><span>Tours</span><div class="chips" id="on-laps"></div></div>
             <div class="opt"><span>Obstacles sur la piste</span><div class="chips" id="on-obst"></div></div>
+            <div class="opt"><span>Musique (pour tout le monde)</span><div class="chips" id="on-music"></div></div>
           </div>
           <div class="tabpane" data-p="party" hidden>
             <div class="opt"><span>Mode</span><div class="chips" id="on-party"></div></div>
@@ -695,7 +716,7 @@ body{font-size:16px}
           </div>
         </div>
         <p class="hint" id="on-wait"></p>
-        <div class="row end sticky"><button class="btn ghost" id="on-leave"><span>Quitter</span></button><button class="btn red big" id="on-go"><span>Lancer la course</span></button></div>
+        <div class="row end sticky"><button class="btn ghost" id="on-leave"><span>Quitter</span></button><button class="btn ghost" data-go="friends"><span>Inviter des amis</span></button><button class="btn red big" id="on-go"><span>Lancer la course</span></button></div>
       </div>
       <p class="hint" id="on-status" aria-live="polite"></p>
       <div id="on-offline" class="row" hidden><button class="btn ghost" data-go="practice"><span>Jouer hors ligne avec des bots</span></button></div>
@@ -796,7 +817,8 @@ body{font-size:16px}
 
 <script src="three.min.js"></script>
 <script src="peerjs.min.js"></script>
-<script src="boot.js?v=84f1e50a"></script>
-<script src="game.js?v=84f1e50a"></script>
+<script src="nacl.min.js"></script>
+<script src="boot.js?v=63e2249e"></script>
+<script src="game.js?v=63e2249e"></script>
 </body>
 </html>

@@ -8,9 +8,15 @@ L'APPLI (Android et iPhone)
    - Android : installe le fichier wild-kart.apk.
    - iPhone : installe TestFlight depuis l'App Store, puis ouvre le lien d'invitation.
 
+CODE D'ACCÈS
+   - Au lancement, le jeu demande un code donné par le chef de partie (colle-le puis « Valider »).
+   - Le code marche jusqu'à sa date de fin, puis le jeu en redemande un. Réglages > « Changer de code ».
+
 JOUER EN LIGNE (tout le monde en même temps)
    - Un joueur touche « Jouer en ligne » > « Créer une partie » et donne le code de 4 lettres.
    - Les autres touchent « Jouer en ligne », tapent le code et « Go ».
+   - L'hôte choisit la musique pour tout le monde (onglet Course) : Auto, un style, ou « Ta musique
+     (Spotify…) » qui coupe la musique du jeu pour que chacun écoute la sienne.
    - L'hôte choisit le circuit, la vitesse, les bots et leur niveau, le nombre de tours et les obstacles
      (avec ou sans) dans l'onglet Course, et le mode de soirée dans l'onglet Soirée.
    - Onglet Mini-jeux : choisis les thèmes des questions (un, plusieurs ou tout) et les cases de la roulette,
@@ -42,7 +48,18 @@ COMMANDES (Réglages, aussi accessibles en pause)
    - OBJET : lance ton bonus. FREIN : bouton dédié (inclinaison et boutons).
      Reste appuyé sur FREIN à l'arrêt pour reculer (pratique contre un obstacle).
 
-CIRCUITS (21 circuits : 16 refaits en 4 coupes de difficulté croissante + 5 XXL)
+CIRCUITS (25 circuits : 16 en 4 coupes de difficulté croissante, 5 XXL, 4 Remix)
+   - Chaque circuit a maintenant 2 ou 3 embranchements et plusieurs ambiances dans un même tour
+     (banquise, désert, forêt, cratères lunaires, coulée de lave, champ de fleurs, plage, quartier
+     néon). Chaque ambiance a son décor et change la conduite : glisse, sable qui freine, gravité
+     faible… Elle est annoncée à l'entrée.
+   - Les chemins sont vraiment différents :
+     « RISQUÉ » : route en hauteur plus courte, mais sans rebords (si tu tombes, le drone te repose) ;
+     chemin secret : un tunnel sans panneau (parfois sous l'eau) ; « HORS-PISTE » ;
+     « ROUTE DU HAUT ».
+   - Coupe Remix : Grand Plongeon et Cascades du Vertige (planer au-dessus de l'eau OU passer
+     sous l'eau), Tire-Bouchon Express (la route fait un tour complet sur elle-même, on roule
+     la tête en bas), Carrefour des Copains (deux routes qui s'ouvrent et se ferment à tour de rôle).
    - Coupe Apéro (facile) : Prairie des Pique-Niqueurs, Plage du Coup de Soleil, Lagon Pina Colada,
      Champs de la Sieste. Grandes courbes, premiers tremplins et premiers envols.
    - Coupe Pousse-Café : Centre Commercial des Soldes, Ville Néon After, Safari Embouteillé,
@@ -103,6 +120,8 @@ OBJETS (19, avec une rareté : la lueur autour de la case objet l'indique)
 
 SON : nouvelle musique pour chaque univers (pop, funk, house, latino, rock, ambiance spatiale…),
    moteur qui passe les vitesses, crissements de drift, nouveaux bruitages. Volumes dans Réglages.
+
+FPS ET PING : Réglages > Afficher FPS et ping (en haut à gauche pendant la course).
 
 AFFICHAGE : Réglages > Fluidité 60 ou 30 images/s (30 = le téléphone chauffe moins),
    Graphismes Bas / Moyen / Haut. Rendu plus réaliste : lumière et couleurs façon cinéma, relief sur

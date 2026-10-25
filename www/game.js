@@ -2341,7 +2341,7 @@ function chefListLoad() { const L = SAVE.chefList ? wkListParse(SAVE.chefList, W
 function chefListApply(text, quiet) { const L = wkListParse(text, WK_PK); if (!L || L.s <= CHEF.s) return false; SAVE.chefList = L.text; store(); chefListLoad(); if (!quiet) toast('Liste du chef mise à jour.', 2500); setTimeout(() => { accessTick(); if (Net.host && typeof hostKickBanned === 'function') { hostBroadcastLobby(); hostKickBanned(); } }, 0); return true; }
 // toutes les minutes : le serveur donne la dernière liste du chef (et note quel code ce jeu utilise)
 async function accessSync() { if (typeof acctCall !== 'function') return; const r = await acctCall('state', { code: SAVE.access || '', fid: frMyId(), name: SAVE.name || '', pseudo: SAVE.acct ? SAVE.acct.u : '' }); if (r && r.cl) chefListApply(r.cl, true); accessTick(); }
-const chefBanned = () => !!((SAVE.fid && CHEF.b.has(SAVE.fid)) || (SAVE.fidOld || []).some((x) => CHEF.b.has(x)));
+const chefBanned = () => !!((SAVE.fid && CHEF.b.has(SAVE.fid)) || (SAVE.fidOld || []).some((x) => CHEF.b.has(x)) || (SAVE.acct && CHEF.b.has('@' + String(SAVE.acct.u).toLowerCase())));
 chefListLoad();
 function accessCheck(code) {
   let p = null; for (const c of wkParseAll(code)) { let ok = false; try { ok = typeof nacl !== 'undefined' && nacl.sign.detached.verify(c.msg, c.sig, WK_PK); } catch (e) { ok = false; } if (ok) { p = c; break; } }
@@ -2545,46 +2545,77 @@ function chefPublish() { const sk = chefSk(); if (!sk) return; const c = chefSta
   if (Net.peer && Net.host) { hostBroadcastLobby(); hostKickBanned(); } else if (Net.hc && Net.hc.open) { try { Net.hc.send({ t: 'cl', cl: t }); } catch (e) { /* rien */ } }
   for (const f of frList()) frSend(f.id, { t: 'ping' }); for (const g of grList()) for (const m of g.members) if (m.id !== frMyId()) frSend(m.id, { t: 'ping' }); }
 // l'hôte (chef ou non) sort tout de suite de la partie les joueurs bloqués
-function hostKickBanned() { if (!Net.host) return; for (const p of Net.players.slice()) { if (p.host || !p.fid || !CHEF.b.has(p.fid)) continue; const c = Net.conns.get(p.pid);
+function hostKickBanned() { if (!Net.host) return; for (const p of Net.players.slice()) { if (p.host || !((p.fid && CHEF.b.has(p.fid)) || (p.pu && CHEF.b.has('@' + p.pu)))) continue; const c = Net.conns.get(p.pid);
     try { c && c.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => { try { c && c.close(); } catch (e) { /* rien */ } }, 300); p.away = Date.now(); hostDrop(p.id); toast(p.name + ' a été bloqué par le chef.', 3000); } }
 function chefActivate(text) { const m = /WKCHEF\.([A-Za-z0-9_-]+)/.exec(String(text || '').replace(/\s+/g, '')); if (!m) return false; const old = SAVE.chefKey; SAVE.chefKey = m[1];
   if (!chefSk()) { SAVE.chefKey = old; return 'Clé du chef incorrecte.'; }
   if (!(SAVE.access && accessCheck(SAVE.access).ok)) { SAVE.access = chefMakeCode(Date.now() + 3650 * 86400e3); SAVE.accSeen = Date.now(); }
   store(); return true; }
 // ---------- écran du chef ----------
-const CHU = { hours: 12, last: '', srv: null, srvErr: '', load: false, all: false };
+const CHU = { hours: 12, last: '', srv: null, srvErr: '', load: false, all: false, tab: 'joueurs', devs: false, players: new Map() };
+// un vrai joueur = un compte (ou un nom choisi) ; on regroupe tous ses appareils (appli, Chrome, ancien site…)
+const chefDefName = (n) => !n || /^(toi|joueur|hôte|hote)$/i.test(String(n).trim());
+function chefPlayers() { const map = new Map(), byFid = new Map(), me = frMyId(), myAcc = SAVE.acct ? SAVE.acct.u.toLowerCase() : '';
+  const get = (key) => { let e = map.get(key); if (!e) map.set(key, (e = { key, acc: '', names: new Set(), fids: new Set(), codes: new Set(), t: 0 })); return e; };
+  const add = (fid, u, codeId) => { if (!fid) return; let e = u.p ? get('@' + u.p.toLowerCase()) : byFid.get(fid) || get('f:' + fid); if (u.p) e.acc = u.p;
+    if (!chefDefName(u.n)) e.names.add(String(u.n)); e.fids.add(fid); byFid.set(fid, e); if (codeId) e.codes.add(codeId); e.t = Math.max(e.t, u.t || 0); };
+  for (const x of CHU.srv || []) for (const [fid, u] of Object.entries(x.users || {})) if (u.p) add(fid, u, x.id);   // d'abord les comptes
+  for (const x of CHU.srv || []) for (const [fid, u] of Object.entries(x.users || {})) if (!u.p) add(fid, u, x.id);
+  for (const p of Net.players || []) if (p.fid) add(p.fid, { n: p.name, t: Date.now() }, null);
+  for (const f of frList()) add(f.id, { n: f.name, t: 0 }, null);
+  for (const g of grList()) for (const m of g.members) add(m.id, { n: m.name, t: 0 }, null);
+  // deux entrées avec le même nom (ou le nom = pseudo d'un compte) = la même personne
+  const byName = new Map(); for (const e of map.values()) if (e.acc) { byName.set(e.acc.toLowerCase(), e); for (const n of e.names) if (!byName.has(n.toLowerCase())) byName.set(n.toLowerCase(), e); }
+  for (const e of [...map.values()]) { if (e.acc || !e.names.size) continue; const n = [...e.names][0].toLowerCase(), o = byName.get(n);
+    if (!o) { byName.set(n, e); continue; } for (const f of e.fids) o.fids.add(f); for (const c of e.codes) o.codes.add(c); e.names.forEach((x) => o.names.add(x)); o.t = Math.max(o.t, e.t); map.delete(e.key); }
+  const c = chefState(); CHU.players = map;
+  return [...map.values()].map((e) => Object.assign(e, { name: e.acc || [...e.names][0] || [...e.fids][0], me: e.fids.has(me) || (!!myAcc && e.acc.toLowerCase() === myAcc), real: !!e.acc || e.names.size > 0,
+    banned: [...e.fids].some((f) => c.b.includes(f)) || (!!e.acc && c.b.includes('@' + e.acc.toLowerCase())) })).sort((x, y) => (y.real - x.real) || (y.t - x.t)); }
 function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !== 'chef') return; const c = chefState(), esc = (s) => String(s).replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[x]);
-  const fmt = (t) => new Date(t).toLocaleString('fr-FR', Object.assign({ weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }, new Date(t).getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}));
+  const fmt = (t) => (t ? new Date(t).toLocaleString('fr-FR', Object.assign({ weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }, new Date(t).getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {})) : '—');
   const DUR = [['1 h', 1], ['3 h', 3], ['Ce soir', 12], ['1 jour', 24], ['3 jours', 72], ['1 semaine', 168], ['1 mois', 720], ['1 an', 8760]];
+  const players = chefPlayers(), codeNames = new Map(); for (const e of players) for (const id of e.codes) { if (!codeNames.has(id)) codeNames.set(id, []); codeNames.get(id).push(e); }
+  const T = [['joueurs', 'Joueurs'], ['codes', 'Codes'], ['outils', 'Outils']];
   let h = '<header class="sh-head"><button class="back" data-go="chefback" aria-label="Retour">←</button><h2>Mode chef 👑</h2></header>';
-  h += '<div class="group"><h3>Créer un code</h3><div class="chips" id="ch-dur">' + DUR.map(([n, v]) => '<button data-h="' + v + '" aria-pressed="' + (CHU.hours === v) + '">' + n + '</button>').join('') + '</div>';
-  h += '<div class="fr-add"><input id="ch-hrs" type="number" min="1" placeholder="ou nombre d\'heures"><button class="btn sm red" id="ch-make"><span>Créer le code</span></button></div>';
-  if (CHU.last) h += '<textarea id="ch-code" rows="3" readonly class="ch-code">' + esc(CHU.last) + '</textarea><div class="row"><button class="btn sm" id="ch-share"><span>Partager</span></button><button class="btn sm ghost" id="ch-copy"><span>Copier</span></button><button class="btn sm ghost" id="ch-friends"><span>Envoyer à mes amis et groupes</span></button></div>';
-  h += '</div>';
-  // joueurs : partie en cours + amis + groupes
-  const seen = new Map(); for (const p of Net.players || []) if (p.fid && p.fid !== frMyId()) seen.set(p.fid, p.name + ' (dans la partie)'); for (const f of frList()) if (!seen.has(f.id)) seen.set(f.id, f.name);
-  for (const g of grList()) for (const m of g.members) if (m.id !== frMyId() && !seen.has(m.id)) seen.set(m.id, m.name + ' (' + g.name + ')');
-  h += '<div class="group"><h3>Bloquer un joueur</h3>' + (seen.size ? '' : '<p class="hint">Personne pour l\'instant (amis, groupes ou joueurs de ta partie en ligne).</p>');
-  for (const [fid, name] of seen) { const banned = c.b.includes(fid); h += '<div class="fr-row"><span><b>' + esc(name) + '</b> <small>' + esc(fid) + (banned ? ' · <b class="off">bloqué</b>' : '') + '</small></span><span class="fr-acts"><button class="btn sm ' + (banned ? 'ghost' : 'red') + '" data-ban="' + esc(fid) + '"><span>' + (banned ? 'Débloquer' : 'Bloquer') + '</span></button></span></div>'; }
-  h += '<div class="fr-add"><input id="ch-fid" placeholder="Identifiant (ex. LEA-4821)" autocapitalize="characters"><button class="btn sm red" id="ch-banid"><span>Bloquer</span></button></div>';
-  for (const fid of c.b) if (!seen.has(fid)) h += '<div class="fr-row"><span><small>' + esc(fid) + ' · <b class="off">bloqué</b></small></span><span class="fr-acts"><button class="btn sm ghost" data-ban="' + esc(fid) + '"><span>Débloquer</span></button></span></div>';
-  // codes : ceux créés ici + ceux vus par le serveur (avec les joueurs qui les utilisent)
-  const all = new Map(); for (const x of c.codes) { const p = wkParseAll(x.code)[0]; if (p) all.set(wkCodeId(p), { id: wkCodeId(p), exp: x.exp, code: x.code, hrs: Math.max(1, Math.round((x.exp - x.at) / 3600e3)), users: {} }); }
-  for (const x of CHU.srv || []) { const e = all.get(x.id) || { id: x.id, exp: x.exp, hrs: 0, users: {} }; e.users = x.users || {}; all.set(x.id, e); }
-  const list = [...all.values()].filter((e) => CHU.all || (e.exp > Date.now() && !c.r.includes(e.id))).sort((a2, b2) => b2.exp - a2.exp);
-  h += '</div><div class="group"><h3>Codes ' + (CHU.all ? '(tous)' : 'actifs') + '</h3><div class="row"><button class="btn sm ghost" id="ch-all"><span>' + (CHU.all ? 'Voir seulement les actifs' : 'Voir aussi annulés et expirés') + '</span></button><button class="btn sm ghost" id="ch-reload"><span>' + (CHU.load ? 'Chargement…' : 'Actualiser') + '</span></button></div>'
-    + (CHU.srvErr ? '<p class="hint">' + esc(CHU.srvErr) + ' (seuls les codes créés sur ce téléphone sont affichés)</p>' : '') + (list.length ? '' : '<p class="hint">Aucun code ' + (CHU.all ? '' : 'actif') + '.</p>');
-  for (const e of list.slice(0, 40)) { const off = c.r.includes(e.id), live = e.exp > Date.now() && !off, us = Object.entries(e.users).sort((x, y) => y[1].t - x[1].t);
-    h += '<div class="ch-codebox"><div class="fr-row"><span><b class="' + (live ? 'on' : 'off') + '">' + (off ? 'annulé' : e.exp > Date.now() ? 'valable' : 'expiré') + '</b> <small>jusqu\'au ' + fmt(e.exp) + (e.code ? ' · ' + esc(e.code.slice(0, 10)) + '…' : '') + ' · ' + us.length + ' joueur' + (us.length > 1 ? 's' : '') + '</small></span><span class="fr-acts"><button class="btn sm ' + (off ? 'ghost' : 'red') + '" data-rev="' + esc(e.id) + '"><span>' + (off ? 'Rétablir' : 'Annuler') + '</span></button>' + (e.code ? '<button class="btn sm ghost" data-copy="' + esc(e.code) + '"><span>Copier</span></button>' : '') + (e.hrs ? '<button class="btn sm ghost" data-redo="' + e.hrs + '"><span>Recréer</span></button>' : '') + '</span></div>';
-    for (const [fid, u] of us.slice(0, 20)) { const bn = c.b.includes(fid); h += '<div class="fr-row ch-user"><span>' + esc(u.n || '?') + ' <small>' + esc(fid) + (u.p ? ' · compte ' + esc(u.p) : '') + ' · vu ' + fmt(u.t) + (bn ? ' · <b class="off">bloqué</b>' : '') + '</small></span><span class="fr-acts"><button class="btn sm ' + (bn ? 'ghost' : 'red') + '" data-ban="' + esc(fid) + '"><span>' + (bn ? 'Débloquer' : 'Bloquer') + '</span></button></span></div>'; }
-    h += '</div>'; }
-  h += '<div class="fr-add"><input id="ch-paste" placeholder="Annuler un autre code : colle-le ici"><button class="btn sm ghost" id="ch-revp"><span>Annuler</span></button></div></div>';
-  h += '<div class="group"><h3>Ta clé du chef</h3><p class="hint">Pour activer le Mode chef sur un autre appareil (appli, autre téléphone) : copie-la, puis colle-la là-bas dans Réglages > Changer de code. Ne la donne à personne.</p><div class="row"><button class="btn sm ghost" id="ch-key"><span>Copier ma clé du chef</span></button></div></div>';
-  h += '<div class="group"><h3>Mise à jour du jeu</h3><p class="hint">Version de ton jeu : ' + esc(window.TK_VER || '?') + (UPD.remote ? ' · sur le site : ' + esc(UPD.remote) + (UPD.remote !== window.TK_VER ? ' (nouvelle !)' : ' (à jour)') : '') + '</p><div class="row"><button class="btn sm red" id="ch-upd"><span>Mettre à jour tout le monde</span></button></div><p class="hint">Tous les jeux ouverts prennent la dernière version (après la course en cours), sans rien réinstaller.</p></div>';
-  h += '<div class="group"><h3>Mot de passe oublié d\'un joueur</h3><p class="hint">Mets son pseudo de compte : tu obtiens un code (valable 24 h, une seule fois). Il le met dans Compte > « Oublié ? ».</p><div class="fr-add"><input id="ch-ru" placeholder="Pseudo du joueur" autocapitalize="off"><button class="btn sm red" id="ch-rmake"><span>Créer le code</span></button></div>' + (CHU.reset ? '<textarea rows="3" readonly class="ch-code" id="ch-rcode">' + esc(CHU.reset) + '</textarea><div class="row"><button class="btn sm" id="ch-rshare"><span>Partager</span></button></div>' : '') + '</div>';
-  h += '<p class="hint">Les annulations et blocages arrivent sur tous les jeux ouverts en moins d\'une minute : le joueur est sorti tout de suite, même en pleine course.</p>';
+  h += '<div class="seg fr-tabs" id="ch-tabs">' + T.map(([k, n]) => '<button data-t="' + k + '" aria-pressed="' + (CHU.tab === k) + '">' + n + '</button>').join('') + '</div>';
+  h += '<div class="row"><button class="btn sm ghost" id="ch-reload"><span>' + (CHU.load ? 'Chargement…' : 'Actualiser') + '</span></button></div>' + (CHU.srvErr ? '<p class="hint">' + esc(CHU.srvErr) + '</p>' : '');
+  const btnBan = (e) => '<button class="btn sm ' + (e.banned ? 'ghost' : 'red') + '" data-pban="' + esc(e.key) + '"><span>' + (e.banned ? 'Débloquer' : 'Bloquer') + '</span></button>';
+  if (CHU.tab === 'joueurs') {
+    const real = players.filter((e) => e.real && !e.me), mine = players.filter((e) => e.me), devs = players.filter((e) => !e.real && !e.me);
+    h += '<div class="group"><h3>Joueurs (' + real.length + ')</h3>' + (real.length ? '' : '<p class="hint">Aucun joueur pour l\'instant.</p>');
+    for (const e of real) { const codes = [...e.codes].map((id) => { const x = (CHU.srv || []).find((y) => y.id === id); return x ? (c.r.includes(id) ? 'code annulé' : x.exp > Date.now() ? 'code jusqu\'au ' + fmt(x.exp) : 'code expiré') : ''; }).filter(Boolean);
+      h += '<div class="fr-row"><span><b>' + esc(e.name) + '</b>' + (e.banned ? ' <b class="off">bloqué</b>' : '') + '<br><small>' + (e.acc ? 'compte ' + esc(e.acc) + ' · ' : 'sans compte · ') + e.fids.size + ' appareil' + (e.fids.size > 1 ? 's' : '') + ' · vu ' + fmt(e.t) + (codes.length ? ' · ' + esc(codes[0]) : '') + '</small></span><span class="fr-acts">' + btnBan(e) + '</span></div>'; }
+    h += '</div>';
+    if (mine.length) h += '<div class="group"><h3>Toi</h3><p class="hint">' + mine.reduce((n, e) => n + e.fids.size, 0) + ' appareil(s) à toi (appli, Chrome…). Rien à faire.</p></div>';
+    h += '<div class="group"><h3>Appareils sans nom (' + devs.length + ')</h3><p class="hint">Anciens appareils ou joueurs qui n\'ont pas encore choisi de nom ni de compte.</p><div class="row"><button class="btn sm ghost" id="ch-devs"><span>' + (CHU.devs ? 'Cacher' : 'Afficher') + '</span></button></div>';
+    if (CHU.devs) for (const e of devs) h += '<div class="fr-row"><span><small>' + esc([...e.fids].join(', ')) + ' · vu ' + fmt(e.t) + (e.banned ? ' · <b class="off">bloqué</b>' : '') + '</small></span><span class="fr-acts">' + btnBan(e) + '</span></div>';
+    h += '</div><div class="group"><h3>Bloquer par identifiant</h3><div class="fr-add"><input id="ch-fid" placeholder="Identifiant (ex. LEA-4821)" autocapitalize="characters"><button class="btn sm red" id="ch-banid"><span>Bloquer</span></button></div></div>';
+  } else if (CHU.tab === 'codes') {
+    const all = new Map(); for (const x of c.codes) { const p = wkParseAll(x.code)[0]; if (p) all.set(wkCodeId(p), { id: wkCodeId(p), exp: x.exp, code: x.code, hrs: Math.max(1, Math.round((x.exp - x.at) / 3600e3)) }); }
+    for (const x of CHU.srv || []) { const e = all.get(x.id) || { id: x.id, exp: x.exp, hrs: 0 }; all.set(x.id, e); }
+    const list = [...all.values()].filter((e) => CHU.all || (e.exp > Date.now() && !c.r.includes(e.id))).sort((a2, b2) => b2.exp - a2.exp);
+    h += '<div class="group"><h3>Codes ' + (CHU.all ? '(tous)' : 'valables') + ' (' + list.length + ')</h3><div class="row"><button class="btn sm ghost" id="ch-all"><span>' + (CHU.all ? 'Seulement les valables' : 'Voir aussi annulés et expirés') + '</span></button></div>' + (list.length ? '' : '<p class="hint">Aucun code.</p>');
+    for (const e of list) { const off = c.r.includes(e.id), live = e.exp > Date.now() && !off, who = codeNames.get(e.id) || [], realW = who.filter((x) => x.real), anon = who.length - realW.length;
+      const mineCode = (() => { const p0 = SAVE.access && wkParseAll(SAVE.access)[0]; return !!p0 && wkCodeId(p0) === e.id; })();
+      h += '<div class="ch-codebox"><div class="fr-row"><span><b class="' + (live ? 'on' : 'off') + '">' + (off ? 'annulé' : e.exp > Date.now() ? 'valable' : 'expiré') + '</b>' + (mineCode ? ' <small>(ton code)</small>' : '') + ' <small>jusqu\'au ' + fmt(e.exp) + (e.code ? ' · ' + esc(e.code.slice(0, 8)) + '…' : '') + '</small><br><small>' + (who.length ? 'Attribué à : <b>' + esc(realW.map((x) => x.name + (x.me ? ' (toi)' : '')).join(', ') || '—') + '</b>' + (anon ? ' + ' + anon + ' appareil' + (anon > 1 ? 's' : '') + ' sans nom' : '') : 'Pas encore utilisé') + '</small></span>'
+        + '<span class="fr-acts"><button class="btn sm ' + (off ? 'ghost' : 'red') + '" data-rev="' + esc(e.id) + '"><span>' + (off ? 'Rétablir' : 'Annuler') + '</span></button>' + (e.code ? '<button class="btn sm ghost" data-copy="' + esc(e.code) + '"><span>Copier</span></button>' : '') + (e.hrs ? '<button class="btn sm ghost" data-redo="' + e.hrs + '"><span>Recréer</span></button>' : '') + '</span></div></div>'; }
+    h += '<div class="fr-add"><input id="ch-paste" placeholder="Annuler un autre code : colle-le ici"><button class="btn sm ghost" id="ch-revp"><span>Annuler</span></button></div></div>';
+  } else {
+    h += '<div class="group"><h3>Créer un code</h3><div class="chips" id="ch-dur">' + DUR.map(([n, v]) => '<button data-h="' + v + '" aria-pressed="' + (CHU.hours === v) + '">' + n + '</button>').join('') + '</div>';
+    h += '<div class="fr-add"><input id="ch-hrs" type="number" min="1" placeholder="ou nombre d\'heures"><button class="btn sm red" id="ch-make"><span>Créer le code</span></button></div>';
+    if (CHU.last) h += '<textarea id="ch-code" rows="3" readonly class="ch-code">' + esc(CHU.last) + '</textarea><div class="row"><button class="btn sm" id="ch-share"><span>Partager</span></button><button class="btn sm ghost" id="ch-copy"><span>Copier</span></button><button class="btn sm ghost" id="ch-friends"><span>Envoyer à mes amis et groupes</span></button></div>';
+    h += '</div>';
+    h += '<div class="group"><h3>Mot de passe oublié d\'un joueur</h3><p class="hint">Mets son pseudo de compte : tu obtiens un code (valable 24 h, une seule fois). Il le met dans Compte > « Oublié ? ».</p><div class="fr-add"><input id="ch-ru" placeholder="Pseudo du joueur" autocapitalize="off"><button class="btn sm red" id="ch-rmake"><span>Créer le code</span></button></div>' + (CHU.reset ? '<textarea rows="3" readonly class="ch-code" id="ch-rcode">' + esc(CHU.reset) + '</textarea><div class="row"><button class="btn sm" id="ch-rshare"><span>Partager</span></button></div>' : '') + '</div>';
+    h += '<div class="group"><h3>Mise à jour du jeu</h3><p class="hint">Version de ton jeu : ' + esc(window.TK_VER || '?') + (UPD.remote ? ' · sur le site : ' + esc(UPD.remote) + (UPD.remote !== window.TK_VER ? ' (nouvelle !)' : ' (à jour)') : '') + '</p><div class="row"><button class="btn sm red" id="ch-upd"><span>Mettre à jour tout le monde</span></button></div></div>';
+    h += '<div class="group"><h3>Ta clé du chef</h3><p class="hint">Pour activer le Mode chef sur un autre appareil : copie-la, puis colle-la là-bas dans Réglages > Changer de code. Ne la donne à personne.</p><div class="row"><button class="btn sm ghost" id="ch-key"><span>Copier ma clé du chef</span></button></div></div>';
+  }
+  h += '<p class="hint">Annuler un code ou bloquer un joueur marche sur tous ses appareils, en moins d\'une minute, même en pleine course.</p>';
   root.innerHTML = h; chefWire(); }
-function chefWire() { const q = (s) => $('#chef-root ' + s), qa = (s) => [...document.querySelectorAll('#chef-root ' + s)];
+function chefWire() { const qa = (s) => [...document.querySelectorAll('#chef-root ' + s)], q = (s) => $('#chef-root ' + s) || { set onclick(f) { /* absent de cet onglet */ }, value: '' };
+  qa('#ch-tabs button').forEach((b) => (b.onclick = () => { CHU.tab = b.dataset.t; chefRender(); }));
+  q('#ch-devs').onclick = () => { CHU.devs = !CHU.devs; chefRender(); };
+  qa('[data-pban]').forEach((b) => (b.onclick = () => { const e = CHU.players.get(b.dataset.pban); if (!e) return; const c = chefState(), keys = [...e.fids].concat(e.acc ? ['@' + e.acc.toLowerCase()] : []);
+    const banned = keys.some((k) => c.b.includes(k)); c.b = banned ? c.b.filter((x) => !keys.includes(x)) : [...new Set(c.b.concat(keys))]; store(); chefPublish(); chefRender(); toast(e.name + (banned ? ' débloqué.' : ' bloqué sur tous ses appareils.'), 2500); }));
   qa('#ch-dur button').forEach((b) => (b.onclick = () => { CHU.hours = +b.dataset.h; chefRender(); }));
   q('#ch-make').onclick = () => { const hh = +q('#ch-hrs').value || CHU.hours; CHU.last = chefMakeCode(Date.now() + hh * 3600e3) || ''; chefRender(); toast('Code créé, valable ' + (hh < 48 ? hh + ' h' : Math.round(hh / 24) + ' jours') + '.', 2500); };
   const msg = () => 'Code Wild Kart, valable jusqu\'au ' + new Date(wkParseAll(CHU.last)[0].exp).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' }) + ' :\n' + CHU.last + (location.protocol === 'https:' && !window.TK_APP ? '\n\nOu ouvre directement : ' + location.origin + location.pathname + '#code=' + CHU.last : '') + (SAVE.chefList ? '\n\nListe du chef : ' + SAVE.chefList : '');
@@ -5685,13 +5716,13 @@ function hostOnData(conn, d) {
   if (!d || typeof d !== 'object') return;
   if (d.t === 'hello') {
     if (d.cl && chefListApply(d.cl, true)) { hostBroadcastLobby(); hostKickBanned(); }
-    if ((d.fid && CHEF.b.has(String(d.fid))) || (Array.isArray(d.fo) && d.fo.some((x) => CHEF.b.has(String(x))))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
+    if ((d.fid && CHEF.b.has(String(d.fid))) || (Array.isArray(d.fo) && d.fo.some((x) => CHEF.b.has(String(x)))) || (d.pu && CHEF.b.has('@' + String(d.pu)))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
     const id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
     let p = Net.players.find((x) => x.id === id);
     if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); if (d.fid) p.fid = String(d.fid).slice(0, 20); clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
     else {
       if (present().length >= 8) { try { conn.send({ t: 'busy' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); Net.uidOf.delete(conn.peer); return; }
-      p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '' }; Net.players.push(p); AudioSys.sfx('got');
+      p = { id, pid: conn.peer, name: String(d.name || 'Joueur').slice(0, 10), cfg: cleanCfg(d.cfg), fid: d.fid ? String(d.fid).slice(0, 20) : '', pu: d.pu ? String(d.pu).slice(0, 16) : '' }; Net.players.push(p); AudioSys.sfx('got');
     }
     hostBroadcastLobby();
     // on le remet là où en est la partie
@@ -5738,7 +5769,7 @@ function clientConnect() {
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
   const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'peer-unavailable' }); }, 22000);
   c.on('open', () => {
-    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], cl: SAVE.chefList || '' });
+    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], pu: SAVE.acct ? String(SAVE.acct.u).toLowerCase() : '', cl: SAVE.chefList || '' });
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');
     SAVE.lastCode = Net.code; SAVE.lastCodeAt = Date.now(); store();
   });
@@ -6642,5 +6673,5 @@ $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 // accès pour les tests automatisés
-window.__TK = { musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
+window.__TK = { CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
 })();

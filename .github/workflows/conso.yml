@@ -1,0 +1,22 @@
+name: Consommation Cloudflare
+# Lit ce que le serveur a consommé ces dernières 24 h (requêtes, base D1) et l'écrit dans worker/conso.txt.
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  lire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Lire la consommation
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          node worker/conso.mjs > worker/conso.txt 2>&1 || true
+          cat worker/conso.txt
+          git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
+          git add worker/conso.txt; git commit -m "Consommation Cloudflare [skip ci]" || true; git pull --rebase && git push

@@ -2832,7 +2832,10 @@ class WKPeer extends WKEmit {
   constructor(id) { super(); this.host = typeof id === 'string'; this.id = this.host ? id : 'wkp-' + wkRand(12); this.open = false; this.destroyed = false; this.disconnected = false; this._conns = new Map(); this._fails = 0; setTimeout(() => this._reg(), 0); }
   async _reg() { const r = await acctCall('sigreg', { id: this.id }); if (this.destroyed) return;
     if (!r.ok) { this.emit('error', { type: r.code === 'unavailable-id' ? 'unavailable-id' : 'server-error' }); return; }
-    this.open = true; this.emit('open', this.id); this._loop(); }
+    this.open = true; this.emit('open', this.id); this._loop(); if (this.host) { this._chk = setInterval(() => this._check(), 15000); setTimeout(() => this._check(), 1500); } }
+  async _check() { if (this.destroyed) { clearInterval(this._chk); return; } const r = await acctCall('sigsend', { id: this.id, msg: { k: 'ping' } }); if (this.destroyed) return;
+    if (r.ok) { this.visible = Date.now(); } else if (r.code === 'peer-unavailable') { const g = await acctCall('sigreg', { id: this.id }); this.visible = g.ok ? Date.now() : 0; } else this.visible = 0;
+    this.emit('visible', !!this.visible); }
   // l'hôte écoute toujours (nouveaux joueurs, retours) ; un invité seulement pendant qu'il se connecte
   _loop() { if (this.destroyed || !this.open) return; clearTimeout(this._t); const pending = [...this._conns.values()].some((c) => !c.open);
     if (!this.host && !pending) return; this._t = setTimeout(() => this._poll(), pending ? 700 : document.visibilityState === 'visible' ? 3000 : 8000); }
@@ -2841,7 +2844,7 @@ class WKPeer extends WKEmit {
     else { this._fails = 0; this.disconnected = false; for (const m of r.msgs || []) this._onSig(m); }
     this._loop(); }
   reconnect() { this.disconnected = false; this._fails = 0; this._poll(); }
-  destroy() { if (this.destroyed) return; this.destroyed = true; clearTimeout(this._t); for (const c of [...this._conns.values()]) c.close(); acctCall('sigdel', { id: this.id }); this.emit('close'); }
+  destroy() { if (this.destroyed) return; this.destroyed = true; clearTimeout(this._t); clearInterval(this._chk); for (const c of [...this._conns.values()]) c.close(); acctCall('sigdel', { id: this.id }); this.emit('close'); }
   connect(remote) { const cid = wkRand(10), c = new WKConn(this, remote, cid, null); this._conns.set(cid, c);
     (async () => { try { await wkIceReady(); if (c._dead) return; const pc = new RTCPeerConnection(wkIce()); c.setPc(pc); c._bind(pc.createDataChannel('wk', { ordered: true })); await pc.setLocalDescription(await pc.createOffer()); await wkIceDone(pc); if (c._dead) return;
         const r = await acctCall('sigsend', { id: remote, msg: { k: 'offer', from: this.id, cid, sdp: pc.localDescription.sdp } });
@@ -2849,6 +2852,7 @@ class WKPeer extends WKEmit {
         this._loop(); this._poll(); } catch (e) { c.emit('error', { type: 'webrtc' }); c._closed(); } })();
     setTimeout(() => { if (!c.open && !c._dead) { c.emit('error', { type: 'timeout' }); c._closed(); } }, 30000); return c; }
   async _onSig(m) {
+    if (m.k === 'ping') return;
     if (m.k === 'offer') { if (this._conns.has(m.cid)) return; const c = new WKConn(this, m.from, m.cid, null); this._conns.set(m.cid, c); this.emit('connection', c);
       try { await wkIceReady(); const pc = new RTCPeerConnection(wkIce()); c.setPc(pc); pc.ondatachannel = (ev) => c._bind(ev.channel); await pc.setRemoteDescription({ type: 'offer', sdp: m.sdp }); await pc.setLocalDescription(await pc.createAnswer()); await wkIceDone(pc);
         const r = await acctCall('sigsend', { id: m.from, msg: { k: 'answer', from: this.id, cid: m.cid, sdp: pc.localDescription.sdp } }); if (!r.ok) c._closed(); } catch (e) { c._closed(); } }
@@ -5788,6 +5792,7 @@ function netCreate() {
   if (!netUsable()) return; AudioSys.init(); prepControls(); netReset(); Net.host = true; Net.code = randCode(); netStatus('Création de la partie…');
   const peer = netPeer(NET_PREFIX + Net.code); Net.peer = peer;
   peer.on('open', (id) => { Net.pid = id; Net.id = UID; Net.players = [{ id: UID, name: SAVE.name || 'Hôte', cfg: myCfg(), host: true }]; netStatus('Partie créée. Donne le code à tes potes.'); renderOnline(); });
+  peer.on('visible', (ok) => { if (Net.peer !== peer || Net.inRace) return; netStatus(ok ? 'Partie ' + Net.code + ' : ✓ visible, tes potes peuvent la rejoindre.' : 'Partie ' + Net.code + ' : serveur injoignable, vérifie ta connexion…'); });
   peer.on('error', (e) => { if (e.type === 'unavailable-id' && !Net.players.length) { try { peer.destroy(); } catch (x) { /* rien */ } netCreate(); return; } if (e.type === 'peer-unavailable' || Net.players.length) return; netFail(e); });
   peer.on('connection', (conn) => {
     conn.on('open', () => { Net.conns.set(conn.peer, conn); });

@@ -62,7 +62,9 @@ jobs:
           echo "$URL" > "url-$CIBLE.txt"
           OK=0; for i in $(seq 1 15); do curl -s -m 10 -X POST "$URL/api/compte" -d '{"a":"fid","fid":"TEST-1234"}' > essai.txt || true; if grep -q '"ok":true' essai.txt; then OK=1; break; fi; sleep 6; done
           OK_ICE=$(curl -s -m 10 -X POST "$URL/api/compte" -d '{"a":"ice"}' | grep -c 'turn:' || true)
-          { echo "date: $(date -u)"; echo "url: $URL"; echo "ok: $OK"; cat turn.txt; echo "relais actif: $OK_ICE"; echo "réponse:"; head -c 600 essai.txt; echo; echo "deploy:"; tail -15 deploy.log; } > "etat-$CIBLE.txt"
+          # essai d'une vraie mise en relation (partie créée -> invité -> message reçu), puis nettoyage
+          SIG=$(node -e "const U=process.argv[1]+'/api/compte',c=(a,b)=>fetch(U,{method:'POST',body:JSON.stringify(Object.assign({a},b))}).then(r=>r.json()),id='wildkart-v7-ESSAI'+Date.now()%100000;(async()=>{const a=await c('sigreg',{id}),b=await c('sigsend',{id,msg:{k:'offer',from:'wkp-essai',cid:'1',sdp:'x'}}),d=await c('sigpoll',{id});await c('sigdel',{id});console.log(JSON.stringify({reg:a.ok,send:b.ok||b.code,recu:(d.msgs||[]).length}))})()" "$URL" || echo erreur)
+          { echo "date: $(date -u)"; echo "url: $URL"; echo "ok: $OK"; cat turn.txt; echo "relais actif: $OK_ICE"; echo "mise en relation: $SIG"; echo "réponse:"; head -c 600 essai.txt; echo; echo "deploy:"; tail -15 deploy.log; } > "etat-$CIBLE.txt"
           cd ..; git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
           git add "worker/url-$CIBLE.txt" "worker/etat-$CIBLE.txt"; git commit -m "Adresse du serveur $CIBLE [skip ci]" || true; git pull --rebase && git push
           [ "$OK" = 1 ] || { echo "::error::Le serveur ne répond pas correctement"; exit 1; }

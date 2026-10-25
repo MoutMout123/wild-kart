@@ -2687,7 +2687,7 @@ function chefButtons() { const on = isChef(); document.querySelectorAll('.chef-o
 
 /* ================= v13 : compte (pseudo + mot de passe) : on retrouve tout sur n'importe quel téléphone ================= */
 // Le compte garde : identifiant ami, amis, groupes, code d'accès, kart, réglages de jeu, records. Sauvegarde automatique.
-const WK_API = window.TK_API || 'https://wild-kart-moutmout.netlify.app/api/compte';
+const WK_API = window.TK_API || 'https://wild-kart-serveur.uncreeper5431.workers.dev/api/compte';   // serveur gratuit (Cloudflare) ; il reprend tout seul les comptes de l'ancien serveur Netlify
 // tout est dans le compte (kart, réglages, calibrage, records…) sauf : la clé du chef (secrète), ce qui sert à revenir dans une partie
 // en cours sur CET appareil, et les graphismes (qui dépendent de la puissance de chaque téléphone)
 const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'v']);

@@ -1,0 +1,6 @@
+node_modules/
+wrangler.toml
+*.log
+d1.json
+essai.txt
+.wrangler/

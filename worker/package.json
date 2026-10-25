@@ -1,0 +1,1 @@
+{ "name": "wild-kart-worker", "private": true, "type": "module", "dependencies": { "tweetnacl": "1.0.3" }, "devDependencies": { "wrangler": "4.145.0" } }

@@ -486,6 +486,15 @@ body{font-size:16px}
 .itembox[data-rar="v"]{box-shadow:4px 4px 0 var(--ink),0 0 0 4px #ffc531,0 0 26px #ffc531;animation:rarv 1s ease-in-out infinite alternate}
 @keyframes rarv{from{filter:brightness(1)}to{filter:brightness(1.25)}}
 #confetti{position:fixed;inset:0;pointer-events:none;z-index:6;overflow:hidden;display:none}
+#comet-warn{position:fixed;left:50%;top:15%;transform:translateX(-50%);z-index:7;pointer-events:none;display:flex;gap:10px;align-items:center;padding:8px 18px;border-radius:999px;background:#7c4dff;color:#fffdf7;border:3px solid var(--ink);box-shadow:4px 4px 0 var(--ink);font-family:var(--f-display);font-size:20px;line-height:1;letter-spacing:.04em;animation:cwarn .5s ease-in-out infinite alternate}
+#comet-warn[hidden]{display:none}
+#bomb-hud{position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 62px);transform:translateX(-50%);z-index:6;pointer-events:none;padding:6px 14px;border-radius:999px;background:#1b1b22;color:#fffdf7;border:3px solid var(--ink);box-shadow:3px 3px 0 var(--ink);font-family:var(--f-display);font-size:15px;white-space:nowrap}
+#bomb-hud[hidden]{display:none}
+#bomb-hud.mine{background:#ff4f3a;font-size:17px;animation:bwarn .45s ease-in-out infinite alternate}
+@keyframes bwarn{from{background:#ff4f3a;transform:translateX(-50%) scale(1)}to{background:#ff8a1e;transform:translateX(-50%) scale(1.07)}}
+#bomb-hud.mine.hot{animation-duration:.18s}
+#comet-warn span{font-size:15px;opacity:.9}
+@keyframes cwarn{from{background:#7c4dff;transform:translateX(-50%) scale(1)}to{background:#ff4f3a;transform:translateX(-50%) scale(1.08)}}
 #confetti.on{display:block}
 #confetti i{position:absolute;top:-6%;width:8px;height:12px;border-radius:2px;animation:conf 2.4s linear forwards}
 @keyframes conf{to{top:108%;transform:rotate(540deg) translateX(40px)}}
@@ -627,6 +636,8 @@ body{font-size:16px}
       <div class="group"><h3>Son</h3>
         <div class="set-row"><span>Effets sonores</span><button class="tog" id="set-snd" aria-label="Effets sonores"></button></div>
         <div class="set-row"><span>Musique</span><button class="tog" id="set-mus" aria-label="Musique"></button></div>
+        <div class="set-row"><span>Volume effets</span><input type="range" id="set-sfxv" min="0" max="100" step="5" aria-label="Volume des effets"><output id="set-sfxv-o">80 %</output></div>
+        <div class="set-row"><span>Volume musique</span><input type="range" id="set-musv" min="0" max="100" step="5" aria-label="Volume de la musique"><output id="set-musv-o">70 %</output></div>
       </div>
       <p class="hint">Sur ordinateur : ← → pour tourner, ↑ pour accélérer (mode manuel), Espace pour drifter, ↓ pour freiner (reste appuyé pour reculer), E pour l'objet, Échap pour la pause.</p>
       <div class="group"><h3>Compte</h3><div class="set-row"><span id="set-acct">…</span><button class="btn sm" id="set-acct-open"><span>Mon compte</span></button></div></div>
@@ -711,6 +722,11 @@ body{font-size:16px}
               le dernier tire une carte (question ou défi) et le vainqueur désigne quelqu'un qui doit répondre à une question.
               Au bout des manches : le champion de la soirée est sacré.</p>
               <div class="opt"><span>Nombre de manches</span><div class="chips" id="on-rounds"></div></div>
+            </div>
+            <div class="pari-box" id="on-bomb-box" hidden>
+              <p><b>Patate chaude 💣</b> : une bombe se pose sur un kart. Pour t'en débarrasser, touche quelqu'un
+              (un coup de carrosserie ou un objet qui le touche). Personne ne sait quand elle explose : la mèche s'accélère…
+              Celui qui l'a au moment du BOUM fait un tête-à-queue et prend 2 pénalités. Puis une nouvelle bombe tombe sur le premier !</p>
             </div>
             <div class="opt"><span>Pénalité</span><div class="chips" id="on-type"></div></div>
             <div class="opt" id="on-dose-row"><span>Dose</span><div class="chips" id="on-dose"></div></div>
@@ -831,7 +847,7 @@ body{font-size:16px}
 <script src="three.min.js"></script>
 <script src="peerjs.min.js"></script>
 <script src="nacl.min.js"></script>
-<script src="boot.js?v=78e1fdb6"></script>
-<script src="game.js?v=78e1fdb6"></script>
+<script src="boot.js?v=4d73d7aa"></script>
+<script src="game.js?v=4d73d7aa"></script>
 </body>
 </html>

@@ -2397,6 +2397,7 @@ function frStatus() { try { const R = G.race, live = R && R.state !== 'attract',
   const race = live ? { tr, lap: P ? Math.max(1, Math.min(P.lap, LAPS)) : 0, laps: LAPS, pl: P ? P.place || 0 : 0, fin: R.state === 'finished' || !!R.resultsShown } : null;
   if (Net.peer && Net.code) return Object.assign({ s: live && R.online ? 'course' : 'salon', code: Net.code, host: !!Net.host, n: (Net.players || []).filter((p) => !p.away).length }, live && R.online ? race : {});
   if (live) return Object.assign({ s: 'solo' }, race); return { s: G.locked ? 'bloque' : 'menu' }; } catch (e) { return { s: 'menu' }; } }
+const frStatusV = () => Object.assign(frStatus(), { v: window.TK_VER || '', app: !!window.TK_APP });
 function frAddFriend(id, name) { if (!id || id === frMyId()) return false; const L = frList(); const f = L.find((x) => x.id === id); if (f) { if (name) f.name = name; store(); return false; } L.push({ id, name: name || id.split('-')[0] }); store(); return true; }
 // ---------- présence et messages : le jeu passe au serveur toutes les 20 secondes ----------
 function frStart() { if (FR.timer) return; let n = 0; FR.timer = setInterval(() => { if (document.visibilityState !== 'visible') return; const racing = G.race && G.race.state !== 'attract'; if (!racing || ++n % 3 === 0) frPoll(); }, 10000); frPoll();
@@ -2404,7 +2405,7 @@ function frStart() { if (FR.timer) return; let n = 0; FR.timer = setInterval(() 
 function frRestart() { FR.since = 0; frPoll(); }
 const frIds = () => { const ids = new Set(frList().map((f) => f.id)); for (const g of grList()) for (const m of g.members) ids.add(m.id); ids.delete(frMyId()); return [...ids]; };
 async function frPoll() { if (FR.busy || typeof acctCall !== 'function') return; FR.busy = true;
-  try { const r = await acctCall('fpoll', { me: Object.assign(frMe(), { st: frStatus(), pu: SAVE.acct ? SAVE.acct.u : '' }), since: FR.since || 0, ack: FR.since || 0, ids: frIds(), groups: grList().map((g) => g.code) });
+  try { const r = await acctCall('fpoll', { me: Object.assign(frMe(), { st: frStatusV(), pu: SAVE.acct ? SAVE.acct.u : '' }), since: FR.since || 0, ack: FR.since || 0, ids: frIds(), groups: grList().map((g) => g.code) });
     if (!r.ok) { FR.open = false; frRender(); return; } FR.open = true;
     for (const [id, t] of Object.entries(r.online || {})) FR.status.set(id, !!t && r.now - t < 90e3);
     for (const [code, g] of Object.entries(r.groups || {})) { if (g) grMerge(g, true); else { const lg = grFind(code); if (lg && lg.owner === frMyId()) acctCall('gsave', { group: lg, me: frMe() }); } }   // ancien groupe (d'avant le serveur) : son créateur le remet en ligne
@@ -2600,9 +2601,9 @@ function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !==
         : st.s === 'solo' ? '🤖 Seul contre les bots' + race : st.s === 'bloque' ? '🔒 Bloqué sur l\'écran du code' : '🏠 Dans les menus'; };
     h += '<div class="group"><h3>Connectés maintenant (' + rows.length + ')</h3>' + (CHU.liveErr ? '<p class="hint">' + esc(CHU.liveErr) + '</p>' : '') + (CHU.live == null ? '<p class="hint">Chargement…</p>' : rows.length ? '' : '<p class="hint">Personne d\'autre n\'a le jeu ouvert en ce moment.</p>');
     for (const { x, who, anon, e } of rows) { const st = x.st || {}, ago = Math.max(0, Math.round(((CHU.liveNow || Date.now()) - x.t) / 1000)), online = st.code && (st.s === 'course' || st.s === 'salon'), inIt = Net.peer && Net.code === st.code;
-      h += '<div class="fr-row ch-live"><span><b>' + esc(who) + '</b>' + (anon ? ' <small>(appareil sans nom)</small>' : '') + (e && e.banned ? ' <b class="off">bloqué</b>' : '') + '<br><small>' + S(st) + ' · il y a ' + (ago < 60 ? ago + ' s' : Math.round(ago / 60) + ' min') + '</small></span><span class="fr-acts">'
+      h += '<div class="fr-row ch-live"><span><b>' + esc(who) + '</b>' + (anon ? ' <small>(appareil sans nom)</small>' : '') + (e && e.banned ? ' <b class="off">bloqué</b>' : '') + '<br><small>' + S(st) + (st.v ? ' · ' + (st.app ? 'appli' : 'site') + ' v.' + esc(st.v) + (st.v !== (UPD.remote || window.TK_VER) ? ' <b class="off">⚠️ ancienne version</b>' : '') : ' · <b class="off">⚠️ ancienne version</b>') + ' · il y a ' + (ago < 60 ? ago + ' s' : Math.round(ago / 60) + ' min') + '</small></span><span class="fr-acts">'
         + (inIt ? '<small>tu y es</small>' : online ? (st.s === 'course' ? '<button class="btn sm" data-cwatch="' + esc(st.code) + '"><span>Regarder</span></button>' : '') + '<button class="btn sm red" data-cjoin="' + esc(st.code) + '"><span>Rejoindre</span></button>' : st.s === 'solo' ? '<small>partie solo</small>' : '') + '</span></div>'; }
-    h += '<p class="hint">Mis à jour toutes les 10 secondes. « Regarder » : tu suis la course en cours, puis tu joues la suivante. Les parties solo (contre les bots) sont sur le téléphone du joueur : on ne peut pas les rejoindre.</p></div>';
+    h += '<p class="hint">Les joueurs avec une très vieille version n\'apparaissent pas du tout : demande-leur de fermer puis rouvrir le jeu (version dans Réglages, tout en bas). Mis à jour toutes les 10 secondes. « Regarder » : tu suis la course en cours, puis tu joues la suivante. Les parties solo (contre les bots) sont sur le téléphone du joueur : on ne peut pas les rejoindre.</p></div>';
   } else if (CHU.tab === 'joueurs') {
     const real = players.filter((e) => e.real && !e.me), mine = players.filter((e) => e.me), devs = players.filter((e) => !e.real && !e.me);
     h += '<div class="group"><h3>Joueurs (' + real.length + ')</h3>' + (real.length ? '' : '<p class="hint">Aucun joueur pour l\'instant.</p>');
@@ -2775,7 +2776,7 @@ try { if (/[?&]maj=/.test(location.search)) history.replaceState(null, '', locat
 const racingNow = () => !!(G.race && ['race', 'countdown', 'intro'].includes(G.race.state) && !G.race.resultsShown);
 async function updCheck(quietIfSame) { if (BUILD !== 'pwa' || !window.TK_VER || location.hostname === 'localhost' && window.TK_APP) return;
   try { const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return; const j = await r.json(); UPD.remote = String(j.v || ''); } catch (e) { return; }
-  if (UI.screen === 'chef') chefRender();
+  if (UI.screen === 'chef') chefRender(); updVerText();
   if (UPD.remote && UPD.remote !== window.TK_VER) { if (UPD.forced) updWhenFree(); else updBanner(); } }
 function updBanner() { if (UPD.el) { UPD.el.hidden = false; return; } const b = document.createElement('button'); b.id = 'upd-btn'; b.className = 'btn red sm'; b.innerHTML = '<span>Nouvelle version : mettre à jour</span>';
   b.onclick = () => { if (racingNow()) { toast('Après la course !', 1500); return; } updApply(); }; document.body.appendChild(b); UPD.el = b; }
@@ -2788,6 +2789,10 @@ async function updApply() { try { if (typeof acctUpload === 'function' && SAVE.a
 // le chef a demandé une mise à jour pour tous
 function updForced(u) { if (!u || u <= (SAVE.updSeen || 0)) return; const first = !SAVE.updSeen; SAVE.updSeen = u; store(); if (first && !UPD.remote) { /* première liste vue : on vérifie quand même */ } UPD.forced = true; setTimeout(() => updCheck(), 500); }
 setTimeout(() => { updCheck(); setInterval(updCheck, 5 * 60e3); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updCheck(); }); }, 5000);
+
+// numéro de version visible dans Réglages (pour savoir si on est à jour)
+function updVerText() { const el = $('#set-ver'); if (!el || !window.TK_VER) return; const d = new Date(); el.textContent = 'Wild Kart · version ' + window.TK_VER + (UPD.remote ? (UPD.remote === window.TK_VER ? ' · à jour ✓' : ' · nouvelle version disponible') : ''); }
+setTimeout(updVerText, 500);
 
 /* ================= v13 : mise en relation par le serveur Wild Kart (remplace le service PeerJS, souvent en panne) ================= */
 // Les téléphones s'échangent leur « adresse » WebRTC par le serveur (2 petits messages), puis jouent en direct entre eux.

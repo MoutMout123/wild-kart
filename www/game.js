@@ -2400,7 +2400,7 @@ function frStatus() { try { const R = G.race, live = R && R.state !== 'attract',
 const frStatusV = () => Object.assign(frStatus(), { v: window.TK_VER || '', app: !!window.TK_APP });
 function frAddFriend(id, name) { if (!id || id === frMyId()) return false; const L = frList(); const f = L.find((x) => x.id === id); if (f) { if (name) f.name = name; store(); return false; } L.push({ id, name: name || id.split('-')[0] }); store(); return true; }
 // ---------- présence et messages : le jeu passe au serveur toutes les 20 secondes ----------
-function frStart() { if (FR.timer) return; let n = 0; FR.timer = setInterval(() => { if (document.visibilityState !== 'visible') return; const racing = G.race && G.race.state !== 'attract'; if (!racing || ++n % 3 === 0) frPoll(); }, 10000); frPoll();
+function frStart() { if (FR.timer) return; let n = 0; FR.timer = setInterval(() => { if (document.visibilityState !== 'visible') return; const racing = G.race && G.race.state !== 'attract'; n++; if (UI.screen === 'chef' && CHU.tab === 'direct') frPoll(); else if (racing ? n % 9 === 0 : n % 3 === 0) frPoll(); }, 5000); frPoll();
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') frPoll(); }); }
 function frRestart() { FR.since = 0; frPoll(); }
 const frIds = () => { const ids = new Set(frList().map((f) => f.id)); for (const g of grList()) for (const m of g.members) ids.add(m.id); ids.delete(frMyId()); return [...ids]; };
@@ -2431,6 +2431,9 @@ function frOnData(c, d) {
   if (!d || typeof d !== 'object' || !d.from || typeof d.from.id !== 'string') return; const who = String(d.from.name || d.from.id).slice(0, 12), fid = frNorm(d.from.id) || d.from.id;
   if (d.cl) chefListApply(d.cl, true);
   FR.status.set(fid, true); { const f = frList().find((x) => x.id === fid); if (f && who && f.name !== who) { f.name = who; store(); } }
+  // le chef demande « que fais-tu ? » (demande signée par sa clé) : on répond avec ce qu'on fait
+  if (d.t === 'stq') { try { const ts = +d.ts; if (Math.abs(Date.now() - ts) < 5 * 60e3 && nacl.sign.detached.verify(new TextEncoder().encode('stq.' + ts), wkB64uDec(String(d.sig || '')), WK_PK)) frSend(fid, { t: 'stv', st: frStatusV(), pu: SAVE.acct ? SAVE.acct.u : '' }); } catch (e) { /* rien */ } return; }
+  if (d.t === 'stv') { if (typeof chefLiveIn === 'function') chefLiveIn(fid, who, d); return; }
   if (d.t === 'rename') { const o = frNorm(d.old); if (o && o !== fid) { const L = frList(), f = L.find((x) => x.id === o); if (f) { if (L.some((x) => x.id === fid)) SAVE.friends = L.filter((x) => x !== f); else { f.id = fid; f.name = who; } }
       for (const g of grList()) { for (const m of g.members) if (m.id === o) m.id = fid; if (g.owner === o) g.owner = fid; } store();
       if (typeof isChef === 'function' && isChef() && chefState().b.includes(o) && !chefState().b.includes(fid)) { chefState().b.push(fid); store(); chefPublish(); }
@@ -2545,7 +2548,7 @@ function chefMakeCode(expMs) { const sk = chefSk(); if (!sk) return null; const 
   acctCall('codeadd', Object.assign({ code }, chefAuth('codeadd'))); return code; }
 // preuve « c'est le chef » pour le serveur
 function chefAuth(a) { const sk = chefSk(), ts = Date.now(); return sk ? { ts, sig: wkB64u(nacl.sign.detached(new TextEncoder().encode(a + '.' + ts), sk)) } : {}; }
-async function chefLoadCodes() { CHU.load = true; chefRender(); const r = await acctCall('codes', chefAuth('codes')); CHU.load = false; if (r.ok) { CHU.srv = r.codes || []; CHU.srvErr = ''; } else CHU.srvErr = r.e || 'Serveur indisponible.'; chefRender(); }
+async function chefLoadCodes() { CHU.load = true; chefRender(); const r = await acctCall('codes', chefAuth('codes')); CHU.load = false; if (r.ok) { CHU.srv = r.codes || []; CHU.srvErr = ''; if (CHU.tab === 'direct') chefAsk(); } else CHU.srvErr = r.e || 'Serveur indisponible.'; chefRender(); }
 // signe la liste (codes annulés + joueurs bloqués), l'applique ici et la diffuse
 function chefPublish() { const sk = chefSk(); if (!sk) return; const c = chefState(); const s = Math.max(Date.now(), (CHEF.s || 0) + 1);
   const body = new TextEncoder().encode(JSON.stringify({ s, r: c.r, b: c.b, u: c.u || 0 })); const t = 'WKL.' + wkB64u(body) + '.' + wkB64u(nacl.sign.detached(body, sk));
@@ -2561,7 +2564,14 @@ function chefActivate(text) { const m = /WKCHEF\.([A-Za-z0-9_-]+)/.exec(String(t
   store(); return true; }
 // ---------- écran du chef ----------
 const CHU = { hours: 12, last: '', srv: null, srvErr: '', load: false, all: false, tab: 'direct', devs: false, players: new Map(), live: null, liveAt: 0 };
-async function chefLoadLive() { const r = await acctCall('live', chefAuth('live')); if (r.ok) { CHU.live = r.live || []; CHU.liveNow = r.now; CHU.liveErr = ''; } else CHU.liveErr = r.e || 'Serveur indisponible.'; CHU.liveAt = Date.now(); chefRender(); }
+// « En direct » : le chef demande à chaque joueur connu ce qu'il fait (par la messagerie des amis), les jeux ouverts répondent
+const LIVE = new Map();
+function chefLiveIn(fid, who, d) { if (!isChef()) return; LIVE.set(fid, { fid, n: who, t: Date.now(), st: d.st || {}, pu: d.pu || '' }); if (UI.screen === 'chef' && CHU.tab === 'direct') chefRender(); }
+function chefAsk() { const ids = new Set(), now = Date.now(); chefPlayers(); for (const e of CHU.players.values()) if (!e.me && (now - e.t < 7 * 86400e3 || !e.t)) for (const f of e.fids) ids.add(f);
+  for (const f of frList()) ids.add(f.id); for (const g of grList()) for (const m of g.members) ids.add(m.id); ids.delete(frMyId());
+  const L = [...ids]; for (let i = 0; i < L.length; i += 40) frSendMany(L.slice(i, i + 40), Object.assign({ t: 'stq' }, chefAuth('stq'))); CHU.asked = now; }
+async function chefLoadLive() { if (!CHU.asked || Date.now() - CHU.asked > 14000) chefAsk(); const r = await acctCall('live', chefAuth('live'));
+  if (r.ok) for (const x of r.live || []) if (x.st) LIVE.set(x.fid, Object.assign({}, LIVE.get(x.fid) || {}, x, { t: Date.now() - Math.max(0, (r.now || 0) - x.t) })); CHU.liveAt = Date.now(); chefRender(); }
 setInterval(() => { if (UI.screen === 'chef' && CHU.tab === 'direct' && document.visibilityState === 'visible') chefLoadLive(); }, 10000);
 // un vrai joueur = un compte (ou un nom choisi) ; on regroupe tous ses appareils (appli, Chrome, ancien site…)
 const chefDefName = (n) => !n || /^(toi|joueur|hôte|hote)$/i.test(String(n).trim());
@@ -2593,14 +2603,14 @@ function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !==
   const btnBan = (e) => '<button class="btn sm ' + (e.banned ? 'ghost' : 'red') + '" data-pban="' + esc(e.key) + '"><span>' + (e.banned ? 'Débloquer' : 'Bloquer') + '</span></button>';
   if (CHU.tab === 'direct') {
     const byFid = new Map(); for (const e of players) for (const f of e.fids) byFid.set(f, e);
-    const L = (CHU.live || []).filter((x) => x.fid !== frMyId()).sort((a2, b2) => b2.t - a2.t), seen = new Set(), rows = [];
+    const L = [...LIVE.values()].filter((x) => x.fid !== frMyId() && Date.now() - x.t < 100e3).sort((a2, b2) => b2.t - a2.t), seen = new Set(), rows = [];
     for (const x of L) { const e = byFid.get(x.fid), who = x.pu || (e && e.real ? e.name : '') || (chefDefName(x.n) ? '' : x.n); const key = who ? who.toLowerCase() : 'f:' + x.fid; if (seen.has(key)) continue; seen.add(key); rows.push({ x, who: who || x.fid, anon: !who, e }); }
     const S = (st) => { st = st || { s: 'menu' }; const race = st.tr ? ' · ' + esc(st.tr) + (st.fin ? ' · arrivé' : ' · tour ' + st.lap + '/' + st.laps + (st.pl ? ' · ' + ordFr(st.pl) : '')) : '';
       return st.s === 'course' ? '🏁 En course en ligne' + race + ' · partie ' + esc(st.code) + (st.host ? ' (hôte)' : '') + ' · ' + st.n + ' joueur' + (st.n > 1 ? 's' : '')
         : st.s === 'salon' ? '👥 Dans le salon en ligne · partie ' + esc(st.code) + (st.host ? ' (hôte)' : '') + ' · ' + st.n + ' joueur' + (st.n > 1 ? 's' : '')
         : st.s === 'solo' ? '🤖 Seul contre les bots' + race : st.s === 'bloque' ? '🔒 Bloqué sur l\'écran du code' : '🏠 Dans les menus'; };
-    h += '<div class="group"><h3>Connectés maintenant (' + rows.length + ')</h3>' + (CHU.liveErr ? '<p class="hint">' + esc(CHU.liveErr) + '</p>' : '') + (CHU.live == null ? '<p class="hint">Chargement…</p>' : rows.length ? '' : '<p class="hint">Personne d\'autre n\'a le jeu ouvert en ce moment.</p>');
-    for (const { x, who, anon, e } of rows) { const st = x.st || {}, ago = Math.max(0, Math.round(((CHU.liveNow || Date.now()) - x.t) / 1000)), online = st.code && (st.s === 'course' || st.s === 'salon'), inIt = Net.peer && Net.code === st.code;
+    h += '<div class="group"><h3>Connectés maintenant (' + rows.length + ')</h3>' + (rows.length ? '' : '<p class="hint">' + (CHU.asked && Date.now() - CHU.asked < 30000 ? 'Je demande aux joueurs ce qu\'ils font… (réponse en moins de 30 secondes)' : 'Personne d\'autre n\'a le jeu ouvert en ce moment.') + '</p>');
+    for (const { x, who, anon, e } of rows) { const st = x.st || {}, ago = Math.max(0, Math.round((Date.now() - x.t) / 1000)), online = st.code && (st.s === 'course' || st.s === 'salon'), inIt = Net.peer && Net.code === st.code;
       h += '<div class="fr-row ch-live"><span><b>' + esc(who) + '</b>' + (anon ? ' <small>(appareil sans nom)</small>' : '') + (e && e.banned ? ' <b class="off">bloqué</b>' : '') + '<br><small>' + S(st) + (st.v ? ' · ' + (st.app ? 'appli' : 'site') + ' v.' + esc(st.v) + (st.v !== (UPD.remote || window.TK_VER) ? ' <b class="off">⚠️ ancienne version</b>' : '') : ' · <b class="off">⚠️ ancienne version</b>') + ' · il y a ' + (ago < 60 ? ago + ' s' : Math.round(ago / 60) + ' min') + '</small></span><span class="fr-acts">'
         + (inIt ? '<small>tu y es</small>' : online ? (st.s === 'course' ? '<button class="btn sm" data-cwatch="' + esc(st.code) + '"><span>Regarder</span></button>' : '') + '<button class="btn sm red" data-cjoin="' + esc(st.code) + '"><span>Rejoindre</span></button>' : st.s === 'solo' ? '<small>partie solo</small>' : '') + '</span></div>'; }
     h += '<p class="hint">Les joueurs avec une très vieille version n\'apparaissent pas du tout : demande-leur de fermer puis rouvrir le jeu (version dans Réglages, tout en bas). Mis à jour toutes les 10 secondes. « Regarder » : tu suis la course en cours, puis tu joues la suivante. Les parties solo (contre les bots) sont sur le téléphone du joueur : on ne peut pas les rejoindre.</p></div>';

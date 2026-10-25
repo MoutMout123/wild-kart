@@ -20,7 +20,7 @@ const KEY = 'tiltkart.v1';
 const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 60, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
   sens: 1, invert: false, calib: 0, calibrated: false, sound: true, music: true, quality: isTouch ? 'medium' : 'high', cc: 1, track: 0, records: {} };
 let SAVE = (() => { try { return Object.assign({}, DEFAULT_SAVE, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { return Object.assign({}, DEFAULT_SAVE); } })();
-function store() { try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { /* stockage indisponible */ } try { acctDirty(); } catch (e) { /* pas encore prêt */ } }
+function store() { try { acctTrack(); } catch (e) { /* pas encore prêt */ } try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { /* stockage indisponible */ } try { acctDirty(); } catch (e) { /* pas encore prêt */ } }
 
 /* ================= Données ================= */
 const BODIES = {
@@ -2556,9 +2556,9 @@ const CHU = { hours: 12, last: '', srv: null, srvErr: '', load: false, all: fals
 // un vrai joueur = un compte (ou un nom choisi) ; on regroupe tous ses appareils (appli, Chrome, ancien site…)
 const chefDefName = (n) => !n || /^(toi|joueur|hôte|hote)$/i.test(String(n).trim());
 function chefPlayers() { const map = new Map(), byFid = new Map(), me = frMyId(), myAcc = SAVE.acct ? SAVE.acct.u.toLowerCase() : '';
-  const get = (key) => { let e = map.get(key); if (!e) map.set(key, (e = { key, acc: '', names: new Set(), fids: new Set(), codes: new Set(), t: 0 })); return e; };
+  const get = (key) => { let e = map.get(key); if (!e) map.set(key, (e = { key, acc: '', names: new Set(), fids: new Set(), codes: new Set(), codeT: {}, t: 0 })); return e; };
   const add = (fid, u, codeId) => { if (!fid) return; let e = u.p ? get('@' + u.p.toLowerCase()) : byFid.get(fid) || get('f:' + fid); if (u.p) e.acc = u.p;
-    if (!chefDefName(u.n)) e.names.add(String(u.n)); e.fids.add(fid); byFid.set(fid, e); if (codeId) e.codes.add(codeId); e.t = Math.max(e.t, u.t || 0); };
+    if (!chefDefName(u.n)) e.names.add(String(u.n)); e.fids.add(fid); byFid.set(fid, e); if (codeId) { e.codes.add(codeId); e.codeT[codeId] = Math.max(e.codeT[codeId] || 0, u.t || 0); } e.t = Math.max(e.t, u.t || 0); };
   for (const x of CHU.srv || []) for (const [fid, u] of Object.entries(x.users || {})) if (u.p) add(fid, u, x.id);   // d'abord les comptes
   for (const x of CHU.srv || []) for (const [fid, u] of Object.entries(x.users || {})) if (!u.p) add(fid, u, x.id);
   for (const p of Net.players || []) if (p.fid) add(p.fid, { n: p.name, t: Date.now() }, null);
@@ -2567,14 +2567,15 @@ function chefPlayers() { const map = new Map(), byFid = new Map(), me = frMyId()
   // deux entrées avec le même nom (ou le nom = pseudo d'un compte) = la même personne
   const byName = new Map(); for (const e of map.values()) if (e.acc) { byName.set(e.acc.toLowerCase(), e); for (const n of e.names) if (!byName.has(n.toLowerCase())) byName.set(n.toLowerCase(), e); }
   for (const e of [...map.values()]) { if (e.acc || !e.names.size) continue; const n = [...e.names][0].toLowerCase(), o = byName.get(n);
-    if (!o) { byName.set(n, e); continue; } for (const f of e.fids) o.fids.add(f); for (const c of e.codes) o.codes.add(c); e.names.forEach((x) => o.names.add(x)); o.t = Math.max(o.t, e.t); map.delete(e.key); }
+    if (!o) { byName.set(n, e); continue; } for (const f of e.fids) o.fids.add(f); for (const c of e.codes) { o.codes.add(c); o.codeT[c] = Math.max(o.codeT[c] || 0, e.codeT[c] || 0); } e.names.forEach((x) => o.names.add(x)); o.t = Math.max(o.t, e.t); map.delete(e.key); }
   const c = chefState(); CHU.players = map;
-  return [...map.values()].map((e) => Object.assign(e, { name: e.acc || [...e.names][0] || [...e.fids][0], me: e.fids.has(me) || (!!myAcc && e.acc.toLowerCase() === myAcc), real: !!e.acc || e.names.size > 0,
+  return [...map.values()].map((e) => Object.assign(e, { cur: Object.keys(e.codeT).sort((x, y) => e.codeT[y] - e.codeT[x])[0] || '', name: e.acc || [...e.names][0] || [...e.fids][0], me: e.fids.has(me) || (!!myAcc && e.acc.toLowerCase() === myAcc), real: !!e.acc || e.names.size > 0,
     banned: [...e.fids].some((f) => c.b.includes(f)) || (!!e.acc && c.b.includes('@' + e.acc.toLowerCase())) })).sort((x, y) => (y.real - x.real) || (y.t - x.t)); }
 function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !== 'chef') return; const c = chefState(), esc = (s) => String(s).replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[x]);
   const fmt = (t) => (t ? new Date(t).toLocaleString('fr-FR', Object.assign({ weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }, new Date(t).getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {})) : '—');
   const DUR = [['1 h', 1], ['3 h', 3], ['Ce soir', 12], ['1 jour', 24], ['3 jours', 72], ['1 semaine', 168], ['1 mois', 720], ['1 an', 8760]];
-  const players = chefPlayers(), codeNames = new Map(); for (const e of players) for (const id of e.codes) { if (!codeNames.has(id)) codeNames.set(id, []); codeNames.get(id).push(e); }
+  // un joueur n'est attribué qu'au code qu'il utilise MAINTENANT (le dernier vu), pas à ses anciens codes
+  const players = chefPlayers(), codeNames = new Map(); for (const e of players) { const id = e.cur; if (!id) continue; if (!codeNames.has(id)) codeNames.set(id, []); codeNames.get(id).push(e); }
   const T = [['joueurs', 'Joueurs'], ['codes', 'Codes'], ['outils', 'Outils']];
   let h = '<header class="sh-head"><button class="back" data-go="chefback" aria-label="Retour">←</button><h2>Mode chef 👑</h2></header>';
   h += '<div class="seg fr-tabs" id="ch-tabs">' + T.map(([k, n]) => '<button data-t="' + k + '" aria-pressed="' + (CHU.tab === k) + '">' + n + '</button>').join('') + '</div>';
@@ -2583,7 +2584,7 @@ function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !==
   if (CHU.tab === 'joueurs') {
     const real = players.filter((e) => e.real && !e.me), mine = players.filter((e) => e.me), devs = players.filter((e) => !e.real && !e.me);
     h += '<div class="group"><h3>Joueurs (' + real.length + ')</h3>' + (real.length ? '' : '<p class="hint">Aucun joueur pour l\'instant.</p>');
-    for (const e of real) { const codes = [...e.codes].map((id) => { const x = (CHU.srv || []).find((y) => y.id === id); return x ? (c.r.includes(id) ? 'code annulé' : x.exp > Date.now() ? 'code jusqu\'au ' + fmt(x.exp) : 'code expiré') : ''; }).filter(Boolean);
+    for (const e of real) { const codes = (e.cur ? [e.cur] : []).map((id) => { const x = (CHU.srv || []).find((y) => y.id === id); return x ? (c.r.includes(id) ? 'code annulé' : x.exp > Date.now() ? 'code jusqu\'au ' + fmt(x.exp) : 'code expiré') : ''; }).filter(Boolean);
       h += '<div class="fr-row"><span><b>' + esc(e.name) + '</b>' + (e.banned ? ' <b class="off">bloqué</b>' : '') + '<br><small>' + (e.acc ? 'compte ' + esc(e.acc) + ' · ' : 'sans compte · ') + e.fids.size + ' appareil' + (e.fids.size > 1 ? 's' : '') + ' · vu ' + fmt(e.t) + (codes.length ? ' · ' + esc(codes[0]) : '') + '</small></span><span class="fr-acts">' + btnBan(e) + '</span></div>'; }
     h += '</div>';
     if (mine.length) h += '<div class="group"><h3>Toi</h3><p class="hint">' + mine.reduce((n, e) => n + e.fids.size, 0) + ' appareil(s) à toi (appli, Chrome…). Rien à faire.</p></div>';
@@ -2597,7 +2598,7 @@ function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !==
     h += '<div class="group"><h3>Codes ' + (CHU.all ? '(tous)' : 'valables') + ' (' + list.length + ')</h3><div class="row"><button class="btn sm ghost" id="ch-all"><span>' + (CHU.all ? 'Seulement les valables' : 'Voir aussi annulés et expirés') + '</span></button></div>' + (list.length ? '' : '<p class="hint">Aucun code.</p>');
     for (const e of list) { const off = c.r.includes(e.id), live = e.exp > Date.now() && !off, who = codeNames.get(e.id) || [], realW = who.filter((x) => x.real), anon = who.length - realW.length;
       const mineCode = (() => { const p0 = SAVE.access && wkParseAll(SAVE.access)[0]; return !!p0 && wkCodeId(p0) === e.id; })();
-      h += '<div class="ch-codebox"><div class="fr-row"><span><b class="' + (live ? 'on' : 'off') + '">' + (off ? 'annulé' : e.exp > Date.now() ? 'valable' : 'expiré') + '</b>' + (mineCode ? ' <small>(ton code)</small>' : '') + ' <small>jusqu\'au ' + fmt(e.exp) + (e.code ? ' · ' + esc(e.code.slice(0, 8)) + '…' : '') + '</small><br><small>' + (who.length ? 'Attribué à : <b>' + esc(realW.map((x) => x.name + (x.me ? ' (toi)' : '')).join(', ') || '—') + '</b>' + (anon ? ' + ' + anon + ' appareil' + (anon > 1 ? 's' : '') + ' sans nom' : '') : 'Pas encore utilisé') + '</small></span>'
+      h += '<div class="ch-codebox"><div class="fr-row"><span><b class="' + (live ? 'on' : 'off') + '">' + (off ? 'annulé' : e.exp > Date.now() ? 'valable' : 'expiré') + '</b>' + (mineCode ? ' <small>(ton code)</small>' : '') + ' <small>jusqu\'au ' + fmt(e.exp) + (e.code ? ' · ' + esc(e.code.slice(0, 8)) + '…' : '') + '</small><br><small>' + (who.length ? 'Attribué à : ' + [realW.length ? '<b>' + esc(realW.map((x) => x.name + (x.me ? ' (toi)' : '')).join(', ')) + '</b>' : '', anon ? anon + ' appareil' + (anon > 1 ? 's' : '') + ' sans nom' : ''].filter(Boolean).join(' + ') : 'Utilisé par personne en ce moment') + '</small></span>'
         + '<span class="fr-acts"><button class="btn sm ' + (off ? 'ghost' : 'red') + '" data-rev="' + esc(e.id) + '"><span>' + (off ? 'Rétablir' : 'Annuler') + '</span></button>' + (e.code ? '<button class="btn sm ghost" data-copy="' + esc(e.code) + '"><span>Copier</span></button>' : '') + (e.hrs ? '<button class="btn sm ghost" data-redo="' + e.hrs + '"><span>Recréer</span></button>' : '') + '</span></div></div>'; }
     h += '<div class="fr-add"><input id="ch-paste" placeholder="Annuler un autre code : colle-le ici"><button class="btn sm ghost" id="ch-revp"><span>Annuler</span></button></div></div>';
   } else {
@@ -2643,7 +2644,9 @@ function chefButtons() { const on = isChef(); document.querySelectorAll('.chef-o
 /* ================= v13 : compte (pseudo + mot de passe) : on retrouve tout sur n'importe quel téléphone ================= */
 // Le compte garde : identifiant ami, amis, groupes, code d'accès, kart, réglages de jeu, records. Sauvegarde automatique.
 const WK_API = window.TK_API || 'https://wild-kart-moutmout.netlify.app/api/compte';
-const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'calib', 'calibrated', 'quality', 'fps', 'lastCode', 'lastCodeAt', 'showPerf', 'v']);
+// tout est dans le compte (kart, réglages, calibrage, records…) sauf : la clé du chef (secrète), ce qui sert à revenir dans une partie
+// en cours sur CET appareil, et les graphismes (qui dépendent de la puissance de chaque téléphone)
+const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'lastCode', 'lastCodeAt', 'quality', 'fps', 'accSeen', 'updSeen', 'v']);
 const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false };
 async function acctCall(a, body) {
   const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, tm = setTimeout(() => ctl && ctl.abort(), 15000);
@@ -2651,17 +2654,38 @@ async function acctCall(a, body) {
     let j = {}; try { j = await r.json(); } catch (e) { /* rien */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status; return j; }
   catch (e) { return { e: 'Pas de connexion au serveur des comptes (' + (e && e.name === 'AbortError' ? 'trop lent' : 'réseau') + ').' }; } finally { clearTimeout(tm); } }
 function acctPack() { const o = {}; for (const k in SAVE) if (!ACC_SKIP.has(k)) o[k] = SAVE[k]; return o; }
-// remplace les données du téléphone par celles du compte, puis relance le jeu
-function acctApply(r) { const keep = { friends: SAVE.friends, groups: SAVE.groups, fidOld: SAVE.fidOld, records: SAVE.records, access: SAVE.access };
-  for (const k of Object.keys(SAVE)) if (!ACC_SKIP.has(k)) delete SAVE[k];
-  for (const k in DEFAULT_SAVE) if (!ACC_SKIP.has(k)) SAVE[k] = DEFAULT_SAVE[k]; Object.assign(SAVE, r.save || {}); if (r.fid) SAVE.fid = r.fid;
-  // fusion : on ne perd jamais un ami, un groupe ou un record d'un téléphone à l'autre (appli + site sur le même compte)
-  const uni = (a, b, key) => { const out = Array.isArray(a) ? a.slice() : []; for (const x of Array.isArray(b) ? b : []) if (x && !out.some((y) => y && y[key] === x[key])) out.push(x); return out; };
-  SAVE.friends = uni(SAVE.friends, keep.friends, 'id').filter((f) => f.id !== SAVE.fid); SAVE.groups = uni(SAVE.groups, keep.groups, 'code');
-  SAVE.fidOld = [...new Set((SAVE.fidOld || []).concat(keep.fidOld || []))].slice(-10);
-  const rec = Object.assign({}, SAVE.records || {}); const mn = (a, b) => (a && b ? Math.min(a, b) : a || b || undefined); for (const [k, v] of Object.entries(keep.records || {})) { const o = rec[k] || {}; rec[k] = Object.assign({}, v, o, { lap: mn(o.lap, v && v.lap), race: mn(o.race, v && v.race) }); } SAVE.records = rec;
-  if (!(SAVE.access && accessCheck(SAVE.access).ok) && keep.access && accessCheck(keep.access).ok) SAVE.access = keep.access;
-  SAVE.acct = { u: r.pseudo, tok: r.tok, at: r.at || Date.now() }; store(); ACU.timer = 0; setTimeout(() => { if (SAVE.acct) acctUpload(); }, 3000); }
+// date du dernier changement de chaque réglage (pour garder le plus récent entre deux appareils)
+const ACT = { snap: null };
+function acctTrack() { const ts = (SAVE._ts = SAVE._ts && typeof SAVE._ts === 'object' ? SAVE._ts : {}), now = Date.now(); if (!ACT.snap) { ACT.snap = {}; for (const k in SAVE) if (k !== '_ts') ACT.snap[k] = JSON.stringify(SAVE[k]); return; }
+  for (const k in SAVE) { if (k === '_ts' || ACC_SKIP.has(k)) continue; const j = JSON.stringify(SAVE[k]); if (ACT.snap[k] !== j) { ACT.snap[k] = j; if (!ACU.applying) ts[k] = now; } } }
+// fusion compte + appareil : pour chaque réglage le plus récent ; amis, groupes et records additionnés (on ne perd jamais rien)
+function acctMerge(sv, lo) { sv = sv || {}; const st = sv._ts || {}, lt = lo._ts || {}, out = {}, ts = {};
+  const keys = new Set([...Object.keys(sv), ...Object.keys(lo)].filter((k) => !ACC_SKIP.has(k) && k !== '_ts'));
+  for (const k of keys) { const inS = k in sv, inL = k in lo; out[k] = !inS ? lo[k] : !inL ? sv[k] : (lt[k] || 0) > (st[k] || 0) ? lo[k] : sv[k]; ts[k] = Math.max(st[k] || 0, lt[k] || 0); }
+  const uni = (a, b, key) => { const r = Array.isArray(a) ? a.slice() : []; for (const x of Array.isArray(b) ? b : []) if (x && !r.some((y) => y && y[key] === x[key])) r.push(x); return r; };
+  out.friends = uni(sv.friends, lo.friends, 'id'); out.groups = uni(sv.groups, lo.groups, 'code'); out.fidOld = [...new Set((sv.fidOld || []).concat(lo.fidOld || []))].slice(-10);
+  const mn = (a, b2) => (a && b2 ? Math.min(a, b2) : a || b2 || undefined), rec = Object.assign({}, sv.records || {});
+  for (const [k, v] of Object.entries(lo.records || {})) { const o = rec[k] || {}; rec[k] = Object.assign({}, v, o, { lap: mn(o.lap, v && v.lap), race: mn(o.race, v && v.race) }); } out.records = rec;
+  if (!(out.access && accessCheck(out.access).ok)) { const alt = [sv.access, lo.access].find((x) => x && accessCheck(x).ok); if (alt) out.access = alt; }
+  out._ts = ts; return out; }
+// applique le compte sur cet appareil (sans relancer le jeu)
+function acctApply(r) { const before = JSON.stringify(acctPack()), m = acctMerge(r.save, SAVE); ACU.applying = true;
+  for (const k of Object.keys(SAVE)) if (!ACC_SKIP.has(k)) delete SAVE[k]; for (const k in DEFAULT_SAVE) if (!ACC_SKIP.has(k) && !(k in m)) SAVE[k] = DEFAULT_SAVE[k];
+  Object.assign(SAVE, m); if (r.fid) SAVE.fid = r.fid; SAVE.friends = (SAVE.friends || []).filter((f) => f.id !== SAVE.fid);
+  SAVE.acct = { u: r.pseudo || (SAVE.acct && SAVE.acct.u), tok: r.tok || (SAVE.acct && SAVE.acct.tok), at: r.at || Date.now() }; store(); ACT.snap = null; acctTrack(); ACU.applying = false;
+  const changed = before !== JSON.stringify(acctPack()); if (changed) acctRefreshUI();
+  if (JSON.stringify(acctPack()) !== JSON.stringify(Object.assign({}, r.save || {}, { fid: SAVE.fid }))) { ACU.timer = 0; setTimeout(() => { if (SAVE.acct) acctUpload(); }, 2500); }
+  return changed; }
+// réaffiche ce qui dépend des réglages (son, kart, nom…)
+function acctRefreshUI() { try { AudioSys.setVolumes(); } catch (e) { /* rien */ } try { if (UI.screen === 'settings') syncSettings(); } catch (e) { /* rien */ } try { refreshGarageKart(); } catch (e) { /* rien */ }
+  try { const n = $('#g-pseudo'); if (n && document.activeElement !== n) n.value = SAVE.name || ''; const t = $('#g-name'); if (t) t.textContent = SAVE.name || 'Toi'; } catch (e) { /* rien */ } try { if (G.race && G.race.state === 'attract' && G.karts[4]) { /* le kart de la démo change à la prochaine course */ } } catch (e) { /* rien */ } }
+// les autres appareils du même compte : on récupère leurs changements toutes les 30 secondes (jamais en pleine course)
+async function acctPull(quiet) { if (!SAVE.acct || ACU.pulling) return; if (G.race && G.race.state !== 'attract') return; ACU.pulling = true;
+  try { const r = await acctCall('load', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); if (!SAVE.acct) return;
+    if (r.ok && r.at > (SAVE.acct.at || 0)) { r.tok = SAVE.acct.tok; r.pseudo = SAVE.acct.u; const fidWas = SAVE.fid; const ch = acctApply(r); if (fidWas !== SAVE.fid) frRestart(); if (ch && !quiet) toast('Mis à jour depuis ton autre appareil.', 2000); if (SAVE.access && accessCheck(SAVE.access).ok && G.locked) gateHide(); }
+    else if (r.status === 401) { SAVE.acct = null; store(); toast('Reconnecte-toi à ton compte (Réglages > Compte).', 4000); } acctInfo(); } finally { ACU.pulling = false; } }
+setInterval(() => { if (document.visibilityState === 'visible') acctPull(); }, 30000);
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acctPull(); });
 // sauvegarde automatique (quelques secondes après un changement)
 function acctDirty() { if (!SAVE.acct || ACU.applying) return; clearTimeout(ACU.timer); ACU.timer = setTimeout(acctUpload, Math.max(4000, 20000 - (Date.now() - ACU.lastUp))); }
 async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const r = await acctCall('save', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, save: acctPack() });
@@ -2693,7 +2717,7 @@ function acctWire() { const q = (s) => $('#acct ' + s), v = (s) => (q(s) ? q(s).
   const busy = async (fn) => { if (ACU.busy) return; ACU.busy = true; acctRender(); let r; try { r = await fn(); } finally { ACU.busy = false; } if (r && r.e) ACU.msg = r.e; acctRender(); return r; };
   const go = q('#ac-go'); if (go) go.onclick = () => { const u = v('#ac-u'), p = q('#ac-p').value, cd = v('#ac-c'); busy(async () => {
     if (ACU.tab === 'creer') { const r = await acctCall('create', { pseudo: u, pass: p, fid: frMyId(), save: acctPack() }); if (r.ok) { const old = SAVE.fid; acctApply(r); ACU.rec = r.rec; if (old !== r.fid) frRestart(); toast('Compte créé.', 2500); acctRender(); } return r; }
-    if (ACU.tab === 'co') { const r = await acctCall('login', { pseudo: u, pass: p }); if (r.ok) { acctApply(r); toast('Connecté ! Le jeu se recharge…', 2000); setTimeout(() => location.reload(), 900); } return r; }
+    if (ACU.tab === 'co') { const r = await acctCall('login', { pseudo: u, pass: p }); if (r.ok) { const fidWas = SAVE.fid; acctApply(r); if (fidWas !== SAVE.fid) frRestart(); acctUpload(); toast('Connecté ! Tout est récupéré.', 2500); if (SAVE.access && accessCheck(SAVE.access).ok && G.locked) gateHide(); acctClose(); } return r; }
     const r = await acctCall('reset', { pseudo: u, code: cd, pass: p }); if (r.ok) { acctApply(r); ACU.rec = r.rec; acctRender(); } return r; }); };
   const sv = q('#ac-save'); if (sv) sv.onclick = () => busy(async () => { const r = await acctUpload(); if (r && r.ok) { ACU.msg = 'Sauvegardé.'; acctRender(); } return r; });
   const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { await acctUpload(); await acctCall('logout', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); SAVE.acct = null; store(); ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; acctRender(); });
@@ -2701,10 +2725,10 @@ function acctWire() { const q = (s) => $('#acct ' + s), v = (s) => (q(s) ? q(s).
 }
 // au lancement : on récupère la dernière sauvegarde du compte (si un autre téléphone a joué entre-temps)
 setTimeout(async () => { acctInfo(); const o = $('#set-acct-open'); if (o) o.onclick = () => { AudioSys.sfx('click'); acctOpen(); };
-  if (!SAVE.acct) return; const r = await acctCall('load', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok });
-  if (r.ok && r.at > (SAVE.acct.at || 0) + 1000 && !(G.race && G.race.state !== 'attract')) { const tok = SAVE.acct.tok; r.tok = tok; const fidWas = SAVE.fid; ACU.applying = true; acctApply(r); ACU.applying = false; if (fidWas !== SAVE.fid) frRestart(); toast('Sauvegarde du compte récupérée.', 2500); if (SAVE.access && accessCheck(SAVE.access).ok && G.locked) gateHide(); }
-  else if (r.status === 401) { SAVE.acct = null; store(); toast('Reconnecte-toi à ton compte (Réglages > Compte).', 4000); }
+  acctPull(true);
   acctInfo(); }, 400);
+
+setTimeout(() => { try { acctTrack(); } catch (e) { /* rien */ } }, 0);   // photo de départ des réglages
 
 /* ================= v13 : mises à jour sans réinstaller ================= */
 // Le jeu regarde régulièrement s'il existe une nouvelle version sur le site. Si oui : bouton « Mettre à jour ».
@@ -6673,5 +6697,5 @@ $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 // accès pour les tests automatisés
-window.__TK = { CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
+window.__TK = { store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
 })();

@@ -2746,6 +2746,7 @@ const UPD = { remote: '', forced: false, el: null };
 (function updImport() { const m = /#import=([^&]+)/.exec(location.hash || ''); if (!m) return; try { history.replaceState(null, '', location.pathname); } catch (e) { /* rien */ }
   try { const txt = decodeURIComponent(escape(atob(decodeURIComponent(m[1])))); const d = JSON.parse(txt); const cur = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } })();
     if (d && typeof d === 'object' && !cur.fid && !cur.access) { localStorage.setItem(KEY, JSON.stringify(d)); location.reload(); } } catch (e) { /* rien */ } })();
+try { if (/[?&]maj=/.test(location.search)) history.replaceState(null, '', location.pathname + (window.TK_APP ? '?app=1' : '')); } catch (e) { /* rien */ }
 const racingNow = () => !!(G.race && ['race', 'countdown', 'intro'].includes(G.race.state) && !G.race.resultsShown);
 async function updCheck(quietIfSame) { if (BUILD !== 'pwa' || !window.TK_VER || location.hostname === 'localhost' && window.TK_APP) return;
   try { const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return; const j = await r.json(); UPD.remote = String(j.v || ''); } catch (e) { return; }
@@ -2755,9 +2756,10 @@ function updBanner() { if (UPD.el) { UPD.el.hidden = false; return; } const b = 
   b.onclick = () => { if (racingNow()) { toast('Après la course !', 1500); return; } updApply(); }; document.body.appendChild(b); UPD.el = b; }
 function updWhenFree() { if (racingNow()) { setTimeout(updWhenFree, 5000); return; } toast('Mise à jour du jeu…', 2000); setTimeout(updApply, 1200); }
 async function updApply() { try { if (typeof acctUpload === 'function' && SAVE.acct) await acctUpload(); } catch (e) { /* rien */ }
-  let done = false; const go = () => { if (done) return; done = true; location.reload(); };
-  try { if (navigator.serviceWorker) { navigator.serviceWorker.addEventListener('controllerchange', go); const reg = await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } } catch (e) { /* rien */ }
-  setTimeout(go, 4000); }
+  // on vide l'ancienne copie du jeu, puis on recharge la page toute fraîche (adresse unique : rien ne vient d'une ancienne copie)
+  try { if (window.caches) { for (const k of await caches.keys()) await caches.delete(k); } } catch (e) { /* rien */ }
+  try { if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister(); } catch (e) { /* rien */ }
+  const app = window.TK_APP ? 'app=1&' : ''; location.replace(location.pathname + '?' + app + 'maj=' + Date.now()); }
 // le chef a demandé une mise à jour pour tous
 function updForced(u) { if (!u || u <= (SAVE.updSeen || 0)) return; const first = !SAVE.updSeen; SAVE.updSeen = u; store(); if (first && !UPD.remote) { /* première liste vue : on vérifie quand même */ } UPD.forced = true; setTimeout(() => updCheck(), 500); }
 setTimeout(() => { updCheck(); setInterval(updCheck, 5 * 60e3); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updCheck(); }); }, 5000);

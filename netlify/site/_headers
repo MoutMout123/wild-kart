@@ -1,0 +1,5 @@
+/version.json
+  Access-Control-Allow-Origin: *
+  Cache-Control: no-store
+/sw.js
+  Cache-Control: no-cache

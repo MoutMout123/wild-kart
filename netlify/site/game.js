@@ -2606,9 +2606,9 @@ const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'calib', 'calibrated', 'qual
 const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false };
 async function acctCall(a, body) {
   const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, tm = setTimeout(() => ctl && ctl.abort(), 15000);
-  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ a }, body)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
+  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
     let j = {}; try { j = await r.json(); } catch (e) { /* rien */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status; return j; }
-  catch (e) { return { e: 'Pas de connexion au serveur des comptes.' }; } finally { clearTimeout(tm); } }
+  catch (e) { return { e: 'Pas de connexion au serveur des comptes (' + (e && e.name === 'AbortError' ? 'trop lent' : 'réseau') + ').' }; } finally { clearTimeout(tm); } }
 function acctPack() { const o = {}; for (const k in SAVE) if (!ACC_SKIP.has(k)) o[k] = SAVE[k]; return o; }
 // remplace les données du téléphone par celles du compte, puis relance le jeu
 function acctApply(r) { for (const k of Object.keys(SAVE)) if (!ACC_SKIP.has(k)) delete SAVE[k];

@@ -20,7 +20,7 @@ const KEY = 'tiltkart.v1';
 const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 60, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
   sens: 1, invert: false, calib: 0, calibrated: false, sound: true, music: true, quality: isTouch ? 'medium' : 'high', cc: 1, track: 0, records: {} };
 let SAVE = (() => { try { return Object.assign({}, DEFAULT_SAVE, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { return Object.assign({}, DEFAULT_SAVE); } })();
-function store() { try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { /* stockage indisponible */ } }
+function store() { try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { /* stockage indisponible */ } try { acctDirty(); } catch (e) { /* pas encore prêt */ } }
 
 /* ================= Données ================= */
 const BODIES = {
@@ -2045,26 +2045,40 @@ Object.assign(AudioSys, {
   // musique pré-calculée : la boucle complète est rendue une fois (hors temps réel) puis jouée en boucle.
   // Plus aucune note programmée pendant la course : le son ne coupe plus quand le téléphone est chargé.
   startMusic(spec) {
-    this.stopMusic(); if (!this.ctx || !spec) return; const tok = this.musTok, key = JSON.stringify(spec);
-    const play = (buf, wait) => { if (tok !== this.musTok || !this.ctx) return; if (this.seq) { clearInterval(this.seq); this.seq = null; }
-      try { const c = this.ctx, src = c.createBufferSource(), g = c.createGain(), t = c.currentTime + (wait || .05); src.buffer = buf; src.loop = true; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + .4); src.connect(g); g.connect(this.music); src.start(t); this.musSrc = src; } catch (e) { /* rien */ } };
-    this.musCache = this.musCache || new Map(); if (this.musCache.has(key)) { play(this.musCache.get(key)); return; }
-    // en attendant la boucle pré-calculée : musique jouée en direct, puis relais en douceur
+    // jamais de calcul lourd pendant la course : boucle déjà prête (calculée dans les menus) sinon musique en direct,
+    // jouée avec 1,5 s d'avance (ne coupe plus si le téléphone rame), puis relais en douceur au même endroit du morceau
+    this.stopMusic(); if (!this.ctx || !spec) return; const tok = this.musTok, key = JSON.stringify(spec), c = this.ctx, live0 = c.currentTime;
+    const play = (buf, fade) => { if (tok !== this.musTok || !this.ctx) return;
+      try { const src = c.createBufferSource(), g = c.createGain(), t = c.currentTime + .08, dur = buf.duration, off = fade ? (((t - live0) % dur) + dur) % dur : 0;
+        src.buffer = buf; src.loop = true; g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(1, t + (fade ? 1.2 : .3)); src.connect(g); g.connect(this.music); src.start(t, off); this.musSrc = src; if (fade) this.liveFade(t, 1.2); } catch (e) { /* rien */ } };
+    this.musCache = this.musCache || new Map(); if (this.musCache.has(key)) { play(this.musCache.get(key), false); return; }
     this.liveMusic(spec, 0, true);
-    this.musPend = this.musPend || {}; let pr = this.musPend[key]; if (!pr) { try { pr = this.renderMusic(spec); } catch (e) { pr = null; } if (!pr) return; this.musPend[key] = pr; pr.finally(() => { delete this.musPend[key]; }).catch(() => {}); }
-    pr.then((buf) => { this.musCache.set(key, buf); while (this.musCache.size > 2) this.musCache.delete(this.musCache.keys().next().value); play(buf, .9); }).catch(() => { /* on garde la musique en direct */ });
+    const pr = this.musPend && this.musPend[key]; if (pr) pr.then((buf) => play(buf, true)).catch(() => { /* on garde le direct */ });
   },
+  // calcul de la boucle à l'avance, dans les menus, un morceau à la fois
+  prewarmMusic(spec) {
+    if (!spec) return; const key = JSON.stringify(spec); this.musCache = this.musCache || new Map(); this.musPend = this.musPend || {};
+    if (this.musCache.has(key) || this.musPend[key]) return; if (Object.keys(this.musPend).length) { this.musNext = spec; return; }
+    let pr; try { pr = this.renderMusic(spec); } catch (e) { pr = null; } if (!pr) return; this.musPend[key] = pr;
+    pr.then((buf) => { this.musCache.set(key, buf); while (this.musCache.size > 4) this.musCache.delete(this.musCache.keys().next().value); }).catch(() => {}).finally(() => { delete this.musPend[key]; const n = this.musNext; this.musNext = null; if (n && !(G.race && G.race.state !== 'attract')) setTimeout(() => this.prewarmMusic(n), 300); });
+  },
+  liveFade(t, d) { if (this.seq) { clearInterval(this.seq); this.seq = null; } const L = this.liveBus; this.liveBus = null; if (!L) return; for (const b of L) { try { b.gain.setValueAtTime(b.gain.value, t); b.gain.linearRampToValueAtTime(0, t + d); } catch (e) { /* rien */ } } setTimeout(() => { for (const b of L) try { b.disconnect(); } catch (e) { /* rien */ } }, (t - this.ctx.currentTime + d) * 1000 + 2000); },
   renderMusic(spec) {
     const OC = window.OfflineAudioContext || window.webkitOfflineAudioContext; if (!OC) return null;
     const steps = 32 * 16, sd = 60 / spec.bpm / 4, sr = 22050, oc = new OC(1, Math.ceil((steps * sd + .1) * sr), sr);
-    const real = { ctx: this.ctx, music: this.music, musRev: this.musRev, master: this.master, sfxRev: this.sfxRev };
-    try { this.ctx = oc; const mus = oc.createGain(); mus.connect(oc.destination); const rv = oc.createConvolver(); rv.buffer = this.impulse(1.2, 2.8); const ro = oc.createGain(); ro.gain.value = 1.9; rv.connect(ro); ro.connect(oc.destination);
-      const mr = oc.createGain(); mr.gain.value = .32; mr.connect(rv); Object.assign(this, { music: mus, musRev: mr, master: mus, sfxRev: mr }); this.liveMusic(spec, steps); }
-    finally { Object.assign(this, real); }
+    const mus = oc.createGain(); mus.connect(oc.destination); const fake = { ctx: oc, music: mus, master: mus, musRev: null, sfxRev: null };
+    const inOc = (fn) => { const real = { ctx: this.ctx, music: this.music, musRev: this.musRev, master: this.master, sfxRev: this.sfxRev, liveBus: this.liveBus, seq: this.seq }; Object.assign(this, fake); try { return fn(); } finally { Object.assign(this, real); } };
+    const rv = oc.createConvolver(); inOc(() => { rv.buffer = this.impulse(1.2, 2.8); }); const ro = oc.createGain(); ro.gain.value = 1.9; rv.connect(ro); ro.connect(oc.destination);
+    const mr = oc.createGain(); mr.gain.value = .32; mr.connect(rv); fake.musRev = mr; fake.sfxRev = mr;
+    // les notes sont posées petit à petit pendant le calcul (pas de gros blocage du téléphone)
+    const CH = 32; const ctl = inOc(() => this.liveMusic(spec, steps, false, CH + 16));
+    try { if (typeof oc.suspend !== 'function') throw 0; for (let k = 1; k * CH < steps; k++) oc.suspend(k * CH * sd).then(() => { inOc(() => ctl.more((k + 1) * CH + 16)); oc.resume(); }); }
+    catch (e) { inOc(() => ctl.more(steps)); }
     return oc.startRendering();
   },
-  liveMusic(spec, offline, keep) {
-    if (!offline && !keep) this.stopMusic(); if (!this.ctx || !spec) return; const c = this.ctx, style = spec.style || 'pop', bpm = spec.bpm, sd = 60 / bpm / 4; let step = 0, next = c.currentTime + .12;
+  liveMusic(spec, offline, keep, lim0) {
+    if (!offline && !keep) this.stopMusic(); if (!this.ctx || !spec) return; const c = this.ctx, style = spec.style || 'pop', bpm = spec.bpm, sd = 60 / bpm / 4; let step = 0, next = c.currentTime + .12, lim = offline ? Math.min(lim0 || offline, offline) : 0;
+    let bus = null; if (!offline) { bus = [c.createGain(), c.createGain()]; bus[0].connect(this.music); bus[1].connect(this.musRev); this.liveBus = bus; }
     const m2f = (m) => 440 * Math.pow(2, (m - 69) / 12), root = spec.root, prog = spec.prog, rnd = seeded(bpm * 131 + root * 7 + prog.length);
     const minor = prog[0][1] - prog[0][0] === 3; const scale = minor ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11];
     // mélodie : un motif de 2 mesures, rejoué avec variations ; notes de l'accord sur les temps forts
@@ -2081,7 +2095,8 @@ Object.assign(AudioSys, {
     const tick = () => {
       if (!offline && c.state !== 'running') { if (document.visibilityState === 'visible') c.resume().catch(() => {}); return; }
       if (next < c.currentTime) { const miss = Math.ceil((c.currentTime + .12 - next) / sd); step += miss; next += miss * sd; }
-      while (offline ? step < offline : next < c.currentTime + .8) {
+      const m0 = this.music, r0 = this.musRev; if (bus) { this.music = bus[0]; this.musRev = bus[1]; }
+      try { while (offline ? step < lim : next < c.currentTime + 1.5) {
         const bar = Math.floor(step / 16), s = step % 16, sec = Math.floor(bar / 8) % 4, ch = prog[bar % prog.length], d = next - c.currentTime + (s % 2 ? S.swing * sd : 0), M = this.music;
         const full = sec === 1 || sec === 3, intro = sec === 0 && bar < 2, brk = sec === 2 && bar % 8 < 4;
         // batterie
@@ -2102,13 +2117,13 @@ Object.assign(AudioSys, {
         if (full) { const mt = motif[(bar % 2) * 16 + s]; if (mt) { const var2 = bar % 8 >= 4 && mt.pass ? 1 : 0; let mm; if (!mt.pass) mm = root + 12 + ch[mt.deg % 3]; else { const sc = scale[((mt.deg + var2) % 7 + 7) % 7]; mm = root + 12 + sc; }
           this.note(m2f(mm + 12), sd * mt.len * .95, { delay: d, vol: .045, osc: S.lead, cut: S.cut, vib: 12, dest: M, rel: .08, rev: .35, revBus: this.musRev }); } }
         step++; next += sd;
-      }
+      } } finally { this.music = m0; this.musRev = r0; }
     };
-    if (offline) { tick(); return; } this.seq = setInterval(tick, 120);
+    if (offline) { tick(); return { more: (n) => { lim = Math.min(n, offline); tick(); } }; } tick(); this.seq = setInterval(tick, 100);
   },
   kick(d, v = 1) { const c = this.ctx, t = c.currentTime + d, o = c.createOscillator(), g = c.createGain(); o.type = 'sine'; o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + .12); g.gain.setValueAtTime(.0001, t); g.gain.linearRampToValueAtTime(.5 * v, t + .004); g.gain.exponentialRampToValueAtTime(.001, t + .32); o.connect(g); g.connect(this.music); o.start(t); o.stop(t + .35); this.noise(.012, .08 * v, 3000, d, this.music, 1); },
   snare(d) { this.noise(.16, .16, 1900, d, this.music, .8); const c = this.ctx, t = c.currentTime + d, o = c.createOscillator(), g = c.createGain(); o.type = 'triangle'; o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(140, t + .08); g.gain.setValueAtTime(.12, t); g.gain.exponentialRampToValueAtTime(.001, t + .12); o.connect(g); g.connect(this.music); o.start(t); o.stop(t + .14); const r = c.createGain(); r.gain.value = .3; g.connect(r); r.connect(this.musRev); },
-  stopMusic() { this.musTok = (this.musTok || 0) + 1; if (this.seq) { clearInterval(this.seq); this.seq = null; } if (this.musSrc) { try { this.musSrc.stop(); } catch (e) { /* rien */ } this.musSrc = null; } },
+  stopMusic() { this.musTok = (this.musTok || 0) + 1; if (this.seq) { clearInterval(this.seq); this.seq = null; } if (this.liveBus && this.ctx) { const L = this.liveBus; this.liveBus = null; for (const b of L) { try { b.gain.setTargetAtTime(0, this.ctx.currentTime, .03); } catch (e) { /* rien */ } } setTimeout(() => { for (const b of L) try { b.disconnect(); } catch (e) { /* rien */ } }, 300); } if (this.musSrc) { try { this.musSrc.stop(); } catch (e) { /* rien */ } this.musSrc = null; } },
 });
 const P0 = { kick: [0, 8], snare: [4, 12], hat: 2, swing: 0, bass: 'oct', lead: [['square', -5, .5], ['square', 5, .5]], cut: 2600, pad: true };
 // style musical selon l'ambiance du circuit
@@ -2312,7 +2327,7 @@ function wkListParse(text, pk) { const m = /WKL\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-
 const CHEF = { s: 0, r: new Set(), b: new Set() };
 function chefListLoad() { const L = SAVE.chefList ? wkListParse(SAVE.chefList, WK_PK) : null; CHEF.s = L ? L.s : 0; CHEF.r = new Set(L ? L.r : []); CHEF.b = new Set(L ? L.b : []); }
 function chefListApply(text, quiet) { const L = wkListParse(text, WK_PK); if (!L || L.s <= CHEF.s) return false; SAVE.chefList = L.text; store(); chefListLoad(); if (!quiet) toast('Liste du chef mise à jour.', 2500); setTimeout(accessTick, 0); return true; }
-const chefBanned = () => typeof frMyId === 'function' && SAVE.fid && CHEF.b.has(SAVE.fid);
+const chefBanned = () => !!((SAVE.fid && CHEF.b.has(SAVE.fid)) || (SAVE.fidOld || []).some((x) => CHEF.b.has(x)));
 chefListLoad();
 function accessCheck(code) {
   let p = null; for (const c of wkParseAll(code)) { let ok = false; try { ok = typeof nacl !== 'undefined' && nacl.sign.detached.verify(c.msg, c.sig, WK_PK); } catch (e) { ok = false; } if (ok) { p = c; break; } }
@@ -2328,10 +2343,10 @@ const Gate = { el: null };
 function gateText(exp) { return 'Code valable jusqu\'au ' + new Date(exp).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + '.'; }
 function gateShow(why) {
   if (!Gate.el) { const d = document.createElement('div'); d.id = 'gate';
-    d.innerHTML = '<div class="gate-box"><h2>Wild Kart</h2><p>Entre le code d\'accès donné par le chef de partie.</p><textarea id="gate-in" rows="3" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="WK…"></textarea><p class="gate-msg" id="gate-msg"></p><p class="gate-fid">Ton identifiant ami : <b id="gate-fid"></b><br>Un ami qui a déjà le code peut te l\'envoyer depuis l\'écran Amis.</p><button class="btn ghost" id="gate-close"><span>Fermer</span></button> <button class="btn red" id="gate-ok"><span>Valider</span></button></div>';
+    d.innerHTML = '<div class="gate-box"><h2>Wild Kart</h2><p>Entre le code d\'accès donné par le chef de partie.</p><textarea id="gate-in" rows="3" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="WK…"></textarea><p class="gate-msg" id="gate-msg"></p><p class="gate-fid">Ton identifiant ami : <b id="gate-fid"></b><br>Un ami qui a déjà le code peut te l\'envoyer depuis l\'écran Amis.</p><button class="btn ghost" id="gate-close"><span>Fermer</span></button> <button class="btn ghost" id="gate-acct"><span>J\'ai un compte</span></button> <button class="btn red" id="gate-ok"><span>Valider</span></button></div>';
     document.body.appendChild(d); Gate.el = d;
     const go = () => { const v = $('#gate-in').value; const ca = chefActivate(v); if (ca === true) { gateHide(); chefButtons(); toast('Mode chef activé 👑 (bouton « Mode chef » dans le menu).', 4500); return; } if (typeof ca === 'string') { $('#gate-msg').textContent = ca; return; } const gotList = chefListApply(v, true); if (gotList && !/WK[0-9A-Z\s-]{100,}/i.test(v.replace(/WKL\.[A-Za-z0-9_.-]+/g, ''))) { $('#gate-msg').textContent = 'Liste du chef mise à jour.'; if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); return; } const r = accessCheck(v); if (r.ok) { SAVE.access = v.trim(); SAVE.accSeen = Math.max(Date.now(), SAVE.accSeen || 0); store(); gateHide(); toast(gateText(r.exp), 4000); } else { $('#gate-msg').textContent = r.why; } };
-    $('#gate-ok').onclick = go; $('#gate-close').onclick = () => { if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); }; $('#gate-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }); }
+    $('#gate-acct').onclick = () => acctOpen(SAVE.acct ? null : 'co'); $('#gate-ok').onclick = go; $('#gate-close').onclick = () => { if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); }; $('#gate-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }); }
   { const cl = $('#gate-close'); if (cl) cl.hidden = !(SAVE.access && accessCheck(SAVE.access).ok); }
   $('#gate-msg').textContent = why || ''; { const f = $('#gate-fid'); if (f && typeof frMyId === 'function') f.textContent = frMyId(); } Gate.el.hidden = false; G.locked = true; }
 function gateHide() { if (Gate.el) Gate.el.hidden = true; G.locked = false; accessInfo(); }
@@ -2365,13 +2380,38 @@ function frMe() { return { id: frMyId(), name: String(SAVE.name || 'Joueur').sli
 function frAddFriend(id, name) { if (!id || id === frMyId()) return false; const L = frList(); const f = L.find((x) => x.id === id); if (f) { if (name) f.name = name; store(); return false; } L.push({ id, name: name || id.split('-')[0] }); store(); return true; }
 // ---------- présence : on écoute les messages des amis ----------
 function frStart() {
-  if (BUILD !== 'pwa' || typeof Peer === 'undefined' || FR.peer) return; const me = frMyId();
-  try { FR.peer = new Peer(frPeerId(me), PEER_OPTS()); } catch (e) { FR.peer = null; return; }
-  FR.peer.on('open', () => { FR.open = true; FR.tries = 0; for (const g of grList()) grBeacon(g); frRender(); });
-  FR.peer.on('connection', (c) => { c.on('data', (d) => frOnData(c, d)); });
-  FR.peer.on('error', (e) => { if (e && e.type === 'unavailable-id') { /* jeu ouvert deux fois : on réessaiera */ } });
-  FR.peer.on('disconnected', () => { FR.open = false; try { FR.peer.reconnect(); } catch (e) { /* rien */ } });
-  FR.peer.on('close', () => { FR.open = false; FR.peer = null; if (FR.tries++ < 5) setTimeout(frStart, 8000); });
+  if (BUILD !== 'pwa' || typeof Peer === 'undefined' || FR.peer) return; let p;
+  try { p = new Peer(frPeerId(frMyId()), PEER_OPTS()); } catch (e) { return; } frAdopt(p, false);
+}
+function frAdopt(p, opened) { const gen = FR.gen = (FR.gen || 0) + 1; FR.peer = p; FR.open = false;
+  const onOpen = () => { if (gen !== FR.gen) return; FR.open = true; FR.tries = 0; for (const g of grList()) grBeacon(g); frRender(); };
+  if (opened) onOpen(); else p.on('open', onOpen);
+  p.on('connection', (c) => { if (gen === FR.gen) c.on('data', (d) => frOnData(c, d)); });
+  p.on('error', (e) => { if (e && e.type === 'unavailable-id') { /* jeu ouvert deux fois : on réessaiera */ } });
+  p.on('disconnected', () => { if (gen !== FR.gen) return; FR.open = false; try { p.reconnect(); } catch (e) { /* rien */ } });
+  p.on('close', () => { if (gen !== FR.gen) return; FR.open = false; FR.peer = null; if (FR.tries++ < 5) setTimeout(frStart, 8000); });
+}
+function frRestart() { const o = FR.peer; FR.gen = (FR.gen || 0) + 1; FR.peer = null; FR.open = false; try { o && o.destroy(); } catch (e) { /* rien */ } setTimeout(frStart, 300); }
+// ---------- changer son identifiant ami (s'il est libre) ----------
+function frRename(name, num, cb) {
+  const base = frSlug(name), old = frMyId(), n = /^\d{4}$/.test(String(num || '').trim()) ? String(num).trim() : old.split('-')[1];
+  if (base.length < 2) return cb('Au moins 2 lettres ou chiffres.'); const nid = base + '-' + n; if (nid === old) return cb('C\'est déjà ton identifiant.');
+  if (frList().some((f) => f.id === nid)) return cb('Pris : c\'est l\'identifiant d\'un de tes amis.');
+  if (BUILD !== 'pwa' || typeof Peer === 'undefined') return cb('Il faut une connexion internet.');
+  // 1) personne n'a un compte avec cet identifiant ; 2) personne ne l'utilise en ce moment
+  acctCall('fid', { fid: nid }).then((r) => { if (r.ok && r.free === false) return cb('Déjà pris par un autre joueur. Essaie un autre nom ou un autre numéro.');
+    let done = false, p; try { p = new Peer(frPeerId(nid), PEER_OPTS()); } catch (e) { return cb('Pas de connexion, réessaie.'); }
+    const fail = (m) => { if (done) return; done = true; try { p.destroy(); } catch (e) { /* rien */ } cb(m); };
+    p.on('error', (e) => fail(e && e.type === 'unavailable-id' ? 'Déjà pris par un joueur connecté. Essaie un autre nom ou un autre numéro.' : 'Pas de connexion, réessaie.'));
+    setTimeout(() => fail('Pas de réponse, réessaie.'), 12000);
+    p.on('open', async () => { if (done) return;
+      if (SAVE.acct) { const q = await acctCall('fid', { fid: nid, pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); if (!q.ok || !q.free) return fail(q.e || 'Déjà pris par un autre joueur.'); }
+      if (done) return; done = true;
+      SAVE.fidOld = [...new Set((SAVE.fidOld || []).concat([old]))].slice(-10); SAVE.fid = nid;
+      for (const g of grList()) { for (const m of g.members) if (m.id === old) m.id = nid; if (g.owner === old) g.owner = nid; } store();
+      const o = FR.peer; FR.gen++; try { o && o.destroy(); } catch (e) { /* rien */ } frAdopt(p, true);
+      const ids = new Set(frList().map((f) => f.id)); for (const g of grList()) for (const m of g.members) if (m.id !== nid) ids.add(m.id); for (const id of ids) frSend(id, { t: 'rename', old });
+      cb(null, nid); }); });
 }
 // envoi d'un message à un ami (connexion courte) ; cb(true) si livré
 function frSend(fid, msg, cb) {
@@ -2383,6 +2423,10 @@ function frOnData(c, d) {
   if (!d || typeof d !== 'object' || !d.from || typeof d.from.id !== 'string') return; const who = String(d.from.name || d.from.id).slice(0, 12), fid = frNorm(d.from.id) || d.from.id;
   if (d.cl) chefListApply(d.cl, true);
   FR.status.set(fid, true); { const f = frList().find((x) => x.id === fid); if (f && who && f.name !== who) { f.name = who; store(); } }
+  if (d.t === 'rename') { const o = frNorm(d.old); if (o && o !== fid) { const L = frList(), f = L.find((x) => x.id === o); if (f) { if (L.some((x) => x.id === fid)) SAVE.friends = L.filter((x) => x !== f); else { f.id = fid; f.name = who; } }
+      for (const g of grList()) { for (const m of g.members) if (m.id === o) m.id = fid; if (g.owner === o) g.owner = fid; } store();
+      if (typeof isChef === 'function' && isChef() && chefState().b.includes(o) && !chefState().b.includes(fid)) { chefState().b.push(fid); store(); chefPublish(); }
+      if (f) toast(who + ' a un nouvel identifiant : ' + fid, 3500); frRender(); } return; }
   if (d.t === 'hi') { if (frAddFriend(fid, who)) toast(who + ' t\'a ajouté en ami.', 3500); frRender(); }
   else if (d.t === 'inv' && /^[A-Z]{4}$/.test(String(d.code || ''))) frNotify(who + ' t\'invite dans sa partie en ligne (' + d.code + ').', 'Rejoindre', () => { show('online'); $('#on-code').value = d.code; netJoin(d.code); });
   else if (d.t === 'acc' && typeof d.code === 'string') { const r = accessCheck(d.code);
@@ -2425,7 +2469,8 @@ const FRU = { tab: 'amis', open: null };
 function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'friends') return; const me = frMyId(), L = frList(), Gs = grList(), inParty = !!(Net.peer && Net.code), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const st = (id) => FR.status.has(id) ? (FR.status.get(id) ? '<b class="on">en ligne</b>' : '<b class="off">hors ligne</b>') : '<b class="off">…</b>';
   let h = '<header class="sh-head"><button class="back" data-go="frback" aria-label="Retour">←</button><h2>Amis et groupes</h2></header>';
-  h += '<div class="group"><h3>Ton identifiant ami</h3><div class="set-row"><span><b class="fr-me">' + esc(me) + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. ' + (FR.open ? 'Connecté.' : 'Connexion…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div></div>';
+  h += '<div class="group"><h3>Ton identifiant ami</h3><div class="set-row"><span><b class="fr-me">' + esc(me) + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. ' + (FR.open ? 'Connecté.' : 'Connexion…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button><button class="btn sm ghost" id="fr-ren"><span>Changer</span></button></div>'
+    + (FRU.ren ? '<div class="fr-add"><input id="fr-rn" placeholder="Nouveau nom" maxlength="10" autocapitalize="characters" value="' + esc(me.split('-')[0]) + '"><input id="fr-rd" class="fr-num" placeholder="1234" maxlength="4" inputmode="numeric" value="' + esc(me.split('-')[1]) + '"><button class="btn sm red" id="fr-rok"><span>Vérifier</span></button></div><p class="hint" id="fr-rmsg">Tes amis et groupes sont prévenus tout seuls.</p>' : '') + '<div class="set-row"><small>' + (SAVE.acct ? 'Compte : ' + esc(SAVE.acct.u) : 'Pas de compte : crée-le pour tout retrouver sur un autre téléphone.') + '</small><button class="btn sm ghost" id="fr-acct"><span>' + (SAVE.acct ? 'Mon compte' : 'Créer un compte') + '</span></button></div></div>';
   h += '<div class="seg fr-tabs"><button data-t="amis" aria-pressed="' + (FRU.tab === 'amis') + '">Amis (' + L.length + ')</button><button data-t="groupes" aria-pressed="' + (FRU.tab === 'groupes') + '">Groupes (' + Gs.length + ')</button></div>';
   if (FRU.tab === 'amis') {
     h += '<div class="group"><h3>Ajouter un ami</h3><div class="fr-add"><input id="fr-new" placeholder="Identifiant (ex. LEA-4821)" autocomplete="off" autocapitalize="characters"><button class="btn sm red" id="fr-add"><span>Ajouter</span></button></div><p class="hint" id="fr-msg"></p></div>';
@@ -2446,6 +2491,10 @@ function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'fr
 function frCheckAll() { for (const f of frList()) frSend(f.id, { t: 'ping' }, () => frRender()); for (const g of grList()) for (const m of g.members) if (m.id !== frMyId() && !frList().some((f) => f.id === m.id)) frSend(m.id, { t: 'ping' }, () => frRender()); }
 function frWire() { const q = (s) => $('#fr-root ' + s), qa = (s) => [...document.querySelectorAll('#fr-root ' + s)];
   const cp = q('#fr-copy'); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(frMyId()); toast('Identifiant copié.', 1500); } catch (e) { toast(frMyId(), 3000); } };
+  const rn = q('#fr-ren'); if (rn) rn.onclick = () => { FRU.ren = !FRU.ren; frRender(); };
+  const ac = q('#fr-acct'); if (ac) ac.onclick = () => acctOpen();
+  const rok = q('#fr-rok'); if (rok) rok.onclick = () => { const m = q('#fr-rmsg'); m.textContent = 'Vérification…'; rok.disabled = true;
+    frRename(q('#fr-rn').value, q('#fr-rd').value, (e, nid) => { if (e) { const mm = $('#fr-rmsg'); if (mm) mm.textContent = e; const b = $('#fr-rok'); if (b) b.disabled = false; return; } FRU.ren = false; frRender(); toast('Nouvel identifiant : ' + nid, 3000); }); };
   qa('.fr-tabs button').forEach((b) => (b.onclick = () => { FRU.tab = b.dataset.t; frRender(); }));
   const add = q('#fr-add'); if (add) add.onclick = () => { const id = frNorm(q('#fr-new').value), msg = q('#fr-msg'); if (!id) { msg.textContent = 'L\'identifiant ressemble à LEA-4821.'; return; } if (id === frMyId()) { msg.textContent = 'C\'est ton propre identifiant.'; return; }
     frAddFriend(id, id.split('-')[0]); msg.textContent = 'Ajouté ! On le prévient…'; frSend(id, { t: 'hi' }, (ok) => { frRender(); toast(ok ? 'Ami ajouté, il a été prévenu.' : 'Ami ajouté. Il n\'a pas le jeu ouvert : il sera prévenu la prochaine fois que tu lui envoies quelque chose.', 4000); }); };
@@ -2508,6 +2557,7 @@ function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !==
   for (const x of c.codes.slice(0, 25)) { const p = wkParseAll(x.code)[0], id = p ? wkCodeId(p) : '', off = c.r.includes(id), live = x.exp > Date.now() && !off;
     h += '<div class="fr-row"><span><b class="' + (live ? 'on' : 'off') + '">' + (off ? 'annulé' : x.exp > Date.now() ? 'valable' : 'expiré') + '</b> <small>jusqu\'au ' + fmt(x.exp) + ' · ' + esc(x.code.slice(0, 10)) + '…</small></span><span class="fr-acts"><button class="btn sm ghost" data-rev="' + esc(id) + '"><span>' + (off ? 'Rétablir' : 'Annuler') + '</span></button><button class="btn sm ghost" data-redo="' + Math.max(1, Math.round((x.exp - x.at) / 3600e3)) + '"><span>Recréer</span></button></span></div>'; }
   h += '<div class="fr-add"><input id="ch-paste" placeholder="Annuler un autre code : colle-le ici"><button class="btn sm ghost" id="ch-revp"><span>Annuler</span></button></div></div>';
+  h += '<div class="group"><h3>Mot de passe oublié d\'un joueur</h3><p class="hint">Mets son pseudo de compte : tu obtiens un code (valable 24 h, une seule fois). Il le met dans Compte > « Oublié ? ».</p><div class="fr-add"><input id="ch-ru" placeholder="Pseudo du joueur" autocapitalize="off"><button class="btn sm red" id="ch-rmake"><span>Créer le code</span></button></div>' + (CHU.reset ? '<textarea rows="3" readonly class="ch-code" id="ch-rcode">' + esc(CHU.reset) + '</textarea><div class="row"><button class="btn sm" id="ch-rshare"><span>Partager</span></button></div>' : '') + '</div>';
   h += '<p class="hint">Les annulations et blocages partent tout seuls vers les jeux connectés (partie en ligne, amis, groupes) et se transmettent ensuite de jeu en jeu.</p>';
   root.innerHTML = h; chefWire(); }
 function chefWire() { const q = (s) => $('#chef-root ' + s), qa = (s) => [...document.querySelectorAll('#chef-root ' + s)];
@@ -2518,6 +2568,9 @@ function chefWire() { const q = (s) => $('#chef-root ' + s), qa = (s) => [...doc
   const cp = q('#ch-copy'); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(CHU.last); toast('Code copié.', 1500); } catch (e) { toast('Copie impossible : appui long sur le code.', 2500); } };
   const sf = q('#ch-friends'); if (sf) sf.onclick = () => { const ids = new Set(frList().map((f) => f.id)); for (const g of grList()) for (const m of g.members) if (m.id !== frMyId()) ids.add(m.id); let n = 0, left = ids.size; if (!left) { toast('Pas encore d\'amis ni de groupe.', 2000); return; }
     for (const id of ids) frSend(id, { t: 'acc', code: CHU.last }, (ok) => { if (ok) n++; if (--left === 0) toast('Code envoyé à ' + n + ' joueur' + (n > 1 ? 's' : '') + ' en ligne.', 3000); }); };
+  q('#ch-rmake').onclick = () => { const u = q('#ch-ru').value.trim(); if (!/^[A-Za-z0-9_-]{3,16}$/.test(u)) { toast('Pseudo : 3 à 16 lettres ou chiffres.', 2000); return; } const sk = chefSk(); if (!sk) return;
+    const body = new TextEncoder().encode(JSON.stringify({ u: u.toLowerCase(), e: Date.now() + 24 * 3600e3, n: wkHex(nacl.randomBytes(4)) })); CHU.reset = 'WKR.' + wkB64u(body) + '.' + wkB64u(nacl.sign.detached(body, sk)); CHU.resetU = u; chefRender(); };
+  const rs = q('#ch-rshare'); if (rs) rs.onclick = async () => { const t = 'Wild Kart : code pour changer ton mot de passe (compte ' + CHU.resetU + ', valable 24 h). Ouvre Compte > « Oublié ? » et colle :\n' + CHU.reset; if (navigator.share) { try { await navigator.share({ text: t }); } catch (e) { /* annulé */ } } else { try { await navigator.clipboard.writeText(t); toast('Copié.', 1500); } catch (e) { /* rien */ } } };
   const ban = (fid) => { const c = chefState(); c.b = c.b.includes(fid) ? c.b.filter((x) => x !== fid) : c.b.concat([fid]); store(); chefPublish(); chefRender(); };
   qa('[data-ban]').forEach((b) => (b.onclick = () => ban(b.dataset.ban)));
   q('#ch-banid').onclick = () => { const id = frNorm(q('#ch-fid').value); if (!id) { toast('L\'identifiant ressemble à LEA-4821.', 2000); return; } if (id === frMyId()) { toast('C\'est toi !', 1500); return; } if (!chefState().b.includes(id)) ban(id); };
@@ -2527,6 +2580,65 @@ function chefWire() { const q = (s) => $('#chef-root ' + s), qa = (s) => [...doc
   q('#ch-revp').onclick = () => { const v = q('#ch-paste').value; let p = null; for (const c of wkParseAll(v)) { try { if (nacl.sign.detached.verify(c.msg, c.sig, WK_PK)) { p = c; break; } } catch (e) { /* rien */ } } if (!p) { toast('Ce n\'est pas un code valable.', 2000); return; } const id = wkCodeId(p); if (!chefState().r.includes(id)) rev(id); toast('Code annulé.', 1500); };
 }
 function chefButtons() { const on = isChef(); document.querySelectorAll('.chef-only').forEach((e) => (e.hidden = !on)); }
+
+/* ================= v13 : compte (pseudo + mot de passe) : on retrouve tout sur n'importe quel téléphone ================= */
+// Le compte garde : identifiant ami, amis, groupes, code d'accès, kart, réglages de jeu, records. Sauvegarde automatique.
+const WK_API = window.TK_API || 'https://wild-kart-moutmout.netlify.app/api/compte';
+const ACC_SKIP = new Set(['acct', 'chefKey', 'uid', 'calib', 'calibrated', 'quality', 'fps', 'lastCode', 'lastCodeAt', 'showPerf', 'v']);
+const ACU = { tab: 'creer', busy: false, msg: '', rec: '', timer: 0, lastUp: 0, open: false };
+async function acctCall(a, body) {
+  const ctl = typeof AbortController !== 'undefined' ? new AbortController() : null, tm = setTimeout(() => ctl && ctl.abort(), 15000);
+  try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(Object.assign({ a }, body)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
+    let j = {}; try { j = await r.json(); } catch (e) { /* rien */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status; return j; }
+  catch (e) { return { e: 'Pas de connexion au serveur des comptes.' }; } finally { clearTimeout(tm); } }
+function acctPack() { const o = {}; for (const k in SAVE) if (!ACC_SKIP.has(k)) o[k] = SAVE[k]; return o; }
+// remplace les données du téléphone par celles du compte, puis relance le jeu
+function acctApply(r) { for (const k of Object.keys(SAVE)) if (!ACC_SKIP.has(k)) delete SAVE[k];
+  for (const k in DEFAULT_SAVE) if (!ACC_SKIP.has(k)) SAVE[k] = DEFAULT_SAVE[k]; Object.assign(SAVE, r.save || {}); if (r.fid) SAVE.fid = r.fid;
+  SAVE.acct = { u: r.pseudo, tok: r.tok, at: r.at || Date.now() }; store(); }
+// sauvegarde automatique (quelques secondes après un changement)
+function acctDirty() { if (!SAVE.acct || ACU.applying) return; clearTimeout(ACU.timer); ACU.timer = setTimeout(acctUpload, Math.max(4000, 20000 - (Date.now() - ACU.lastUp))); }
+async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const r = await acctCall('save', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, save: acctPack() });
+  if (r.ok) { SAVE.acct.at = r.at; ACU.applying = true; store(); ACU.applying = false; acctInfo(); } else if (r.status === 401) { toast('Ton compte s\'est déconnecté : reconnecte-toi (Réglages > Compte).', 5000); SAVE.acct = null; store(); acctInfo(); } return r; }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && SAVE.acct && ACU.timer) acctUpload(); });
+function acctInfo() { const t = SAVE.acct ? 'Connecté : ' + SAVE.acct.u + (SAVE.acct.at ? ' · sauvegardé ' + new Date(SAVE.acct.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '') : 'Pas de compte sur ce téléphone.';
+  const el = $('#set-acct'); if (el) el.textContent = t; }
+// ---------- fenêtre du compte (par-dessus tout, même l'écran du code) ----------
+function acctOpen(tab) { ACU.open = true; if (tab) ACU.tab = tab; ACU.msg = ''; let d = $('#acct'); if (!d) { d = document.createElement('div'); d.id = 'acct'; document.body.appendChild(d); } d.hidden = false; acctRender(); }
+function acctClose() { ACU.open = false; ACU.rec = ''; const d = $('#acct'); if (d) d.hidden = true; acctInfo(); }
+function acctRender() { const d = $('#acct'); if (!d || !ACU.open) return; const esc = (s) => String(s).replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[x]);
+  const inp = (id, ph, type) => '<input id="' + id + '" type="' + (type || 'text') + '" placeholder="' + ph + '" autocomplete="off" autocapitalize="off" spellcheck="false">';
+  let h = '<div class="gate-box acct-box"><h2>Mon compte</h2>';
+  if (ACU.rec) h += '<p><b>Compte prêt !</b> Garde ce code de secours (fais une capture d\'écran). Il sert si tu oublies ton mot de passe :</p><p class="acct-rec">' + esc(ACU.rec) + '</p><button class="btn red" id="ac-ok"><span>C\'est noté</span></button>';
+  else if (SAVE.acct) h += '<p>Connecté : <b>' + esc(SAVE.acct.u) + '</b><br><small>Identifiant ami ' + esc(frMyId()) + '. Tout se sauvegarde tout seul.</small></p><div class="acct-row"><button class="btn sm" id="ac-save"><span>Sauvegarder maintenant</span></button><button class="btn sm ghost" id="ac-out"><span>Se déconnecter</span></button></div>'
+    + '<details><summary>Changer de mot de passe</summary>' + inp('ac-old', 'Mot de passe actuel', 'password') + inp('ac-new', 'Nouveau mot de passe', 'password') + '<button class="btn sm" id="ac-pass"><span>Changer</span></button></details>';
+  else {
+    h += '<div class="seg acct-tabs"><button data-t="creer" aria-pressed="' + (ACU.tab === 'creer') + '">Créer</button><button data-t="co" aria-pressed="' + (ACU.tab === 'co') + '">Se connecter</button><button data-t="perdu" aria-pressed="' + (ACU.tab === 'perdu') + '">Oublié ?</button></div>';
+    if (ACU.tab === 'creer') h += '<p><small>Garde tes amis, ton code d\'accès, ton kart et tes records, même si tu changes de téléphone.</small></p>' + inp('ac-u', 'Pseudo (ex. Lea_92)') + inp('ac-p', 'Mot de passe (4 caractères ou plus)', 'password') + '<button class="btn red" id="ac-go"><span>Créer mon compte</span></button>';
+    else if (ACU.tab === 'co') h += '<p><small>Les données de ce téléphone seront remplacées par celles de ton compte.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-p', 'Mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Se connecter</span></button>';
+    else h += '<p><small>Mets ton code de secours, ou un code de réinitialisation demandé au chef.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-c', 'Code de secours ou code du chef') + inp('ac-p', 'Nouveau mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Réinitialiser</span></button>';
+  }
+  h += '<p class="gate-msg" id="ac-msg">' + esc(ACU.busy ? 'Un instant…' : ACU.msg) + '</p>' + (ACU.rec ? '' : '<button class="btn ghost" id="ac-close"><span>Fermer</span></button>') + '</div>';
+  d.innerHTML = h; acctWire(); }
+function acctWire() { const q = (s) => $('#acct ' + s), v = (s) => (q(s) ? q(s).value : '').trim();
+  document.querySelectorAll('#acct .acct-tabs button').forEach((b) => (b.onclick = () => { ACU.tab = b.dataset.t; ACU.msg = ''; acctRender(); }));
+  const cl = q('#ac-close'); if (cl) cl.onclick = acctClose;
+  const ok = q('#ac-ok'); if (ok) ok.onclick = () => { ACU.rec = ''; location.reload(); };
+  const busy = async (fn) => { if (ACU.busy) return; ACU.busy = true; acctRender(); let r; try { r = await fn(); } finally { ACU.busy = false; } if (r && r.e) ACU.msg = r.e; acctRender(); return r; };
+  const go = q('#ac-go'); if (go) go.onclick = () => { const u = v('#ac-u'), p = q('#ac-p').value, cd = v('#ac-c'); busy(async () => {
+    if (ACU.tab === 'creer') { const r = await acctCall('create', { pseudo: u, pass: p, fid: frMyId(), save: acctPack() }); if (r.ok) { const old = SAVE.fid; acctApply(r); ACU.rec = r.rec; if (old !== r.fid) frRestart(); toast('Compte créé.', 2500); acctRender(); } return r; }
+    if (ACU.tab === 'co') { const r = await acctCall('login', { pseudo: u, pass: p }); if (r.ok) { acctApply(r); toast('Connecté ! Le jeu se recharge…', 2000); setTimeout(() => location.reload(), 900); } return r; }
+    const r = await acctCall('reset', { pseudo: u, code: cd, pass: p }); if (r.ok) { acctApply(r); ACU.rec = r.rec; acctRender(); } return r; }); };
+  const sv = q('#ac-save'); if (sv) sv.onclick = () => busy(async () => { const r = await acctUpload(); if (r && r.ok) { ACU.msg = 'Sauvegardé.'; acctRender(); } return r; });
+  const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { await acctUpload(); await acctCall('logout', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); SAVE.acct = null; store(); ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; acctRender(); });
+  const pw = q('#ac-pass'); if (pw) pw.onclick = () => { const po = q('#ac-old').value, pn = q('#ac-new').value; busy(async () => { const r = await acctCall('pass', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, old: po, pass: pn }); if (r.ok) { SAVE.acct.tok = r.tok; store(); ACU.msg = 'Mot de passe changé.'; acctRender(); } return r; }); };
+}
+// au lancement : on récupère la dernière sauvegarde du compte (si un autre téléphone a joué entre-temps)
+setTimeout(async () => { acctInfo(); const o = $('#set-acct-open'); if (o) o.onclick = () => { AudioSys.sfx('click'); acctOpen(); };
+  if (!SAVE.acct) return; const r = await acctCall('load', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok });
+  if (r.ok && r.at > (SAVE.acct.at || 0) + 1000 && !(G.race && G.race.state !== 'attract')) { const tok = SAVE.acct.tok; r.tok = tok; const fidWas = SAVE.fid; ACU.applying = true; acctApply(r); ACU.applying = false; if (fidWas !== SAVE.fid) frRestart(); toast('Sauvegarde du compte récupérée.', 2500); if (SAVE.access && accessCheck(SAVE.access).ok && G.locked) gateHide(); }
+  else if (r.status === 401) { SAVE.acct = null; store(); toast('Reconnecte-toi à ton compte (Réglages > Compte).', 4000); }
+  acctInfo(); }, 400);
 
 /* ================= Entrées ================= */
 const Input = { keys: {}, pad: { left: false, right: false, drift: false, item: false }, itemEdge: false, tiltAngle: 0, tiltSeen: false, tiltSteer: 0, digSteer: 0, useTilt: false, listening: false };
@@ -2718,7 +2830,11 @@ function startAttract(ti) {
   }
   G.race = { state: 'attract', t: 0, timer: 0, cc: 1, player: null, order: [], camK: 4, camMode: 0, camT: 0, ti };
   camSnap = true; showHud(false);
+  setTimeout(() => musPrewarm(ti, 'auto'), 1500);
 }
+// calcule à l'avance la musique du prochain circuit (menus, salon en ligne)
+function musPrewarm(ti, mp) { if (!TRACKS[ti] || (G.race && G.race.state !== 'attract')) return; const o = RACE_OPTS.music; RACE_OPTS.music = mp || 'auto'; let sp = null; try { sp = musicSpec(TRACKS[ti]); } finally { RACE_OPTS.music = o; } AudioSys.prewarmMusic(sp); }
+function musPrewarmOnline() { const S = Net.settings || {}; if (!Net.inRace && S.track >= 0) musPrewarm(S.track, S.music); }
 
 /* ================= v6 : chemins multiples + relief ================= */
 function finishPath(P, closed) {
@@ -5455,12 +5571,12 @@ function netCreate() {
 function hostRelay(d, except) { for (const [id, c] of Net.conns) if (id !== except && c.open) { try { c.send(d); } catch (e) { /* connexion fermée */ } } }
 function hostBroadcast(d) { hostRelay(d, null); }
 function lobbyPlayers() { return Net.players.map((p) => ({ id: p.id, name: p.name, cfg: p.cfg, host: !!p.host, away: !!p.away, fid: p.fid || (p.host ? frMyId() : '') })); }
-function hostBroadcastLobby() { hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '' }); renderOnline(); }
+function hostBroadcastLobby() { musPrewarmOnline(); hostBroadcast({ t: 'lobby', players: lobbyPlayers(), settings: Net.settings, code: Net.code, inRace: Net.inRace, cl: SAVE.chefList || '' }); renderOnline(); }
 function hostOnData(conn, d) {
   if (!d || typeof d !== 'object') return;
   if (d.t === 'hello') {
     if (d.cl && chefListApply(d.cl, true)) { hostBroadcastLobby(); hostKickBanned(); }
-    if (d.fid && CHEF.b.has(String(d.fid))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
+    if ((d.fid && CHEF.b.has(String(d.fid))) || (Array.isArray(d.fo) && d.fo.some((x) => CHEF.b.has(String(x))))) { try { conn.send({ t: 'banned' }); } catch (e) { /* rien */ } setTimeout(() => conn.close(), 400); return; }
     const id = String(d.uid || conn.peer).slice(0, 40); Net.uidOf.set(conn.peer, id); Net.seen.set(id, performance.now());
     let p = Net.players.find((x) => x.id === id);
     if (p) { const was = p.away; p.away = 0; p.pid = conn.peer; p.name = String(d.name || p.name).slice(0, 10); p.cfg = cleanCfg(d.cfg); if (d.fid) p.fid = String(d.fid).slice(0, 20); clearTimeout(Net.drops.get(id)); Net.drops.delete(id); if (was) toast(p.name + ' est de retour !'); }
@@ -5513,7 +5629,7 @@ function clientConnect() {
   const c = peer.connect(NET_PREFIX + Net.code, { reliable: true, serialization: 'json' }); const old = Net.hc; Net.hc = c; if (old && old !== c) { try { old.close(); } catch (e) { /* rien */ } }
   const to = setTimeout(() => { if (!c.open && Net.hc === c && !Net.rejoining && !Net.lastHost) netFail({ type: 'peer-unavailable' }); }, 12000);
   c.on('open', () => {
-    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), cl: SAVE.chefList || '' });
+    if (Net.hc !== c) return; clearTimeout(to); Net.lastHost = performance.now(); c.send({ t: 'hello', name: SAVE.name || 'Joueur', cfg: myCfg(), uid: UID, fid: frMyId(), fo: SAVE.fidOld || [], cl: SAVE.chefList || '' });
     if (Net.rejoining) { Net.rejoining = false; clearTimeout(Net.rejoinT); toast('De retour dans la partie !', 2200); } else netStatus('Connecté !');
     SAVE.lastCode = Net.code; SAVE.lastCodeAt = Date.now(); store();
   });
@@ -5542,7 +5658,7 @@ function clientOnData(d) {
     case 'ping': if (d.r && d.r[Net.id] != null) Net.ping = d.r[Net.id]; if (Net.hc && Net.hc.open) { try { Net.hc.send({ t: 'pong', c: d.c }); } catch (e) { /* rien */ } } break;
     case 'busy': toast('La partie est pleine (8 joueurs).', 4500); netReset(); renderOnline(); break;
     case 'banned': toast('Le chef t\'a bloqué : impossible de rejoindre cette partie.', 5000); netReset(); renderOnline(); break;
-    case 'lobby': if (d.cl) chefListApply(d.cl, true); Net.players = d.players || []; Net.settings = Object.assign(Net.settings, d.settings || {}); if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings' && UI.screen !== 'chef') show('online'); renderOnline(); } chefRender(); break;
+    case 'lobby': if (d.cl) chefListApply(d.cl, true); Net.players = d.players || []; Net.settings = Object.assign(Net.settings, d.settings || {}); musPrewarmOnline(); if (!Net.inRace) { if (UI.screen !== 'calib' && !(UI.screen === 'mini' && MINI.cur) && UI.screen !== 'settings' && UI.screen !== 'chef') show('online'); renderOnline(); } chefRender(); break;
     case 'start': netStartRace(d); break;
     case 'resume': if (!(G.race && G.race.online && G.race.raceId === d.start.raceId)) { const m = Object.assign({}, d.start, { delay: (d.start.delay || 7000) - (d.elapsed || 0) }); netStartRace(m); } break;
     case 'sts': if (Array.isArray(d.l)) for (const s of d.l) if (s && s[0] !== Net.id) applyRemote(s); break;

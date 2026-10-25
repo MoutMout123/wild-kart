@@ -1,0 +1,147 @@
+WILD KART — mode d'emploi
+=========================
+
+L'APPLI (Android et iPhone)
+   - Le jeu est maintenant une vraie appli. Tout est expliqué pas à pas dans GUIDE-APPLI.txt,
+     dans le dossier wild-kart-app (fabriquer l'APK Android, l'installer sur l'iPhone ou via
+     TestFlight, mettre à jour, supprimer l'ancien site Netlify).
+   - Android : installe le fichier wild-kart.apk.
+   - iPhone : installe TestFlight depuis l'App Store, puis ouvre le lien d'invitation.
+
+CODE D'ACCÈS
+   - Au lancement, le jeu demande un code donné par le chef de partie (colle-le puis « Valider »).
+   - Le code marche jusqu'à sa date de fin, puis le jeu en redemande un. Réglages > « Changer de code ».
+   - Le chef peut annuler un code ou bloquer un joueur à tout moment : le jeu se verrouille alors.
+
+COMPTE (Réglages > Compte, ou « J'ai un compte » sur l'écran du code)
+   - « Créer » : choisis un pseudo et un mot de passe. Garde le code de secours affiché (capture d'écran).
+   - Tout est sauvegardé tout seul : identifiant ami, amis, groupes, code d'accès, kart, records.
+   - Nouveau téléphone ou appli réinstallée : « Se connecter » avec ton pseudo et ton mot de passe : tout revient.
+   - Mot de passe oublié : « Oublié ? » avec ton code de secours, ou demande un code au chef.
+
+AMIS ET GROUPES (écran d'accueil > « Amis et groupes »)
+   - Ton identifiant ami (ex. LEA-4821) est en haut : donne-le à tes amis.
+   - « Changer » : choisis un autre nom (et numéro). Le jeu vérifie qu'il est libre, et tes amis sont prévenus.
+   - Ajouter un ami : tape son identifiant > Ajouter. Il est prévenu et t'ajoute aussi.
+   - Inviter : crée une partie en ligne puis « Inviter » (ou « Inviter des amis » dans le salon) :
+     ton ami reçoit une notification « Rejoindre ».
+   - « Envoyer le code » : envoie ton code d'accès à un ami bloqué sur l'écran du code.
+   - Groupes : « Créer » (public ou privé avec mot de passe), puis donne le code G-XXXXXX.
+     Les autres le rejoignent avec ce code (et le mot de passe si privé). Dans le groupe :
+     inviter tout le groupe à ta partie, ou envoyer le code d'accès à tout le groupe.
+   - Tout passe directement entre téléphones : un message n'arrive que si l'ami a le jeu ouvert.
+
+JOUER EN LIGNE (tout le monde en même temps)
+   - Un joueur touche « Jouer en ligne » > « Créer une partie » et donne le code de 4 lettres.
+   - Les autres touchent « Jouer en ligne », tapent le code et « Go ».
+   - L'hôte choisit la musique pour tout le monde (onglet Course) : Auto, un style, ou « Ta musique
+     (Spotify…) » qui coupe la musique du jeu pour que chacun écoute la sienne.
+   - L'hôte choisit le circuit, la vitesse, les bots et leur niveau, le nombre de tours et les obstacles
+     (avec ou sans) dans l'onglet Course, et le mode de soirée dans l'onglet Soirée.
+   - Onglet Mini-jeux : choisis les thèmes des questions (un, plusieurs ou tout) et les cases de la roulette,
+     puis lance le mini-jeu : il s'affiche sur tous les téléphones, sans réglages pendant le jeu.
+   - Tu peux quitter l'appli (répondre à un message…) et revenir : tu te reconnectes tout seul,
+     au même endroit de la course. Les absents sont marqués « absent » dans le salon.
+   - Si l'appli a été fermée : « Revenir dans la partie XXXX » sur l'écran d'accueil.
+   - Marche le mieux sur le même Wi-Fi. En 4G, ça peut échouer sur certains réseaux.
+   - Sans réseau : « S'entraîner seul » sur l'écran d'accueil (course contre les bots).
+   - En solo, en bas de l'écran des circuits : niveau des bots (Facile à Expert), nombre de tours
+     (auto, 1, 2, 3 ou 5) et obstacles (avec ou sans).
+   - Course finie avant les autres ? « Regarder la course » sur l'écran des résultats :
+     tu suis les pilotes encore en piste (◀ ▶ pour changer), « Classement » pour revenir au tableau.
+
+COMMANDES (Réglages, aussi accessibles en pause)
+   - Joystick (par défaut) : glisse ton pouce gauche pour tourner. Tire vers le bas pour freiner.
+   - Accélération (Réglages) : « Auto », le kart avance tout seul, ou « Manuelle », tu gardes GAZ appuyé.
+     En manuelle, DRIFT accélère aussi : glisse ton pouce de GAZ vers DRIFT sans le lever.
+     Sur ordinateur : flèche haut (ou Z / W) pour accélérer.
+   - Inclinaison : penche le téléphone comme un volant (pense à calibrer).
+   - Boutons : flèches gauche et droite.
+   - DRIFT : garde-le appuyé dans les virages. Pendant le drift, tourne vers l'intérieur pour serrer
+     le virage, vers l'extérieur pour l'élargir. Étincelles bleues, puis orange, puis violettes :
+     relâche pour un turbo de plus en plus long.
+     Contre-braque franchement : le kart part de l'autre côté et le drift bascule dans l'autre sens
+     (le turbo déjà chargé est gardé).
+   - Départ turbo : appuie sur DRIFT (ou GAZ en mode manuel) juste avant le « GO ».
+   - Figure : appuie sur DRIFT pendant un saut (dos d'âne, planeur) pour un turbo à l'atterrissage.
+   - OBJET : lance ton bonus. FREIN : bouton dédié (inclinaison et boutons).
+     Reste appuyé sur FREIN à l'arrêt pour reculer (pratique contre un obstacle).
+
+CIRCUITS (25 circuits : 16 en 4 coupes de difficulté croissante, 5 XXL, 4 Remix)
+   - Chaque circuit a maintenant 2 ou 3 embranchements et plusieurs ambiances dans un même tour
+     (banquise, désert, forêt, cratères lunaires, coulée de lave, champ de fleurs, plage, quartier
+     néon). Chaque ambiance a son décor et change la conduite : glisse, sable qui freine, gravité
+     faible… Elle est annoncée à l'entrée.
+   - Les chemins sont vraiment différents :
+     « RISQUÉ » : route en hauteur plus courte, mais sans rebords (si tu tombes, le drone te repose) ;
+     chemin secret : un tunnel sans panneau (parfois sous l'eau) ; « HORS-PISTE » ;
+     « ROUTE DU HAUT ».
+   - Coupe Remix : Grand Plongeon et Cascades du Vertige (planer au-dessus de l'eau OU passer
+     sous l'eau), Tire-Bouchon Express (la route fait un tour complet sur elle-même, on roule
+     la tête en bas), Carrefour des Copains (deux routes qui s'ouvrent et se ferment à tour de rôle).
+   - Coupe Apéro (facile) : Prairie des Pique-Niqueurs, Plage du Coup de Soleil, Lagon Pina Colada,
+     Champs de la Sieste. Grandes courbes, premiers tremplins et premiers envols.
+   - Coupe Pousse-Café : Centre Commercial des Soldes, Ville Néon After, Safari Embouteillé,
+     Fête Foraine Barbe-à-Papa. Étages, pont au-dessus du carrefour, circulation, chemins alternatifs.
+   - Coupe Grand Frisson : Pic de la Glissade, Récif Tchin-Tchin, Canyon du Grand Saut,
+     Anneau Gravité Zéro. Virages relevés, loopings la tête en bas (anti-gravité), sous l'eau,
+     un huit avec un pont, grands envols.
+   - Coupe Gueule de Bois (difficile) : Forteresse du Barbecue Infernal, Flipper Extra-Bille,
+     Manoir de la Belle-Mère, Ruban Céleste du Dernier Verre (une seule course en 3 sections).
+   - Coupe After (XXL, circuits géants de 5 à 6 km) : Boum chez Tonton (maison géante),
+     Train Fou, Croisière Karaoké (3 sections), Festival Boum-Boum, Circuit Caméléon.
+     Le Circuit Caméléon change tout le temps : toutes les 40 s la piste devient banquise, désert
+     ou lune (la conduite change), la météo tourne et deux routes s'ouvrent et se ferment à tour
+     de rôle. Chaque changement est annoncé quelques secondes avant, et un chemin reste toujours ouvert.
+   - Chaque environnement change la conduite : glace et neige glissent, sable freine, sous l'eau on
+     flotte plus longtemps, vent sur les routes du ciel, gravité faible dans l'espace.
+   - Bords sans barrière (lave, douves, ciel) : si tu tombes, un drone te repose sur la piste.
+   - Pièges : jets de flammes ou de bulles (une lueur prévient avant), bumpers qui renvoient,
+     voitures, chariots et bus qui circulent, billes géantes qui dévalent la piste à contresens.
+   - Obstacles et boîtes changent de place à chaque course (même placement pour tout le monde en ligne).
+   - Chemins alternatifs : panneau « HORS-PISTE » = chemin de terre, panneau jaune = route étroite
+     ou passage secret (boutique, grotte, sas…). Entrée et sortie bien visibles.
+   - Planeurs : tu peux tourner en l'air. Tremplins à figures : appuie sur DRIFT en l'air.
+
+GARAGE
+   - 8 carrosseries (dont Sportive, Monster 4x4, Baignoire), 8 types de roues,
+     6 planeurs (Classique, Parapente, Papillon, Avion en papier, Parapluie, Chauve-souris),
+     pilotes, accessoires, couleurs, turbo. Chaque pièce change les statistiques.
+   - Planeur : plus sa jauge est haute, mieux on tourne en vol, mais on plane un peu moins vite.
+
+SOIRÉE (en ligne)
+   - Mode « Soirée » : les derniers boivent, les premiers distribuent. Variante « Gages ».
+   - Mode « Pari Pilote » (onglet Soirée, 3, 5 ou 8 manches) : course et questions mélangées.
+     1. Avant chaque course, chacun parie sur son téléphone : « Qui va finir dernier ? ».
+     2. La course.
+     3. Le verdict : points selon l'arrivée (10, 7, 5…), +3 pour les bons parieurs qui distribuent,
+        les mauvais parieurs boivent 1, le dernier tire une carte (question ou défi) et le vainqueur
+        désigne sur son téléphone quelqu'un qui doit répondre à une question.
+     À la fin : classement général, le champion distribue, le dernier porte un toast au champion.
+   - Plus de 1300 questions (Soft, Fun, Hot 18+, Je n'ai jamais, Tu préfères).
+     Le jeu retient celles déjà tirées : pas de répétition avant d'avoir tout vu.
+   - Roulette équilibrée : un peu de tout sur chaque roue, cases perso possibles.
+   - Chacun boit ce qu'il veut, et on garde de l'eau à côté.
+
+OBJETS (19, avec une rareté : la lueur autour de la case objet l'indique)
+   - Communs : Turbo, Flaque, Boule rebondissante, Bouclier, Pot de colle (flaque collante qui
+     ralentit fort pendant 1,5 s, sans faire tourner).
+   - Peu communs : Triple turbo, Mine, Aimant, Fantôme, Ressort (grand saut par-dessus les pièges),
+     Bulle (enferme le pilote juste devant toi), Aspirateur (vole l'objet du pilote juste devant,
+     sinon t'en donne un bon), Ventilo (rafale qui pousse et ralentit les karts autour de toi).
+   - Rares : Fusée, Confettis (gênent quelques secondes les pilotes juste devant toi),
+     Boule disco (onde qui renverse les karts proches et efface les pièges), Grappin (s'accroche
+     au kart devant et te tire vers lui).
+   - Très rares : Étoile, Éclair.
+   Vrai tirage au hasard selon la rareté, la même chance pour tout le monde quelle que soit la
+   place : 45 % communs, 32 % peu communs, 18 % rares, 5 % très rares. Presque jamais deux fois
+   de suite le même.
+
+SON : nouvelle musique pour chaque univers (pop, funk, house, latino, rock, ambiance spatiale…),
+   moteur qui passe les vitesses, crissements de drift, nouveaux bruitages. Volumes dans Réglages.
+
+FPS ET PING : Réglages > Afficher FPS et ping (en haut à gauche pendant la course).
+
+AFFICHAGE : Réglages > Fluidité 60 ou 30 images/s (30 = le téléphone chauffe moins),
+   Graphismes Bas / Moyen / Haut. Rendu plus réaliste : lumière et couleurs façon cinéma, relief sur
+   les routes et le sol (Moyen et Haut), ombres (Haut). Si ça rame, le jeu baisse tout seul la résolution.

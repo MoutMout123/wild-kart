@@ -13,8 +13,15 @@ CODE D'ACCÈS
    - Le code marche jusqu'à sa date de fin, puis le jeu en redemande un. Réglages > « Changer de code ».
    - Le chef peut annuler un code ou bloquer un joueur à tout moment : le jeu se verrouille alors.
 
+COMPTE (Réglages > Compte, ou « J'ai un compte » sur l'écran du code)
+   - « Créer » : choisis un pseudo et un mot de passe. Garde le code de secours affiché (capture d'écran).
+   - Tout est sauvegardé tout seul : identifiant ami, amis, groupes, code d'accès, kart, records.
+   - Nouveau téléphone ou appli réinstallée : « Se connecter » avec ton pseudo et ton mot de passe : tout revient.
+   - Mot de passe oublié : « Oublié ? » avec ton code de secours, ou demande un code au chef.
+
 AMIS ET GROUPES (écran d'accueil > « Amis et groupes »)
    - Ton identifiant ami (ex. LEA-4821) est en haut : donne-le à tes amis.
+   - « Changer » : choisis un autre nom (et numéro). Le jeu vérifie qu'il est libre, et tes amis sont prévenus.
    - Ajouter un ami : tape son identifiant > Ajouter. Il est prévenu et t'ajoute aussi.
    - Inviter : crée une partie en ligne puis « Inviter » (ou « Inviter des amis » dans le salon) :
      ton ami reçoit une notification « Rejoindre ».

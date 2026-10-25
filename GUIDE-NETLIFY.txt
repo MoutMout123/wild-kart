@@ -1,0 +1,18 @@
+WILD KART — METTRE LE SITE ET LES COMPTES SUR NETLIFY (une seule fois, depuis le téléphone)
+=========================================================================================
+
+Les comptes (pseudo + mot de passe) ont besoin d'un petit serveur. Il est déjà prêt dans GitHub.
+Il suffit de relier Netlify à GitHub :
+
+1. Va sur app.netlify.com (connecte-toi).
+2. « Add new project » > « Import an existing project » > « GitHub ».
+   Autorise Netlify, puis choisis le dépôt  wild-kart.
+3. Ne change rien aux réglages (ils sont déjà dans le dépôt) > « Deploy ».
+4. Quand c'est vert : « Project configuration » > « Change project name »
+   > écris exactement :  wild-kart-moutmout  > « Save ».
+   Ton jeu est alors sur  https://wild-kart-moutmout.netlify.app
+   (si ce nom est déjà pris, dis-moi le nom que tu as mis : je l'adapte dans le jeu).
+
+C'est tout. Ensuite chaque mise à jour du jeu arrive toute seule (plus besoin de glisser le zip).
+Tu peux supprimer ton ancien site Netlify, ou le garder : les comptes marchent depuis tous les jeux
+(site, appli Android, iPhone), car ils parlent tous à wild-kart-moutmout.netlify.app.

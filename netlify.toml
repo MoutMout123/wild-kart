@@ -1,0 +1,8 @@
+# Site Netlify de Wild Kart : le jeu + le serveur des comptes
+[build]
+  base = "netlify"
+  publish = "site"
+  command = "echo Wild Kart"
+
+[functions]
+  directory = "functions"

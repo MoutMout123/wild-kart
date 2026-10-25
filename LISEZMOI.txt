@@ -11,6 +11,7 @@ L'APPLI (Android et iPhone)
 CODE D'ACCÈS
    - Au lancement, le jeu demande un code donné par le chef de partie (colle-le puis « Valider »).
    - Le code marche jusqu'à sa date de fin, puis le jeu en redemande un. Réglages > « Changer de code ».
+   - Le chef peut annuler un code ou bloquer un joueur à tout moment : le jeu se verrouille alors.
 
 AMIS ET GROUPES (écran d'accueil > « Amis et groupes »)
    - Ton identifiant ami (ex. LEA-4821) est en haut : donne-le à tes amis.

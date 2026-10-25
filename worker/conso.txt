@@ -1,0 +1,17 @@
+période : 2026-10-24T20:59:40.659Z -> 2026-10-25T20:59:40.659Z  (limites gratuites : 100 000 requêtes/jour, D1 5 000 000 lignes lues et 100 000 écrites/jour)
+
+wild-kart-serveur-test : 158 requêtes en 24 h (0 erreurs)
+  10-25 19h UTC : 149
+  10-25 20h UTC : 9
+
+wild-kart-serveur : 2509 requêtes en 24 h (0 erreurs)
+  10-25 19h UTC : 795
+  10-25 20h UTC : 1714
+
+base wild-kart-test : 345 lignes lues, 118 lignes écrites (310 lectures, 98 écritures)
+  10-25 19h UTC : lues 337, écrites 111
+  10-25 20h UTC : lues 8, écrites 7
+
+base wild-kart : 6635 lignes lues, 2527 lignes écrites (4397 lectures, 2245 écritures)
+  10-25 19h UTC : lues 2211, écrites 623
+  10-25 20h UTC : lues 4424, écrites 1904

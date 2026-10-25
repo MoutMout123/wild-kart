@@ -1,8 +1,9 @@
-date: Sun Oct 25 20:04:25 UTC 2026
+date: Sun Oct 25 20:12:52 UTC 2026
 url: https://wild-kart-serveur.uncreeper5431.workers.dev
 ok: 1
 relais TURN : oui
 relais actif: 1
+mise en relation: {"reg":true,"send":true,"recu":1}
 réponse:
 {"ok":true,"free":true}
 deploy:
@@ -16,7 +17,7 @@ Binding                                                       Resource
 env.DB (wild-kart)                                            D1 Database               
 env.OLD_API ("https://wild-kart-moutmout.netlify.ap...")      Environment Variable      
 
-Uploaded wild-kart-serveur (2.33 sec)
-Deployed wild-kart-serveur triggers (0.39 sec)
+Uploaded wild-kart-serveur (2.17 sec)
+Deployed wild-kart-serveur triggers (0.50 sec)
   https://wild-kart-serveur.uncreeper5431.workers.dev
-Current Version ID: fc486232-a289-403e-8275-461f0415bbe2
+Current Version ID: 471e19da-1365-4c76-b597-76d7c6d97773

@@ -65,6 +65,8 @@ function locked(u) { const f = u.fails || { n: 0, t: 0 }; return f.n >= 8 && Dat
 function fail(u) { const f = u.fails && Date.now() - u.fails.t < 15 * 60e3 ? u.fails : { n: 0, t: 0 }; u.fails = { n: f.n + 1, t: Date.now() }; }
 const pub = (u, tok, rec) => ({ ok: true, pseudo: u.p, fid: u.fid, save: u.save || null, at: u.at || 0, tok, rec });
 
+// code d'accès valide (signé par le chef, pas expiré) : sert au serveur pour réserver le relais TURN aux vrais joueurs
+export function wkAccessOk(code, b) { if (b && b.a === 'ice' && b.sig && chefOk(b)) return true; try { const p = wkParseAll(String(code || '')).find((x) => { try { return nacl.sign.detached.verify(x.msg, x.sig, CHEF_PK); } catch (e) { return false; } }); return !!(p && p.exp > Date.now()); } catch (e) { return false; } }
 export default async (req) => {
   if (req.method === 'OPTIONS') return new Response('', { status: 204, headers: H });
   if (req.method !== 'POST') return err('Utilise POST.', 405);

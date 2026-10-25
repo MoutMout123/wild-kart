@@ -2368,9 +2368,9 @@ setTimeout(function accessInit() {
   accessInfo();
 }, 0);
 
-/* ================= v13 : amis et groupes (sans serveur : connexions directes entre téléphones) ================= */
+/* ================= v13 : amis et groupes (par le serveur : marche en 4G, Wi-Fi différents, appli ou site) ================= */
 // Chaque téléphone a un identifiant ami « NOM-1234 ». On ajoute un ami avec son identifiant, puis on peut lui envoyer
-// l'invitation à sa partie en ligne et le code d'accès. Les messages arrivent quand l'ami a le jeu ouvert.
+// l'invitation à sa partie en ligne et le code d'accès. Les messages attendent sur le serveur jusqu'à ce que l'ami ouvre le jeu.
 // Groupe : code « G-XXXXXX ». Public : n'importe qui ayant le code le rejoint. Privé : il faut aussi le mot de passe.
 const FR = { peer: null, open: false, status: new Map(), inbox: [], beacons: new Map(), tries: 0 };
 const frSlug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
@@ -2381,47 +2381,34 @@ const frList = () => (SAVE.friends = Array.isArray(SAVE.friends) ? SAVE.friends 
 const grList = () => (SAVE.groups = Array.isArray(SAVE.groups) ? SAVE.groups : []);
 function frMe() { return { id: frMyId(), name: String(SAVE.name || 'Joueur').slice(0, 12) }; }
 function frAddFriend(id, name) { if (!id || id === frMyId()) return false; const L = frList(); const f = L.find((x) => x.id === id); if (f) { if (name) f.name = name; store(); return false; } L.push({ id, name: name || id.split('-')[0] }); store(); return true; }
-// ---------- présence : on écoute les messages des amis ----------
-function frStart() {
-  if (BUILD !== 'pwa' || typeof Peer === 'undefined' || FR.peer) return; let p;
-  try { p = new Peer(frPeerId(frMyId()), PEER_OPTS()); } catch (e) { return; } frAdopt(p, false);
-}
-function frAdopt(p, opened) { const gen = FR.gen = (FR.gen || 0) + 1; FR.peer = p; FR.open = false;
-  const onOpen = () => { if (gen !== FR.gen) return; FR.open = true; FR.tries = 0; for (const g of grList()) grBeacon(g); frRender(); };
-  if (opened) onOpen(); else p.on('open', onOpen);
-  p.on('connection', (c) => { if (gen === FR.gen) c.on('data', (d) => frOnData(c, d)); });
-  p.on('error', (e) => { if (e && e.type === 'unavailable-id') { /* jeu ouvert deux fois : on réessaiera */ } });
-  p.on('disconnected', () => { if (gen !== FR.gen) return; FR.open = false; try { p.reconnect(); } catch (e) { /* rien */ } });
-  p.on('close', () => { if (gen !== FR.gen) return; FR.open = false; FR.peer = null; if (FR.tries++ < 5) setTimeout(frStart, 8000); });
-}
-function frRestart() { const o = FR.peer; FR.gen = (FR.gen || 0) + 1; FR.peer = null; FR.open = false; try { o && o.destroy(); } catch (e) { /* rien */ } setTimeout(frStart, 300); }
+// ---------- présence et messages : le jeu passe au serveur toutes les 20 secondes ----------
+function frStart() { if (FR.timer) return; FR.timer = setInterval(() => { if (document.visibilityState === 'visible') frPoll(); }, 20000); frPoll();
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') frPoll(); }); }
+function frRestart() { FR.since = 0; frPoll(); }
+const frIds = () => { const ids = new Set(frList().map((f) => f.id)); for (const g of grList()) for (const m of g.members) ids.add(m.id); ids.delete(frMyId()); return [...ids]; };
+async function frPoll() { if (FR.busy || typeof acctCall !== 'function') return; FR.busy = true;
+  try { const r = await acctCall('fpoll', { me: frMe(), since: FR.since || 0, ack: FR.since || 0, ids: frIds(), groups: grList().map((g) => g.code) });
+    if (!r.ok) { FR.open = false; frRender(); return; } FR.open = true;
+    for (const [id, t] of Object.entries(r.online || {})) FR.status.set(id, !!t && r.now - t < 90e3);
+    for (const [code, g] of Object.entries(r.groups || {})) { if (g) grMerge(g, true); else { const lg = grFind(code); if (lg && lg.owner === frMyId()) acctCall('gsave', { group: lg, me: frMe() }); } }   // ancien groupe (d'avant le serveur) : son créateur le remet en ligne
+    for (const m of r.msgs || []) { FR.since = Math.max(FR.since || 0, m.at); try { frOnData(null, m); } catch (e) { /* rien */ } }
+    frRender(); } finally { FR.busy = false; } }
 // ---------- changer son identifiant ami (s'il est libre) ----------
 function frRename(name, num, cb) {
   const base = frSlug(name), old = frMyId(), n = /^\d{4}$/.test(String(num || '').trim()) ? String(num).trim() : old.split('-')[1];
   if (base.length < 2) return cb('Au moins 2 lettres ou chiffres.'); const nid = base + '-' + n; if (nid === old) return cb('C\'est déjà ton identifiant.');
   if (frList().some((f) => f.id === nid)) return cb('Pris : c\'est l\'identifiant d\'un de tes amis.');
-  if (BUILD !== 'pwa' || typeof Peer === 'undefined') return cb('Il faut une connexion internet.');
-  // 1) personne n'a un compte avec cet identifiant ; 2) personne ne l'utilise en ce moment
-  acctCall('fid', { fid: nid }).then((r) => { if (r.ok && r.free === false) return cb('Déjà pris par un autre joueur. Essaie un autre nom ou un autre numéro.');
-    let done = false, p; try { p = new Peer(frPeerId(nid), PEER_OPTS()); } catch (e) { return cb('Pas de connexion, réessaie.'); }
-    const fail = (m) => { if (done) return; done = true; try { p.destroy(); } catch (e) { /* rien */ } cb(m); };
-    p.on('error', (e) => fail(e && e.type === 'unavailable-id' ? 'Déjà pris par un joueur connecté. Essaie un autre nom ou un autre numéro.' : 'Pas de connexion, réessaie.'));
-    setTimeout(() => fail('Pas de réponse, réessaie.'), 12000);
-    p.on('open', async () => { if (done) return;
-      if (SAVE.acct) { const q = await acctCall('fid', { fid: nid, pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); if (!q.ok || !q.free) return fail(q.e || 'Déjà pris par un autre joueur.'); }
-      if (done) return; done = true;
-      SAVE.fidOld = [...new Set((SAVE.fidOld || []).concat([old]))].slice(-10); SAVE.fid = nid;
-      for (const g of grList()) { for (const m of g.members) if (m.id === old) m.id = nid; if (g.owner === old) g.owner = nid; } store();
-      const o = FR.peer; FR.gen++; try { o && o.destroy(); } catch (e) { /* rien */ } frAdopt(p, true);
-      const ids = new Set(frList().map((f) => f.id)); for (const g of grList()) for (const m of g.members) if (m.id !== nid) ids.add(m.id); for (const id of ids) frSend(id, { t: 'rename', old });
-      cb(null, nid); }); });
+  // personne d'autre n'a pris cet identifiant (compte ou joueur vu ces 60 derniers jours)
+  acctCall('fid', { fid: nid }).then(async (r) => { if (!r.ok) return cb(r.e || 'Pas de connexion, réessaie.'); if (r.free === false) return cb('Déjà pris par un autre joueur. Essaie un autre nom ou un autre numéro.');
+    if (SAVE.acct) { const q = await acctCall('fid', { fid: nid, pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); if (!q.ok || !q.free) return cb(q.e || 'Déjà pris par un autre joueur.'); }
+    const ids = frIds(); SAVE.fidOld = [...new Set((SAVE.fidOld || []).concat([old]))].slice(-10); SAVE.fid = nid;
+    for (const g of grList()) { for (const m of g.members) if (m.id === old) m.id = nid; if (g.owner === old) g.owner = nid; acctCall('gren', { code: g.code, old, me: frMe() }); } store();
+    frSendMany(ids, { t: 'rename', old }); frPoll(); cb(null, nid); });
 }
-// envoi d'un message à un ami (connexion courte) ; cb(true) si livré
-function frSend(fid, msg, cb) {
-  if (!FR.peer || !FR.open) { cb && cb(false); return; } let done = false; const fin = (ok) => { if (done) return; done = true; FR.status.set(fid, ok); cb && cb(ok); setTimeout(() => { try { c.close(); } catch (e) { /* rien */ } }, 1500); };
-  let c; try { c = FR.peer.connect(frPeerId(fid), { reliable: true }); } catch (e) { fin(false); return; }
-  c.on('open', () => { try { c.send(Object.assign({ from: frMe(), cl: SAVE.chefList || '' }, msg)); fin(true); } catch (e) { fin(false); } }); c.on('error', () => fin(false)); setTimeout(() => fin(false), 6000);
-}
+// envoi d'un message (gardé sur le serveur jusqu'à ce que l'ami ouvre le jeu) ; cb(ok, enLigne)
+function frSendMany(ids, msg, cb) { ids = ids.filter((x) => x && x !== frMyId()); if (!ids.length) { cb && cb(false, {}); return; }
+  acctCall('fsend', { from: frMe(), to: ids, msg: Object.assign({ cl: SAVE.chefList || '' }, msg) }).then((r) => { if (r.ok) for (const [id, on] of Object.entries(r.online || {})) FR.status.set(id, on); cb && cb(!!r.ok, r.online || {}); frRender(); }); }
+function frSend(fid, msg, cb) { if (msg && msg.t === 'ping') { cb && cb(true); return; } frSendMany([fid], msg, (ok, on) => cb && cb(ok, !!on[fid])); }
 function frOnData(c, d) {
   if (!d || typeof d !== 'object' || !d.from || typeof d.from.id !== 'string') return; const who = String(d.from.name || d.from.id).slice(0, 12), fid = frNorm(d.from.id) || d.from.id;
   if (d.cl) chefListApply(d.cl, true);
@@ -2436,7 +2423,6 @@ function frOnData(c, d) {
     if (r.ok) { SAVE.access = d.code.trim(); SAVE.accSeen = Math.max(Date.now(), SAVE.accSeen || 0); store(); gateHide(); toast(who + ' t\'a envoyé un code d\'accès. ' + gateText(r.exp), 5000); }
     else toast(who + ' t\'a envoyé un code d\'accès qui ne marche pas : ' + r.why, 5000); }
   else if (d.t === 'gsync' && d.group) grMerge(d.group);
-  else if (d.t === 'gjoin' || d.t === 'gask') grOnJoin(c, d);
 }
 // notification avec un bouton (invitation)
 function frNotify(text, label, fn) { let el = $('#fr-note'); if (!el) { el = document.createElement('div'); el.id = 'fr-note'; document.body.appendChild(el); }
@@ -2446,33 +2432,22 @@ function frNotify(text, label, fn) { let el = $('#fr-note'); if (!el) { el = doc
 // ---------- groupes ----------
 function grCode() { const A = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; let s = 'G-'; for (let i = 0; i < 6; i++) s += A[Math.floor(Math.random() * A.length)]; return s; }
 function grFind(code) { return grList().find((g) => g.code === code); }
-function grMerge(g0) { if (!g0 || !/^G-[A-Z0-9]{6}$/.test(g0.code)) return; let g = grFind(g0.code); const me = frMyId();
-  if (!g) { if (!(g0.members || []).some((m) => m.id === me)) return; g = { code: g0.code, name: String(g0.name || 'Groupe').slice(0, 24), public: !!g0.public, pass: String(g0.pass || ''), owner: g0.owner, members: [] }; grList().push(g); toast('Tu fais partie du groupe « ' + g.name + ' ».', 3500); }
-  for (const m of g0.members || []) if (m && typeof m.id === 'string' && !g.members.some((x) => x.id === m.id)) g.members.push({ id: m.id, name: String(m.name || m.id).slice(0, 12) });
-  if (g0.owner === g.owner) { g.public = !!g0.public; g.pass = String(g0.pass || ''); g.name = String(g0.name || g.name).slice(0, 24); }
-  store(); grBeacon(g); frRender(); }
-// la « balise » du groupe : le premier membre en ligne répond à ceux qui veulent rejoindre
-function grBeacon(g) { if (BUILD !== 'pwa' || typeof Peer === 'undefined' || FR.beacons.has(g.code)) return; let p; try { p = new Peer('wkg-' + g.code.toLowerCase(), PEER_OPTS()); } catch (e) { return; }
-  FR.beacons.set(g.code, p); p.on('connection', (c) => c.on('data', (d) => frOnData(c, d)));
-  p.on('error', () => { FR.beacons.delete(g.code); try { p.destroy(); } catch (e) { /* rien */ } setTimeout(() => { if (grFind(g.code)) grBeacon(g); }, 60e3); }); }
-function grOnJoin(c, d) { const g = grFind(String(d.code || '')); const reply = (m) => { try { c.send(Object.assign({ from: frMe() }, m)); } catch (e) { /* rien */ } };
-  if (!g) { reply({ t: 'gno', why: 'Groupe introuvable.' }); return; }
-  if (d.t === 'gask') { reply({ t: 'ginfo', name: g.name, public: g.public }); return; }
-  if (!g.public && String(d.pass || '') !== g.pass) { reply({ t: 'gno', why: 'Mot de passe incorrect.' }); return; }
-  const fid = frNorm(d.from.id) || d.from.id; if (!g.members.some((m) => m.id === fid)) g.members.push({ id: fid, name: String(d.from.name || fid).slice(0, 12) }); store();
-  reply({ t: 'gok', group: g }); for (const m of g.members) if (m.id !== frMyId() && m.id !== fid) frSend(m.id, { t: 'gsync', group: g }); frRender(); toast(String(d.from.name || fid) + ' a rejoint « ' + g.name + ' ».', 3500); }
+function grMerge(g0, fromServer) { if (!g0 || !/^G-[A-Z0-9]{6}$/.test(g0.code)) return; let g = grFind(g0.code); const me = frMyId();
+  if (!g) { if (!(g0.members || []).some((m) => m.id === me)) return; g = { code: g0.code, name: String(g0.name || 'Groupe').slice(0, 24), public: !!g0.public, pass: '', owner: g0.owner, members: [] }; grList().push(g); toast('Tu fais partie du groupe « ' + g.name + ' ».', 3500); }
+  const before = g.members.map((m) => m.id).join(','); g.members = (g0.members || []).filter((m) => m && typeof m.id === 'string').map((m) => ({ id: m.id, name: String(m.name || m.id).slice(0, 12) }));
+  g.name = String(g0.name || g.name).slice(0, 24); g.public = !!g0.public; g.owner = g0.owner;
+  if (fromServer && before && before !== g.members.map((m) => m.id).join(',')) { const nw = g.members.filter((m) => !before.split(',').includes(m.id) && m.id !== me); for (const m of nw) toast(m.name + ' a rejoint « ' + g.name + ' ».', 3000); }
+  store(); frRender(); }
+function grBeacon() { /* plus besoin : les groupes sont sur le serveur */ }
 function grJoin(code, pass, cb) { code = String(code || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); if (code.startsWith('G')) code = code.slice(1); code = 'G-' + code.slice(0, 6);
-  if (!/^G-[A-Z0-9]{6}$/.test(code)) { cb('Le code de groupe ressemble à G-ABC123.'); return; } if (!FR.peer || !FR.open) { cb('Pas de connexion pour l\'instant, réessaie.'); return; }
-  let done = false; const fin = (m) => { if (done) return; done = true; cb(m); setTimeout(() => { try { c.close(); } catch (e) { /* rien */ } }, 1500); };
-  const c = FR.peer.connect('wkg-' + code.toLowerCase(), { reliable: true });
-  c.on('open', () => c.send({ t: 'gjoin', code, pass, from: frMe() })); c.on('data', (d) => { if (d && d.t === 'gok') { const me = frMyId(); if (!d.group.members.some((m) => m.id === me)) d.group.members.push(frMe()); grMerge(d.group); for (const m of d.group.members) frAddFriend(m.id, m.name); fin(''); } else if (d && d.t === 'gno') fin(d.why || 'Refusé.'); });
-  c.on('error', () => fin('Personne de ce groupe n\'est en ligne pour l\'instant.')); setTimeout(() => fin('Personne de ce groupe n\'est en ligne pour l\'instant.'), 8000); }
+  if (!/^G-[A-Z0-9]{6}$/.test(code)) { cb('Le code de groupe ressemble à G-ABC123.'); return; }
+  acctCall('gjoin', { code, pass, me: frMe() }).then((r) => { if (!r.ok) { cb(r.e || 'Pas de connexion, réessaie.'); return; } grMerge(r.group); for (const m of r.group.members) frAddFriend(m.id, m.name); frSendMany(r.group.members.map((m) => m.id), { t: 'hi' }); cb(''); }); }
 // ---------- écran Amis ----------
 const FRU = { tab: 'amis', open: null };
 function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'friends') return; const me = frMyId(), L = frList(), Gs = grList(), inParty = !!(Net.peer && Net.code), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const st = (id) => FR.status.has(id) ? (FR.status.get(id) ? '<b class="on">en ligne</b>' : '<b class="off">hors ligne</b>') : '<b class="off">…</b>';
   let h = '<header class="sh-head"><button class="back" data-go="frback" aria-label="Retour">←</button><h2>Amis et groupes</h2></header>';
-  h += '<div class="group"><h3>Ton identifiant ami</h3><div class="set-row"><span><b class="fr-me">' + esc(me) + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. ' + (FR.open ? 'Connecté.' : 'Connexion…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button><button class="btn sm ghost" id="fr-ren"><span>Changer</span></button></div>'
+  h += '<div class="group"><h3>Ton identifiant ami</h3><div class="set-row"><span><b class="fr-me">' + esc(me) + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. ' + (FR.open ? 'Connecté.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button><button class="btn sm ghost" id="fr-ren"><span>Changer</span></button></div>'
     + (FRU.ren ? '<div class="fr-add"><input id="fr-rn" placeholder="Nouveau nom" maxlength="10" autocapitalize="characters" value="' + esc(me.split('-')[0]) + '"><input id="fr-rd" class="fr-num" placeholder="1234" maxlength="4" inputmode="numeric" value="' + esc(me.split('-')[1]) + '"><button class="btn sm red" id="fr-rok"><span>Vérifier</span></button></div><p class="hint" id="fr-rmsg">Tes amis et groupes sont prévenus tout seuls.</p>' : '') + '<div class="set-row"><small>' + (SAVE.acct ? 'Compte : ' + esc(SAVE.acct.u) : 'Pas de compte : crée-le pour tout retrouver sur un autre téléphone.') + '</small><button class="btn sm ghost" id="fr-acct"><span>' + (SAVE.acct ? 'Mon compte' : 'Créer un compte') + '</span></button></div></div>';
   h += '<div class="seg fr-tabs"><button data-t="amis" aria-pressed="' + (FRU.tab === 'amis') + '">Amis (' + L.length + ')</button><button data-t="groupes" aria-pressed="' + (FRU.tab === 'groupes') + '">Groupes (' + Gs.length + ')</button></div>';
   if (FRU.tab === 'amis') {
@@ -2491,7 +2466,7 @@ function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'fr
       h += '</div>'; }
   }
   root.innerHTML = h; frWire(); }
-function frCheckAll() { for (const f of frList()) frSend(f.id, { t: 'ping' }, () => frRender()); for (const g of grList()) for (const m of g.members) if (m.id !== frMyId() && !frList().some((f) => f.id === m.id)) frSend(m.id, { t: 'ping' }, () => frRender()); }
+function frCheckAll() { frPoll(); }
 function frWire() { const q = (s) => $('#fr-root ' + s), qa = (s) => [...document.querySelectorAll('#fr-root ' + s)];
   const cp = q('#fr-copy'); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(frMyId()); toast('Identifiant copié.', 1500); } catch (e) { toast(frMyId(), 3000); } };
   const rn = q('#fr-ren'); if (rn) rn.onclick = () => { FRU.ren = !FRU.ren; frRender(); };
@@ -2500,19 +2475,21 @@ function frWire() { const q = (s) => $('#fr-root ' + s), qa = (s) => [...documen
     frRename(q('#fr-rn').value, q('#fr-rd').value, (e, nid) => { if (e) { const mm = $('#fr-rmsg'); if (mm) mm.textContent = e; const b = $('#fr-rok'); if (b) b.disabled = false; return; } FRU.ren = false; frRender(); toast('Nouvel identifiant : ' + nid, 3000); }); };
   qa('.fr-tabs button').forEach((b) => (b.onclick = () => { FRU.tab = b.dataset.t; frRender(); }));
   const add = q('#fr-add'); if (add) add.onclick = () => { const id = frNorm(q('#fr-new').value), msg = q('#fr-msg'); if (!id) { msg.textContent = 'L\'identifiant ressemble à LEA-4821.'; return; } if (id === frMyId()) { msg.textContent = 'C\'est ton propre identifiant.'; return; }
-    frAddFriend(id, id.split('-')[0]); msg.textContent = 'Ajouté ! On le prévient…'; frSend(id, { t: 'hi' }, (ok) => { frRender(); toast(ok ? 'Ami ajouté, il a été prévenu.' : 'Ami ajouté. Il n\'a pas le jeu ouvert : il sera prévenu la prochaine fois que tu lui envoies quelque chose.', 4000); }); };
+    frAddFriend(id, id.split('-')[0]); msg.textContent = 'Ajouté ! On le prévient…'; frSend(id, { t: 'hi' }, (ok) => { frRender(); toast(ok ? 'Ami ajouté, il est prévenu (dès qu\'il ouvre le jeu).' : 'Ami ajouté, mais pas de connexion au serveur.', 4000); }); };
   qa('[data-del]').forEach((b) => (b.onclick = () => { SAVE.friends = frList().filter((f) => f.id !== b.dataset.del); store(); frRender(); }));
   const accCode = () => SAVE.access && accessCheck(SAVE.access).ok ? SAVE.access : null;
-  qa('[data-inv]').forEach((b) => (b.onclick = () => frSend(b.dataset.inv, { t: 'inv', code: Net.code }, (ok) => toast(ok ? 'Invitation envoyée.' : 'Ton ami n\'a pas le jeu ouvert.', 2500))));
-  qa('[data-acc]').forEach((b) => (b.onclick = () => { const c = accCode(); if (!c) { toast('Tu n\'as pas de code valide à envoyer.', 2500); return; } frSend(b.dataset.acc, { t: 'acc', code: c }, (ok) => toast(ok ? 'Code d\'accès envoyé.' : 'Ton ami n\'a pas le jeu ouvert.', 2500)); }));
+  qa('[data-inv]').forEach((b) => (b.onclick = () => frSend(b.dataset.inv, { t: 'inv', code: Net.code }, (ok, on) => toast(!ok ? 'Pas de connexion au serveur.' : on ? 'Invitation envoyée.' : 'Invitation envoyée (il la verra en ouvrant le jeu).', 2500))));
+  qa('[data-acc]').forEach((b) => (b.onclick = () => { const c = accCode(); if (!c) { toast('Tu n\'as pas de code valide à envoyer.', 2500); return; } frSend(b.dataset.acc, { t: 'acc', code: c }, (ok, on) => toast(!ok ? 'Pas de connexion au serveur.' : on ? 'Code d\'accès envoyé.' : 'Code envoyé : il le recevra en ouvrant le jeu.', 2500)); }));
   qa('#gr-kind button').forEach((b) => (b.onclick = () => { FRU.kind = b.dataset.k; frRender(); }));
   const mk = q('#gr-make'); if (mk) mk.onclick = () => { const name = (q('#gr-name').value || '').trim().slice(0, 24) || 'Mon groupe', priv = FRU.kind === 'priv', pass = priv ? (q('#gr-pass') && q('#gr-pass').value.trim()) || '' : '';
-    if (priv && pass.length < 3) { toast('Choisis un mot de passe d\'au moins 3 caractères.', 2500); return; } const g = { code: grCode(), name, public: !priv, pass, owner: frMyId(), members: [frMe()] }; grList().push(g); store(); grBeacon(g); FRU.open = g.code; frRender(); toast('Groupe créé : ' + g.code, 3000); };
+    if (priv && pass.length < 3) { toast('Choisis un mot de passe d\'au moins 3 caractères.', 2500); return; } const g = { code: grCode(), name, public: !priv, pass, owner: frMyId(), members: [frMe()] }; acctCall('gsave', { group: g, me: frMe() }).then((r) => { if (!r.ok) { toast(r.e || 'Pas de connexion au serveur.', 3000); return; } grList().push(g); store(); FRU.open = g.code; frRender(); toast('Groupe créé : ' + g.code, 3000); }); };
   const jn = q('#gr-join'); if (jn) jn.onclick = () => { const m = q('#gr-msg'); m.textContent = 'Connexion au groupe…'; grJoin(q('#gr-code').value, q('#gr-jpass').value, (why) => { const m2 = q('#gr-msg'); if (why) { if (m2) m2.textContent = why; } else { frRender(); toast('Bienvenue dans le groupe !', 2500); } }); };
   qa('[data-gopen]').forEach((b) => (b.onclick = () => { FRU.open = FRU.open === b.dataset.gopen ? null : b.dataset.gopen; frRender(); if (FRU.open) frCheckAll(); }));
-  qa('[data-ginv]').forEach((b) => (b.onclick = () => { const g = grFind(b.dataset.ginv); let n = 0, left = 0; for (const m of g.members) if (m.id !== frMyId()) { left++; frSend(m.id, { t: 'inv', code: Net.code }, (ok) => { if (ok) n++; if (--left === 0) toast(n + ' invitation' + (n > 1 ? 's' : '') + ' envoyée' + (n > 1 ? 's' : '') + '.', 2500); }); } if (!left) toast('Personne d\'autre dans le groupe.', 2000); }));
-  qa('[data-gacc]').forEach((b) => (b.onclick = () => { const c = accCode(); if (!c) { toast('Tu n\'as pas de code valide à envoyer.', 2500); return; } const g = grFind(b.dataset.gacc); let n = 0, left = 0; for (const m of g.members) if (m.id !== frMyId()) { left++; frSend(m.id, { t: 'acc', code: c }, (ok) => { if (ok) n++; if (--left === 0) toast('Code envoyé à ' + n + ' membre' + (n > 1 ? 's' : '') + ' en ligne.', 2500); }); } if (!left) toast('Personne d\'autre dans le groupe.', 2000); }));
-  qa('[data-gquit]').forEach((b) => (b.onclick = () => { SAVE.groups = grList().filter((g) => g.code !== b.dataset.gquit); store(); const p = FR.beacons.get(b.dataset.gquit); if (p) { try { p.destroy(); } catch (e) { /* rien */ } FR.beacons.delete(b.dataset.gquit); } FRU.open = null; frRender(); }));
+  qa('[data-ginv]').forEach((b) => (b.onclick = () => { const g = grFind(b.dataset.ginv); const ids = g.members.map((m) => m.id).filter((x) => x !== frMyId()); if (!ids.length) { toast('Personne d\'autre dans le groupe.', 2000); return; }
+    frSendMany(ids, { t: 'inv', code: Net.code }, (ok, on) => toast(ok ? 'Invitation envoyée à ' + ids.length + ' (' + Object.values(on).filter(Boolean).length + ' en ligne).' : 'Pas de connexion au serveur.', 3000)); }));
+  qa('[data-gacc]').forEach((b) => (b.onclick = () => { const c = accCode(); if (!c) { toast('Tu n\'as pas de code valide à envoyer.', 2500); return; } const g = grFind(b.dataset.gacc); const ids = g.members.map((m) => m.id).filter((x) => x !== frMyId()); if (!ids.length) { toast('Personne d\'autre dans le groupe.', 2000); return; }
+    frSendMany(ids, { t: 'acc', code: c }, (ok) => toast(ok ? 'Code envoyé aux ' + ids.length + ' membres.' : 'Pas de connexion au serveur.', 3000)); }));
+  qa('[data-gquit]').forEach((b) => (b.onclick = () => { acctCall('gleave', { code: b.dataset.gquit, me: frMe() }); SAVE.groups = grList().filter((g) => g.code !== b.dataset.gquit); store(); FRU.open = null; frRender(); }));
 }
 setTimeout(() => { frMyId(); frStart(); const gi = $('#gate-fid'); if (gi) gi.textContent = frMyId(); }, 0);
 
@@ -6577,5 +6554,5 @@ $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 // accès pour les tests automatisés
-window.__TK = { accessCheck, isChef, accessSync, updCheck, UPD, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
+window.__TK = { accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
 })();

@@ -63,6 +63,40 @@ export default async (req) => {
   const pseudo = String(b.pseudo || '').trim(); const getU = () => st.get(ukey(pseudo), { type: 'json' });
   const putU = (u) => st.setJSON(ukey(pseudo), u);
 
+  // ---------- amis et groupes (boîte aux lettres + présence) ----------
+  const GC = /^G-[A-Z0-9]{6}$/, nm = (x) => String(x || '').slice(0, 12), now = Date.now();
+  const pubG = (g) => ({ code: g.code, name: g.name, public: g.public, owner: g.owner, members: g.members });
+  if (b.a === 'fsend') {
+    const from = b.from || {}; if (!FID.test(String(from.id))) return err('Expéditeur invalide.');
+    const to = [...new Set((Array.isArray(b.to) ? b.to : []).map(String).filter((x) => FID.test(x)))].slice(0, 40);
+    const msg = b.msg && typeof b.msg === 'object' ? b.msg : null; if (!msg || JSON.stringify(msg).length > 6000) return err('Message invalide.');
+    const m = Object.assign({}, msg, { from: { id: from.id, name: nm(from.name) }, at: now, mid: crypto.randomBytes(6).toString('hex') }); const online = {};
+    await Promise.all(to.map(async (id) => { const key = 'm/' + id; const L = ((await st.get(key, { type: 'json' })) || []).filter((x) => now - x.at < 7 * 86400e3).slice(-49); L.push(m); await st.setJSON(key, L);
+      const pr = await st.get('p/' + id, { type: 'json' }); online[id] = !!(pr && now - pr.t < 90e3); }));
+    return out({ ok: true, online });
+  }
+  if (b.a === 'fpoll') {
+    const me = b.me || {}; if (!FID.test(String(me.id))) return err('Identifiant invalide.');
+    const pk = 'p/' + me.id, pr = await st.get(pk, { type: 'json' }); if (!pr || now - pr.t > 40e3 || pr.n !== nm(me.name)) await st.setJSON(pk, { t: now, n: nm(me.name) });
+    const mk = 'm/' + me.id; let L = (await st.get(mk, { type: 'json' })) || []; const ack = +b.ack || 0;
+    if (ack && L.some((x) => x.at <= ack)) { L = L.filter((x) => x.at > ack); await st.setJSON(mk, L); }
+    const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter((x) => FID.test(x)))].slice(0, 80), online = {};
+    await Promise.all(ids.map(async (id) => { const q = await st.get('p/' + id, { type: 'json' }); online[id] = q ? q.t : 0; }));
+    const groups = {}; await Promise.all((Array.isArray(b.groups) ? b.groups : []).map(String).filter((c) => GC.test(c)).slice(0, 20).map(async (c) => { const g = await st.get('g/' + c, { type: 'json' }); groups[c] = g ? pubG(g) : null; }));
+    return out({ ok: true, now, msgs: L.filter((x) => x.at > (+b.since || 0)), online, groups });
+  }
+  if (b.a === 'gsave' || b.a === 'gjoin' || b.a === 'gleave' || b.a === 'gren') {
+    const me = b.me || {}, code = String((b.group && b.group.code) || b.code || ''); if (!FID.test(String(me.id)) || !GC.test(code)) return err('Groupe invalide.');
+    const key = 'g/' + code; let g = await st.get(key, { type: 'json' });
+    if (b.a === 'gsave') { if (g) return out({ ok: true, group: pubG(g) }); const g0 = b.group;
+      g = { code, name: String(g0.name || 'Groupe').slice(0, 24), public: !!g0.public, ph: g0.public ? '' : sha('g' + String(g0.pass || '')), owner: me.id, members: [{ id: me.id, name: nm(me.name) }], at: now };
+      const w = await st.setJSON(key, g, { onlyIfNew: true }); if (w && w.modified === false) return err('Code déjà pris, réessaie.'); return out({ ok: true, group: pubG(g) }); }
+    if (!g) return err('Groupe introuvable. Vérifie le code.');
+    if (b.a === 'gjoin') { if (!g.public && !same(sha('g' + String(b.pass || '')), g.ph)) return err('Mot de passe incorrect.');
+      if (!g.members.some((x) => x.id === me.id)) { if (g.members.length >= 60) return err('Groupe complet.'); g.members.push({ id: me.id, name: nm(me.name) }); await st.setJSON(key, g); } return out({ ok: true, group: pubG(g) }); }
+    if (b.a === 'gren') { const old = String(b.old || ''); const x = g.members.find((y) => y.id === old); if (x && !g.members.some((y) => y.id === me.id)) { x.id = me.id; x.name = nm(me.name); if (g.owner === old) g.owner = me.id; await st.setJSON(key, g); } return out({ ok: true, group: pubG(g) }); }
+    g.members = g.members.filter((x) => x.id !== me.id); if (!g.members.length) await st.delete(key); else { if (g.owner === me.id) g.owner = g.members[0].id; await st.setJSON(key, g); } return out({ ok: true });
+  }
   // état partagé : chaque jeu envoie son code (pour la liste des codes actifs du chef) et reçoit la liste du chef
   if (b.a === 'state') {
     const p = wkParseAll(b.code || '').find((x) => { try { return nacl.sign.detached.verify(x.msg, x.sig, CHEF_PK); } catch (e) { return false; } });
@@ -84,6 +118,7 @@ export default async (req) => {
     const fid = String(b.fid || ''); if (!FID.test(fid)) return err('L\'identifiant ressemble à LEA-4821.');
     const owner = await st.get(fkey(fid), { type: 'text' }); const me = pseudo ? pseudo.toLowerCase() : null;
     if (owner && owner !== me) return out({ ok: true, free: false });
+    { const pr = await st.get('p/' + fid, { type: 'json' }); if (pr && Date.now() - pr.t < 60 * 86400e3 && !b.tok) return out({ ok: true, free: false }); }
     if (!b.tok) return out({ ok: true, free: true });
     const u = await getU(); if (!authOk(u, b.tok)) return err('Reconnecte-toi à ton compte.', 401);
     if (!owner) { const w = await st.set(fkey(fid), me, { onlyIfNew: true }); if (w && w.modified === false) return out({ ok: true, free: false }); }

@@ -21,6 +21,31 @@ const newRec = () => { const b = crypto.randomBytes(12); let s = ''; for (let i 
 const recNorm = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const b64u = (s) => new Uint8Array(Buffer.from(String(s).replace(/-/g, '+').replace(/_/g, '/'), 'base64'));
 const MAX_SAVE = 150000;
+// --- codes d'accès et liste du chef (même code que dans le jeu) ---
+/* code d'accès Wild Kart : 8 octets (version, date de fin, aléa) + signature Ed25519, écrits en base 32 */
+const WK_B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+function wkB32enc(u8) { let bits = 0, val = 0, out = ''; for (const b of u8) { val = ((val << 8) | b) & 0xffffff; bits += 8; while (bits >= 5) { out += WK_B32[(val >>> (bits - 5)) & 31]; bits -= 5; } } if (bits > 0) out += WK_B32[(val << (5 - bits)) & 31]; return out; }
+function wkB32dec(s) { let bits = 0, val = 0; const out = []; for (const ch of s) { const v = WK_B32.indexOf(ch); if (v < 0) return null; val = ((val << 5) | v) & 0xffffff; bits += 5; if (bits >= 8) { out.push((val >>> (bits - 8)) & 255); bits -= 8; } } return new Uint8Array(out); }
+function wkCands(code) { const s = String(code || '').toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1').replace(/[^0-9A-Z]/g, ''); const out = []; let i = s.indexOf('WK'); while (i >= 0) { if (s.length - i - 2 >= 116) out.push(s.slice(i + 2, i + 118)); i = s.indexOf('WK', i + 1); } if (!out.length && s.length >= 116) out.push(s.slice(0, 116)); return out; }
+function wkParseOne(body) { const u = wkB32dec(body); if (!u || u.length < 72) return null; const msg = u.slice(0, 8), sig = u.slice(8, 72); if (msg[0] !== 1) return null; const exp = ((msg[1] << 24) >>> 0) + (msg[2] << 16) + (msg[3] << 8) + msg[4]; return { msg, sig, exp: exp * 1000 }; }
+function wkParseAll(code) { return wkCands(code).map(wkParseOne).filter(Boolean); }
+/* liste du chef (codes annulés, joueurs bloqués), signée : « WKL.<données>.<signature> » */
+function wkB64u(u8) { let s = ''; for (const b of u8) s += String.fromCharCode(b); return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function wkB64uDec(t) { try { const s = atob(String(t).replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((t.length + 3) % 4)); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; } catch (e) { return null; } }
+const wkHex = (u8) => Array.from(u8, (b) => b.toString(16).padStart(2, '0')).join('');
+const wkCodeId = (p) => wkHex(p.msg.slice(1, 8));
+function wkListParse(text, pk) { const m = /WKL\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)/.exec(String(text || '').replace(/\s+/g, '')); if (!m) return null; const body = wkB64uDec(m[1]), sig = wkB64uDec(m[2]); if (!body || !sig || sig.length !== 64) return null;
+  let ok = false; try { ok = nacl.sign.detached.verify(body, sig, pk); } catch (e) { ok = false; } if (!ok) return null; let j; try { j = JSON.parse(new TextDecoder().decode(body)); } catch (e) { return null; }
+  if (!j || typeof j.s !== 'number') return null; return { text: m[0], s: j.s, r: (j.r || []).map(String), b: (j.b || []).map(String), u: +j.u || 0 }; }
+
+const btoa = globalThis.btoa || ((x) => Buffer.from(x, 'binary').toString('base64')), atob = globalThis.atob || ((x) => Buffer.from(x, 'base64').toString('binary'));
+// actions réservées au chef : signées avec sa clé (« action.horodatage »)
+function chefOk(b) { const ts = +b.ts; if (!ts || Math.abs(Date.now() - ts) > 10 * 60e3) return false; try { return nacl.sign.detached.verify(new TextEncoder().encode(b.a + '.' + ts), b64u(b.sig), CHEF_PK); } catch (e) { return false; } }
+async function codeSeen(st, p, who) { const id = wkCodeId(p), key = 'c/' + id; const c = (await st.get(key, { type: 'json' })) || { id, exp: p.exp, first: Date.now(), users: {} };
+  if (who) { const u = c.users[who.fid]; if (u && Date.now() - u.t < 10 * 60e3 && u.n === who.n && u.p === who.p) return; c.users[who.fid] = { n: who.n, p: who.p, t: Date.now() };
+    const ks = Object.keys(c.users); if (ks.length > 60) { ks.sort((a, b) => c.users[a].t - c.users[b].t); for (const k of ks.slice(0, ks.length - 60)) delete c.users[k]; } }
+  else if (c.chef) return; else c.chef = Date.now();
+  await st.setJSON(key, c); }
 
 function setPass(u, pass) { u.salt = crypto.randomBytes(16).toString('base64'); u.h = hashPass(pass, u.salt); }
 function addTok(u) { const t = newTok(); u.toks = (u.toks || []).filter((x) => Date.now() - x.at < 180 * 86400e3).slice(-9); u.toks.push({ h: sha(t), at: Date.now() }); return t; }
@@ -38,6 +63,22 @@ export default async (req) => {
   const pseudo = String(b.pseudo || '').trim(); const getU = () => st.get(ukey(pseudo), { type: 'json' });
   const putU = (u) => st.setJSON(ukey(pseudo), u);
 
+  // état partagé : chaque jeu envoie son code (pour la liste des codes actifs du chef) et reçoit la liste du chef
+  if (b.a === 'state') {
+    const p = wkParseAll(b.code || '').find((x) => { try { return nacl.sign.detached.verify(x.msg, x.sig, CHEF_PK); } catch (e) { return false; } });
+    const fid = FID.test(String(b.fid || '')) ? String(b.fid) : null;
+    if (p && fid && p.exp > Date.now()) await codeSeen(st, p, { fid, n: String(b.name || '').slice(0, 12), p: String(b.pseudo || '').slice(0, 16) });
+    return out({ ok: true, cl: (await st.get('chef/list', { type: 'text' })) || '' });
+  }
+  if (b.a === 'clset') { const L = wkListParse(b.cl, CHEF_PK); if (!L) return err('Liste du chef invalide.');
+    const cur = wkListParse(await st.get('chef/list', { type: 'text' }), CHEF_PK); if (!cur || L.s > cur.s) await st.set('chef/list', L.text); return out({ ok: true }); }
+  if (b.a === 'codeadd' || b.a === 'codes') {
+    if (!chefOk(b)) return err('Réservé au chef.', 403);
+    if (b.a === 'codeadd') { const p = wkParseAll(b.code || '').find((x) => nacl.sign.detached.verify(x.msg, x.sig, CHEF_PK)); if (!p) return err('Code invalide.'); await codeSeen(st, p, null); return out({ ok: true }); }
+    const { blobs } = await st.list({ prefix: 'c/' }); const codes = [];
+    for (const x of blobs) { const c = await st.get(x.key, { type: 'json' }); if (!c) continue; if (c.exp < Date.now() - 3 * 86400e3) { await st.delete(x.key); continue; } codes.push(c); }
+    codes.sort((a, b) => b.exp - a.exp); return out({ ok: true, codes });
+  }
   // identifiant ami libre ? (et réservation si connecté)
   if (b.a === 'fid') {
     const fid = String(b.fid || ''); if (!FID.test(fid)) return err('L\'identifiant ressemble à LEA-4821.');

@@ -8,6 +8,12 @@ L'APPLI (Android et iPhone)
    - Android : installe le fichier wild-kart.apk.
    - iPhone : installe TestFlight depuis l'App Store, puis ouvre le lien d'invitation.
 
+MISES À JOUR (plus rien à réinstaller)
+   - Le jeu se met à jour tout seul depuis le site. Quand une nouvelle version existe, un bouton
+     « Nouvelle version : mettre à jour » apparaît en bas à droite (jamais en pleine course).
+   - Appli Android / iPhone : installe UNE dernière fois la nouvelle version. Ensuite elle ouvre
+     toujours le jeu à jour (sans internet, elle garde la version déjà installée).
+
 CODE D'ACCÈS
    - Au lancement, le jeu demande un code donné par le chef de partie (colle-le puis « Valider »).
    - Le code marche jusqu'à sa date de fin, puis le jeu en redemande un. Réglages > « Changer de code ».

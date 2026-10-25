@@ -6,3 +6,14 @@
 
 [functions]
   directory = "functions"
+
+[[headers]]
+  for = "/version.json"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Cache-Control = "no-store"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"

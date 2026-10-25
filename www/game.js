@@ -1948,7 +1948,7 @@ const AudioSys = {
 Object.assign(AudioSys, {
   init() {
     if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
-    try { const C = window.AudioContext || window.webkitAudioContext; this.ctx = new C(); } catch (e) { return; }
+    const C = window.AudioContext || window.webkitAudioContext; if (!C) return; try { this.ctx = new C({ latencyHint: isTouch ? 'playback' : 'interactive' }); } catch (e) { try { this.ctx = new C(); } catch (e2) { return; } }
     const c = this.ctx;
     if (!this.wake) { this.wake = () => { const x = this.ctx; if (x && x.state !== 'running' && document.visibilityState === 'visible') x.resume().catch(() => {}); };
       window.addEventListener('focus', this.wake); window.addEventListener('pageshow', this.wake);
@@ -2325,8 +2325,10 @@ function wkListParse(text, pk) { const m = /WKL\.([A-Za-z0-9_-]+)\.([A-Za-z0-9_-
 
 // liste du chef : codes annulés et joueurs bloqués (transmise de téléphone en téléphone)
 const CHEF = { s: 0, r: new Set(), b: new Set() };
-function chefListLoad() { const L = SAVE.chefList ? wkListParse(SAVE.chefList, WK_PK) : null; CHEF.s = L ? L.s : 0; CHEF.r = new Set(L ? L.r : []); CHEF.b = new Set(L ? L.b : []); }
-function chefListApply(text, quiet) { const L = wkListParse(text, WK_PK); if (!L || L.s <= CHEF.s) return false; SAVE.chefList = L.text; store(); chefListLoad(); if (!quiet) toast('Liste du chef mise à jour.', 2500); setTimeout(accessTick, 0); return true; }
+function chefListLoad() { const L = SAVE.chefList ? wkListParse(SAVE.chefList, WK_PK) : null; CHEF.s = L ? L.s : 0; CHEF.r = new Set(L ? L.r : []); CHEF.b = new Set(L ? L.b : []); CHEF.u = L ? L.u : 0; if (typeof updForced === 'function') updForced(CHEF.u); }
+function chefListApply(text, quiet) { const L = wkListParse(text, WK_PK); if (!L || L.s <= CHEF.s) return false; SAVE.chefList = L.text; store(); chefListLoad(); if (!quiet) toast('Liste du chef mise à jour.', 2500); setTimeout(() => { accessTick(); if (Net.host && typeof hostKickBanned === 'function') { hostBroadcastLobby(); hostKickBanned(); } }, 0); return true; }
+// toutes les minutes : le serveur donne la dernière liste du chef (et note quel code ce jeu utilise)
+async function accessSync() { if (typeof acctCall !== 'function') return; const r = await acctCall('state', { code: SAVE.access || '', fid: frMyId(), name: SAVE.name || '', pseudo: SAVE.acct ? SAVE.acct.u : '' }); if (r && r.cl) chefListApply(r.cl, true); accessTick(); }
 const chefBanned = () => !!((SAVE.fid && CHEF.b.has(SAVE.fid)) || (SAVE.fidOld || []).some((x) => CHEF.b.has(x)));
 chefListLoad();
 function accessCheck(code) {
@@ -2354,13 +2356,14 @@ function accessInfo() { const el = $('#set-acc'); if (!el) return; const r = SAV
 function accessTick() { // vérifie le code au démarrage, puis chaque minute (jamais en pleine course)
   if (SAVE.access) { const now = Date.now(); if (now > (SAVE.accSeen || 0)) { SAVE.accSeen = now; store(); } }
   const r = SAVE.access ? accessCheck(SAVE.access) : { ok: false, why: '' };
-  const racing = G.race && ['race', 'countdown', 'intro'].includes(G.race.state) && !G.race.resultsShown;
-  if (!r.ok && !racing) gateShow(r.why); else if (r.ok && Gate.el && !Gate.el.hidden) gateHide();
+  // code annulé, expiré ou joueur bloqué : on sort tout de suite (même en pleine course ou en ligne)
+  if (!r.ok) { if (!(Gate.el && !Gate.el.hidden)) { try { if (Net.peer) { netReset(); renderOnline(); } if (G.race && G.race.state !== 'attract') toMenu(); } catch (e) { /* rien */ } } gateShow(r.why); }
+  else if (Gate.el && !Gate.el.hidden) gateHide();
 }
 setTimeout(function accessInit() {
   const m = /[#&?]code=([^&]+)/.exec(location.hash || '') || /[?&]code=([^&]+)/.exec(location.search || '');
   let linkWhy = ''; if (m) { const v = decodeURIComponent(m[1]), r = accessCheck(v); if (r.ok) { SAVE.access = v; store(); } else linkWhy = r.why; try { history.replaceState(null, '', location.pathname); } catch (e) { /* rien */ } }
-  accessTick(); if (linkWhy && Gate.el && !Gate.el.hidden) $('#gate-msg').textContent = linkWhy; setInterval(accessTick, 60e3);
+  accessTick(); if (linkWhy && Gate.el && !Gate.el.hidden) $('#gate-msg').textContent = linkWhy; setInterval(accessTick, 60e3); setTimeout(accessSync, 1500); setInterval(accessSync, 60e3); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') accessSync(); });
   const ch = $('#set-acc-change'); if (ch) ch.onclick = () => { AudioSys.sfx('click'); gateShow(''); };
   accessInfo();
 }, 0);
@@ -2522,11 +2525,15 @@ const isChef = () => !!chefSk();
 function chefState() { const c = SAVE.chefState && typeof SAVE.chefState === 'object' ? SAVE.chefState : { r: [...CHEF.r], b: [...CHEF.b] }; c.r = Array.isArray(c.r) ? c.r : []; c.b = Array.isArray(c.b) ? c.b : []; c.codes = Array.isArray(c.codes) ? c.codes : []; SAVE.chefState = c; return c; }
 function chefMakeCode(expMs) { const sk = chefSk(); if (!sk) return null; const exp = Math.floor(expMs / 1000); let r; try { r = nacl.randomBytes(3); } catch (e) { r = new Uint8Array([Math.random() * 256, Math.random() * 256, Math.random() * 256]); }
   const msg = new Uint8Array([1, (exp >>> 24) & 255, (exp >>> 16) & 255, (exp >>> 8) & 255, exp & 255, r[0], r[1], r[2]]); const sig = nacl.sign.detached(msg, sk); const all = new Uint8Array(72); all.set(msg); all.set(sig, 8);
-  const code = 'WK' + wkB32enc(all); const c = chefState(); c.codes.unshift({ code, exp: expMs, at: Date.now() }); c.codes = c.codes.slice(0, 60); store(); return code; }
+  const code = 'WK' + wkB32enc(all); const c = chefState(); c.codes.unshift({ code, exp: expMs, at: Date.now() }); c.codes = c.codes.slice(0, 60); store();
+  acctCall('codeadd', Object.assign({ code }, chefAuth('codeadd'))); return code; }
+// preuve « c'est le chef » pour le serveur
+function chefAuth(a) { const sk = chefSk(), ts = Date.now(); return sk ? { ts, sig: wkB64u(nacl.sign.detached(new TextEncoder().encode(a + '.' + ts), sk)) } : {}; }
+async function chefLoadCodes() { CHU.load = true; chefRender(); const r = await acctCall('codes', chefAuth('codes')); CHU.load = false; if (r.ok) { CHU.srv = r.codes || []; CHU.srvErr = ''; } else CHU.srvErr = r.e || 'Serveur indisponible.'; chefRender(); }
 // signe la liste (codes annulés + joueurs bloqués), l'applique ici et la diffuse
 function chefPublish() { const sk = chefSk(); if (!sk) return; const c = chefState(); const s = Math.max(Date.now(), (CHEF.s || 0) + 1);
-  const body = new TextEncoder().encode(JSON.stringify({ s, r: c.r, b: c.b })); const t = 'WKL.' + wkB64u(body) + '.' + wkB64u(nacl.sign.detached(body, sk));
-  chefListApply(t, true); store();
+  const body = new TextEncoder().encode(JSON.stringify({ s, r: c.r, b: c.b, u: c.u || 0 })); const t = 'WKL.' + wkB64u(body) + '.' + wkB64u(nacl.sign.detached(body, sk));
+  chefListApply(t, true); store(); acctCall('clset', { cl: t });
   if (Net.peer && Net.host) { hostBroadcastLobby(); hostKickBanned(); } else if (Net.hc && Net.hc.open) { try { Net.hc.send({ t: 'cl', cl: t }); } catch (e) { /* rien */ } }
   for (const f of frList()) frSend(f.id, { t: 'ping' }); for (const g of grList()) for (const m of g.members) if (m.id !== frMyId()) frSend(m.id, { t: 'ping' }); }
 // l'hôte (chef ou non) sort tout de suite de la partie les joueurs bloqués
@@ -2537,7 +2544,7 @@ function chefActivate(text) { const m = /WKCHEF\.([A-Za-z0-9_-]+)/.exec(String(t
   if (!(SAVE.access && accessCheck(SAVE.access).ok)) { SAVE.access = chefMakeCode(Date.now() + 3650 * 86400e3); SAVE.accSeen = Date.now(); }
   store(); return true; }
 // ---------- écran du chef ----------
-const CHU = { hours: 12, last: '' };
+const CHU = { hours: 12, last: '', srv: null, srvErr: '', load: false, all: false };
 function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !== 'chef') return; const c = chefState(), esc = (s) => String(s).replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[x]);
   const fmt = (t) => new Date(t).toLocaleString('fr-FR', Object.assign({ weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }, new Date(t).getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}));
   const DUR = [['1 h', 1], ['3 h', 3], ['Ce soir', 12], ['1 jour', 24], ['3 jours', 72], ['1 semaine', 168], ['1 mois', 720], ['1 an', 8760]];
@@ -2553,12 +2560,20 @@ function chefRender() { const root = $('#chef-root'); if (!root || UI.screen !==
   for (const [fid, name] of seen) { const banned = c.b.includes(fid); h += '<div class="fr-row"><span><b>' + esc(name) + '</b> <small>' + esc(fid) + (banned ? ' · <b class="off">bloqué</b>' : '') + '</small></span><span class="fr-acts"><button class="btn sm ' + (banned ? 'ghost' : 'red') + '" data-ban="' + esc(fid) + '"><span>' + (banned ? 'Débloquer' : 'Bloquer') + '</span></button></span></div>'; }
   h += '<div class="fr-add"><input id="ch-fid" placeholder="Identifiant (ex. LEA-4821)" autocapitalize="characters"><button class="btn sm red" id="ch-banid"><span>Bloquer</span></button></div>';
   for (const fid of c.b) if (!seen.has(fid)) h += '<div class="fr-row"><span><small>' + esc(fid) + ' · <b class="off">bloqué</b></small></span><span class="fr-acts"><button class="btn sm ghost" data-ban="' + esc(fid) + '"><span>Débloquer</span></button></span></div>';
-  h += '</div><div class="group"><h3>Codes créés</h3>' + (c.codes.length ? '' : '<p class="hint">Aucun code créé depuis le jeu.</p>');
-  for (const x of c.codes.slice(0, 25)) { const p = wkParseAll(x.code)[0], id = p ? wkCodeId(p) : '', off = c.r.includes(id), live = x.exp > Date.now() && !off;
-    h += '<div class="fr-row"><span><b class="' + (live ? 'on' : 'off') + '">' + (off ? 'annulé' : x.exp > Date.now() ? 'valable' : 'expiré') + '</b> <small>jusqu\'au ' + fmt(x.exp) + ' · ' + esc(x.code.slice(0, 10)) + '…</small></span><span class="fr-acts"><button class="btn sm ghost" data-rev="' + esc(id) + '"><span>' + (off ? 'Rétablir' : 'Annuler') + '</span></button><button class="btn sm ghost" data-redo="' + Math.max(1, Math.round((x.exp - x.at) / 3600e3)) + '"><span>Recréer</span></button></span></div>'; }
+  // codes : ceux créés ici + ceux vus par le serveur (avec les joueurs qui les utilisent)
+  const all = new Map(); for (const x of c.codes) { const p = wkParseAll(x.code)[0]; if (p) all.set(wkCodeId(p), { id: wkCodeId(p), exp: x.exp, code: x.code, hrs: Math.max(1, Math.round((x.exp - x.at) / 3600e3)), users: {} }); }
+  for (const x of CHU.srv || []) { const e = all.get(x.id) || { id: x.id, exp: x.exp, hrs: 0, users: {} }; e.users = x.users || {}; all.set(x.id, e); }
+  const list = [...all.values()].filter((e) => CHU.all || (e.exp > Date.now() && !c.r.includes(e.id))).sort((a2, b2) => b2.exp - a2.exp);
+  h += '</div><div class="group"><h3>Codes ' + (CHU.all ? '(tous)' : 'actifs') + '</h3><div class="row"><button class="btn sm ghost" id="ch-all"><span>' + (CHU.all ? 'Voir seulement les actifs' : 'Voir aussi annulés et expirés') + '</span></button><button class="btn sm ghost" id="ch-reload"><span>' + (CHU.load ? 'Chargement…' : 'Actualiser') + '</span></button></div>'
+    + (CHU.srvErr ? '<p class="hint">' + esc(CHU.srvErr) + ' (seuls les codes créés sur ce téléphone sont affichés)</p>' : '') + (list.length ? '' : '<p class="hint">Aucun code ' + (CHU.all ? '' : 'actif') + '.</p>');
+  for (const e of list.slice(0, 40)) { const off = c.r.includes(e.id), live = e.exp > Date.now() && !off, us = Object.entries(e.users).sort((x, y) => y[1].t - x[1].t);
+    h += '<div class="ch-codebox"><div class="fr-row"><span><b class="' + (live ? 'on' : 'off') + '">' + (off ? 'annulé' : e.exp > Date.now() ? 'valable' : 'expiré') + '</b> <small>jusqu\'au ' + fmt(e.exp) + (e.code ? ' · ' + esc(e.code.slice(0, 10)) + '…' : '') + ' · ' + us.length + ' joueur' + (us.length > 1 ? 's' : '') + '</small></span><span class="fr-acts"><button class="btn sm ' + (off ? 'ghost' : 'red') + '" data-rev="' + esc(e.id) + '"><span>' + (off ? 'Rétablir' : 'Annuler') + '</span></button>' + (e.code ? '<button class="btn sm ghost" data-copy="' + esc(e.code) + '"><span>Copier</span></button>' : '') + (e.hrs ? '<button class="btn sm ghost" data-redo="' + e.hrs + '"><span>Recréer</span></button>' : '') + '</span></div>';
+    for (const [fid, u] of us.slice(0, 20)) { const bn = c.b.includes(fid); h += '<div class="fr-row ch-user"><span>' + esc(u.n || '?') + ' <small>' + esc(fid) + (u.p ? ' · compte ' + esc(u.p) : '') + ' · vu ' + fmt(u.t) + (bn ? ' · <b class="off">bloqué</b>' : '') + '</small></span><span class="fr-acts"><button class="btn sm ' + (bn ? 'ghost' : 'red') + '" data-ban="' + esc(fid) + '"><span>' + (bn ? 'Débloquer' : 'Bloquer') + '</span></button></span></div>'; }
+    h += '</div>'; }
   h += '<div class="fr-add"><input id="ch-paste" placeholder="Annuler un autre code : colle-le ici"><button class="btn sm ghost" id="ch-revp"><span>Annuler</span></button></div></div>';
+  h += '<div class="group"><h3>Mise à jour du jeu</h3><p class="hint">Version de ton jeu : ' + esc(window.TK_VER || '?') + (UPD.remote ? ' · sur le site : ' + esc(UPD.remote) + (UPD.remote !== window.TK_VER ? ' (nouvelle !)' : ' (à jour)') : '') + '</p><div class="row"><button class="btn sm red" id="ch-upd"><span>Mettre à jour tout le monde</span></button></div><p class="hint">Tous les jeux ouverts prennent la dernière version (après la course en cours), sans rien réinstaller.</p></div>';
   h += '<div class="group"><h3>Mot de passe oublié d\'un joueur</h3><p class="hint">Mets son pseudo de compte : tu obtiens un code (valable 24 h, une seule fois). Il le met dans Compte > « Oublié ? ».</p><div class="fr-add"><input id="ch-ru" placeholder="Pseudo du joueur" autocapitalize="off"><button class="btn sm red" id="ch-rmake"><span>Créer le code</span></button></div>' + (CHU.reset ? '<textarea rows="3" readonly class="ch-code" id="ch-rcode">' + esc(CHU.reset) + '</textarea><div class="row"><button class="btn sm" id="ch-rshare"><span>Partager</span></button></div>' : '') + '</div>';
-  h += '<p class="hint">Les annulations et blocages partent tout seuls vers les jeux connectés (partie en ligne, amis, groupes) et se transmettent ensuite de jeu en jeu.</p>';
+  h += '<p class="hint">Les annulations et blocages arrivent sur tous les jeux ouverts en moins d\'une minute : le joueur est sorti tout de suite, même en pleine course.</p>';
   root.innerHTML = h; chefWire(); }
 function chefWire() { const q = (s) => $('#chef-root ' + s), qa = (s) => [...document.querySelectorAll('#chef-root ' + s)];
   qa('#ch-dur button').forEach((b) => (b.onclick = () => { CHU.hours = +b.dataset.h; chefRender(); }));
@@ -2571,11 +2586,14 @@ function chefWire() { const q = (s) => $('#chef-root ' + s), qa = (s) => [...doc
   q('#ch-rmake').onclick = () => { const u = q('#ch-ru').value.trim(); if (!/^[A-Za-z0-9_-]{3,16}$/.test(u)) { toast('Pseudo : 3 à 16 lettres ou chiffres.', 2000); return; } const sk = chefSk(); if (!sk) return;
     const body = new TextEncoder().encode(JSON.stringify({ u: u.toLowerCase(), e: Date.now() + 24 * 3600e3, n: wkHex(nacl.randomBytes(4)) })); CHU.reset = 'WKR.' + wkB64u(body) + '.' + wkB64u(nacl.sign.detached(body, sk)); CHU.resetU = u; chefRender(); };
   const rs = q('#ch-rshare'); if (rs) rs.onclick = async () => { const t = 'Wild Kart : code pour changer ton mot de passe (compte ' + CHU.resetU + ', valable 24 h). Ouvre Compte > « Oublié ? » et colle :\n' + CHU.reset; if (navigator.share) { try { await navigator.share({ text: t }); } catch (e) { /* annulé */ } } else { try { await navigator.clipboard.writeText(t); toast('Copié.', 1500); } catch (e) { /* rien */ } } };
+  q('#ch-upd').onclick = () => { chefState().u = Date.now(); store(); chefPublish(); toast('Mise à jour envoyée à tous les jeux.', 3000); updCheck(true); };
   const ban = (fid) => { const c = chefState(); c.b = c.b.includes(fid) ? c.b.filter((x) => x !== fid) : c.b.concat([fid]); store(); chefPublish(); chefRender(); };
   qa('[data-ban]').forEach((b) => (b.onclick = () => ban(b.dataset.ban)));
   q('#ch-banid').onclick = () => { const id = frNorm(q('#ch-fid').value); if (!id) { toast('L\'identifiant ressemble à LEA-4821.', 2000); return; } if (id === frMyId()) { toast('C\'est toi !', 1500); return; } if (!chefState().b.includes(id)) ban(id); };
   const rev = (id) => { if (!id) return; const c = chefState(); c.r = c.r.includes(id) ? c.r.filter((x) => x !== id) : c.r.concat([id]); store(); chefPublish(); chefRender(); };
   qa('[data-rev]').forEach((b) => (b.onclick = () => rev(b.dataset.rev)));
+  q('#ch-all').onclick = () => { CHU.all = !CHU.all; chefRender(); }; q('#ch-reload').onclick = () => chefLoadCodes();
+  qa('[data-copy]').forEach((b) => (b.onclick = async () => { try { await navigator.clipboard.writeText(b.dataset.copy); toast('Code copié.', 1500); } catch (e) { toast('Copie impossible.', 1500); } }));
   qa('[data-redo]').forEach((b) => (b.onclick = () => { const hh = +b.dataset.redo; CHU.last = chefMakeCode(Date.now() + hh * 3600e3) || ''; chefRender(); }));
   q('#ch-revp').onclick = () => { const v = q('#ch-paste').value; let p = null; for (const c of wkParseAll(v)) { try { if (nacl.sign.detached.verify(c.msg, c.sig, WK_PK)) { p = c; break; } } catch (e) { /* rien */ } } if (!p) { toast('Ce n\'est pas un code valable.', 2000); return; } const id = wkCodeId(p); if (!chefState().r.includes(id)) rev(id); toast('Code annulé.', 1500); };
 }
@@ -2639,6 +2657,30 @@ setTimeout(async () => { acctInfo(); const o = $('#set-acct-open'); if (o) o.onc
   if (r.ok && r.at > (SAVE.acct.at || 0) + 1000 && !(G.race && G.race.state !== 'attract')) { const tok = SAVE.acct.tok; r.tok = tok; const fidWas = SAVE.fid; ACU.applying = true; acctApply(r); ACU.applying = false; if (fidWas !== SAVE.fid) frRestart(); toast('Sauvegarde du compte récupérée.', 2500); if (SAVE.access && accessCheck(SAVE.access).ok && G.locked) gateHide(); }
   else if (r.status === 401) { SAVE.acct = null; store(); toast('Reconnecte-toi à ton compte (Réglages > Compte).', 4000); }
   acctInfo(); }, 400);
+
+/* ================= v13 : mises à jour sans réinstaller ================= */
+// Le jeu regarde régulièrement s'il existe une nouvelle version sur le site. Si oui : bouton « Mettre à jour ».
+// Le chef peut aussi « Mettre à jour tout le monde » : chaque jeu se met à jour tout seul après sa course.
+const UPD = { remote: '', forced: false, el: null };
+// données apportées par l'appli la première fois (elle ouvre le site avec #import=…)
+(function updImport() { const m = /#import=([^&]+)/.exec(location.hash || ''); if (!m) return; try { history.replaceState(null, '', location.pathname); } catch (e) { /* rien */ }
+  try { const txt = decodeURIComponent(escape(atob(decodeURIComponent(m[1])))); const d = JSON.parse(txt); const cur = (() => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) { return {}; } })();
+    if (d && typeof d === 'object' && !cur.fid && !cur.access) { localStorage.setItem(KEY, JSON.stringify(d)); location.reload(); } } catch (e) { /* rien */ } })();
+const racingNow = () => !!(G.race && ['race', 'countdown', 'intro'].includes(G.race.state) && !G.race.resultsShown);
+async function updCheck(quietIfSame) { if (BUILD !== 'pwa' || !window.TK_VER || location.hostname === 'localhost' && window.TK_APP) return;
+  try { const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return; const j = await r.json(); UPD.remote = String(j.v || ''); } catch (e) { return; }
+  if (UI.screen === 'chef') chefRender();
+  if (UPD.remote && UPD.remote !== window.TK_VER) { if (UPD.forced) updWhenFree(); else updBanner(); } }
+function updBanner() { if (UPD.el) { UPD.el.hidden = false; return; } const b = document.createElement('button'); b.id = 'upd-btn'; b.className = 'btn red sm'; b.innerHTML = '<span>Nouvelle version : mettre à jour</span>';
+  b.onclick = () => { if (racingNow()) { toast('Après la course !', 1500); return; } updApply(); }; document.body.appendChild(b); UPD.el = b; }
+function updWhenFree() { if (racingNow()) { setTimeout(updWhenFree, 5000); return; } toast('Mise à jour du jeu…', 2000); setTimeout(updApply, 1200); }
+async function updApply() { try { if (typeof acctUpload === 'function' && SAVE.acct) await acctUpload(); } catch (e) { /* rien */ }
+  let done = false; const go = () => { if (done) return; done = true; location.reload(); };
+  try { if (navigator.serviceWorker) { navigator.serviceWorker.addEventListener('controllerchange', go); const reg = await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } } catch (e) { /* rien */ }
+  setTimeout(go, 4000); }
+// le chef a demandé une mise à jour pour tous
+function updForced(u) { if (!u || u <= (SAVE.updSeen || 0)) return; const first = !SAVE.updSeen; SAVE.updSeen = u; store(); if (first && !UPD.remote) { /* première liste vue : on vérifie quand même */ } UPD.forced = true; setTimeout(() => updCheck(), 500); }
+setTimeout(() => { updCheck(); setInterval(updCheck, 5 * 60e3); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') updCheck(); }); }, 5000);
 
 /* ================= Entrées ================= */
 const Input = { keys: {}, pad: { left: false, right: false, drift: false, item: false }, itemEdge: false, tiltAngle: 0, tiltSeen: false, tiltSteer: 0, digSteer: 0, useTilt: false, listening: false };
@@ -3204,7 +3246,7 @@ function startDrift(k, dir) {
 function endDrift(k, give) {
   const tier = k.driftTier || 0; k.drift = 0; k.driftT = 0; k.driftTier = 0;
   if (!give || k.spin > 0 || !tier) return;
-  k.boost = Math.max(k.boost, DRIFT_BOOST[tier]); k.boostTier = tier;
+  k.boost = Math.max(k.boost, DRIFT_BOOST[tier]); k.boostTier = tier; k.driftCd = 1;
   if (k.isPlayer) { AudioSys.sfx(tier >= 2 ? 'boost' : 'mini'); vibrate(tier >= 3 ? [20, 30, 40] : 25); }
 }
 // compatibilité avec l'ancien code
@@ -3252,8 +3294,8 @@ function kartPhysics(k, inp, dt) {
       steerEff = k.drift * (a >= 0 ? .55 + .62 * a : .55 + 1.25 * a);
       // contre-braquage maintenu : le drift bascule de l'autre côté (on garde le turbo déjà chargé)
       if (a < -.55) k.ctrT = (k.ctrT || 0) + dt; else k.ctrT = 0;
-      if (k.ctrT > .2 && k.isPlayer) { const nd = -k.drift; endDrift(k, true); startDrift(k, nd); k.ctrT = 0; k.driftA = 1; steerEff = nd * .9; }
-      k.driftT += dt * (1 + .5 * Math.max(0, a) + (k.isPlayer ? 0 : .1));
+      if (k.ctrT > .2 && k.isPlayer) { const nd = -k.drift, keep = k.driftT * .5; endDrift(k, false); startDrift(k, nd); k.driftT = keep; k.ctrT = 0; k.driftA = 1; steerEff = nd * .9; }   // changer de côté ne donne plus de turbo
+      k.driftT += dt * (1 + .5 * Math.max(0, a) + (k.isPlayer ? 0 : .1)) * (k.wallT > 0 || k.driftCd > 0 ? 0 : 1);   // pas de charge contre un mur ni juste après un turbo
       let tier = 0; for (let t = 1; t < DRIFT_TIERS.length; t++) if (k.driftT >= DRIFT_TIERS[t]) tier = t;
       if (tier > k.driftTier) { k.driftTier = tier; if (k.isPlayer) { AudioSys.tone([0, 880, 1100, 1320][tier], .09, 'square', .07); vibrate(12); } }
     }
@@ -3284,15 +3326,15 @@ function kartPhysics(k, inp, dt) {
   if (eo && !k.air && !overGap && Math.abs(k.lat) > (P.hw || W.hw) + W.curbW + 1) { startFall(k); return; }
   gateBlock(k, W);
   if (!eo && Math.abs(k.lat) > limW && !(os && !gl && Math.sign(k.lat) === os && Math.abs(k.lat) < lim + 40)) {
-    const s = Math.sign(k.lat), push = Math.min(Math.abs(k.lat) - limW, 3); k.x -= P.rx[i] * s * push; k.z -= P.rz[i] * s * push; k.lat -= s * push;
+    const s = Math.sign(k.lat), push = Math.min(Math.abs(k.lat) - limW, 3); k.wallT = .6; k.x -= P.rx[i] * s * push; k.z -= P.rz[i] * s * push; k.lat -= s * push;
     const vx = Math.sin(k.vh), vz = Math.cos(k.vh); const vl = (vx * P.rx[i] + vz * P.rz[i]) * s;
     if (vl > 0) {
       const nx = vx - P.rx[i] * s * vl * 1.15, nz = vz - P.rz[i] * s * vl * 1.15; k.vh = Math.atan2(nx, nz); k.h += angDiff(k.h, k.vh) * .55;
-      k.speed *= 1 - (.12 * vl + .45 * vl * vl); if (k.drift && vl > .5) { endDrift(k, false); k.driftLock = true; }
+      k.speed *= 1 - (.12 * vl + .45 * vl * vl); if (k.drift && vl > .12) { endDrift(k, false); k.driftLock = true; }
       if (k.isPlayer && vl > .15 && k.wallCd <= 0) { AudioSys.sfx('wall'); vibrate(30); k.wallCd = .4; }
     }
   }
-  k.wallCd -= dt; k.bumpCd -= dt;
+  k.wallCd -= dt; k.bumpCd -= dt; k.wallT = (k.wallT || 0) - dt; k.driftCd = (k.driftCd || 0) - dt;
   // ---- vol ----
   airPhysics(k, P, overGap, inp, pressed, dt);
   if (k.hop > 0) k.hop -= dt;
@@ -6177,7 +6219,7 @@ function show(id) {
   if (id === 'tracks') buildTrackCards();
   if (id === 'settings') syncSettings();
   if (id === 'friends') { frStart(); frRender(); frCheckAll(); }
-  if (id === 'chef') { frStart(); chefRender(); }
+  if (id === 'chef') { frStart(); chefRender(); chefLoadCodes(); }
   chefButtons();
   if (id === 'pause') { $('#p-note').textContent = G.race && G.race.online ? 'La course continue pendant la pause.' : ''; $('#p-tilt').hidden = SAVE.control !== 'tilt'; }
   if (id === 'online') { const off = $('#on-offline'); if (off && BUILD === 'pwa' && !Net.peer) off.hidden = true; }
@@ -6533,5 +6575,5 @@ $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 // accès pour les tests automatisés
-window.__TK = { accessCheck, isChef, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
+window.__TK = { accessCheck, isChef, accessSync, updCheck, UPD, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
 })();

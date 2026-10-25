@@ -12,6 +12,17 @@ CODE D'ACCÈS
    - Au lancement, le jeu demande un code donné par le chef de partie (colle-le puis « Valider »).
    - Le code marche jusqu'à sa date de fin, puis le jeu en redemande un. Réglages > « Changer de code ».
 
+AMIS ET GROUPES (écran d'accueil > « Amis et groupes »)
+   - Ton identifiant ami (ex. LEA-4821) est en haut : donne-le à tes amis.
+   - Ajouter un ami : tape son identifiant > Ajouter. Il est prévenu et t'ajoute aussi.
+   - Inviter : crée une partie en ligne puis « Inviter » (ou « Inviter des amis » dans le salon) :
+     ton ami reçoit une notification « Rejoindre ».
+   - « Envoyer le code » : envoie ton code d'accès à un ami bloqué sur l'écran du code.
+   - Groupes : « Créer » (public ou privé avec mot de passe), puis donne le code G-XXXXXX.
+     Les autres le rejoignent avec ce code (et le mot de passe si privé). Dans le groupe :
+     inviter tout le groupe à ta partie, ou envoyer le code d'accès à tout le groupe.
+   - Tout passe directement entre téléphones : un message n'arrive que si l'ami a le jeu ouvert.
+
 JOUER EN LIGNE (tout le monde en même temps)
    - Un joueur touche « Jouer en ligne » > « Créer une partie » et donne le code de 4 lettres.
    - Les autres touchent « Jouer en ligne », tapent le code et « Go ».

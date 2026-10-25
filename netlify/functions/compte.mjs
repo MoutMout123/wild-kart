@@ -80,7 +80,9 @@ export default async (req) => {
     const sk = 's/' + id, qp = 'q/' + id + '/';
     if (b.a === 'sigreg') { const r = await st.get(sk, { type: 'json' }); if (r && t0 - r.t < 120e3 && r.k !== b.k) return out({ ok: false, code: 'unavailable-id', e: 'Déjà pris.' });
       await st.setJSON(sk, { t: t0, k: b.k || '' }); return out({ ok: true }); }
-    if (b.a === 'sigpoll') { await st.setJSON(sk, { t: t0 }); const { blobs } = await st.list({ prefix: qp }); const msgs = [];
+    if (b.a === 'sigpoll') { await st.setJSON(sk, { t: t0 }); let { blobs } = await st.list({ prefix: qp }); const msgs = [];
+      // attente courte : la réponse part dès qu'un message arrive (connexion plus rapide, moins de requêtes)
+      if (!blobs.length && b.wait) { const end = t0 + Math.min(7, Math.max(0, +b.wait || 0)) * 1000; let n = 0; while (!blobs.length && Date.now() < end && n++ < 20) { await new Promise((r) => setTimeout(r, 400)); ({ blobs } = await st.list({ prefix: qp })); } }
       for (const x of blobs) { const m = await st.get(x.key, { type: 'json' }); await st.delete(x.key); if (m && t0 - (m.at || 0) < 60e3) msgs.push(m); } return out({ ok: true, msgs }); }
     if (b.a === 'sigsend') { const r = await st.get(sk, { type: 'json' }); if (!r || t0 - r.t > 120e3) return out({ ok: false, code: 'peer-unavailable', e: 'Aucune partie avec ce code.' });
       const m = b.msg; if (!m || typeof m !== 'object' || JSON.stringify(m).length > 20000) return err('Message invalide.');
@@ -92,7 +94,8 @@ export default async (req) => {
   const pubG = (g) => ({ code: g.code, name: g.name, public: g.public, owner: g.owner, members: g.members });
   if (b.a === 'fsend') {
     const from = b.from || {}; if (!FID.test(String(from.id))) return err('Expéditeur invalide.');
-    const to = [...new Set((Array.isArray(b.to) ? b.to : []).map(String).filter((x) => FID.test(x)))].slice(0, 40);
+    let to = [...new Set((Array.isArray(b.to) ? b.to : []).map(String).filter((x) => FID.test(x)))].slice(0, 40);
+    if (/^G-[A-Z0-9]{6}$/.test(String(b.group || ''))) { const g = await st.get('g/' + b.group, { type: 'json' }); if (g && g.members.some((x) => x.id === from.id)) to = [...new Set(to.concat(g.members.map((x) => x.id)))].filter((x) => x !== from.id).slice(0, 40); }   // tout le groupe (même ceux arrivés à l'instant)
     const msg = b.msg && typeof b.msg === 'object' ? b.msg : null; if (!msg || JSON.stringify(msg).length > 6000) return err('Message invalide.');
     const m = Object.assign({}, msg, { from: { id: from.id, name: nm(from.name) }, at: now, mid: crypto.randomBytes(6).toString('hex') }); const online = {};
     await Promise.all(to.map(async (id) => { const key = 'm/' + id; const L = ((await st.get(key, { type: 'json' })) || []).filter((x) => now - x.at < 7 * 86400e3).slice(-49); L.push(m); await st.setJSON(key, L);
@@ -104,6 +107,10 @@ export default async (req) => {
     const pk = 'p/' + me.id, pr = await st.get(pk, { type: 'json' }), stt = me.st && typeof me.st === 'object' && JSON.stringify(me.st).length < 600 ? me.st : null;
     if (!pr || now - pr.t > 40e3 || pr.n !== nm(me.name) || JSON.stringify(pr.st || null) !== JSON.stringify(stt)) await st.setJSON(pk, { t: now, n: nm(me.name), st: stt, pu: String(me.pu || '').slice(0, 16) });
     const mk = 'm/' + me.id; let L = (await st.get(mk, { type: 'json' })) || []; const ack = +b.ack || 0;
+    // attente courte (jusqu'à ~10 s) : l'invitation arrive tout de suite au lieu d'attendre le prochain passage
+    const nIds = Array.isArray(b.ids) ? Math.min(80, b.ids.length) : 0, nG = Array.isArray(b.groups) ? Math.min(20, b.groups.length) : 0; let lim = Math.min(11, 44 - nIds - nG);   // Cloudflare : 50 requêtes à la base max par appel
+    if (b.wait && lim > 0 && !L.some((x) => x.at > (+b.since || 0))) { const end = Date.now() + Math.min(10, Math.max(0, +b.wait || 0)) * 1000;
+      while (Date.now() < end && lim-- > 0) { await new Promise((r) => setTimeout(r, 900)); L = (await st.get(mk, { type: 'json' })) || []; if (L.some((x) => x.at > (+b.since || 0))) break; } }
     if (ack && L.some((x) => x.at <= ack)) { L = L.filter((x) => x.at > ack); await st.setJSON(mk, L); }
     const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter((x) => FID.test(x)))].slice(0, 80), online = {};
     await Promise.all(ids.map(async (id) => { const q = await st.get('p/' + id, { type: 'json' }); online[id] = q ? q.t : 0; }));

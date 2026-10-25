@@ -11,7 +11,7 @@ document.documentElement.classList.add('app');
   // « no-cors » : on vérifie seulement qu'internet et le site répondent (aucune autorisation spéciale nécessaire)
   fetch(SITE + 'version.json?t=' + Date.now(), { cache: 'no-store', mode: 'no-cors' }).then(function () {
     if (done) return; clearTimeout(t); var data = null, mig = null;
-    try { data = localStorage.getItem('tiltkart.v1'); mig = localStorage.getItem('wk-migre'); localStorage.setItem('wk-migre', '1'); } catch (e) { /* rien */ }
+    try { data = localStorage.getItem('tiltkart.v1'); mig = localStorage.getItem('wk-migre2'); localStorage.setItem('wk-migre2', '1'); } catch (e) { /* rien */ }
     var imp = data && !mig ? '#import=' + encodeURIComponent(btoa(unescape(encodeURIComponent(data)))) : '';
     location.replace(SITE + '?app=1' + imp);
   }).catch(function () { /* pas d'internet : on joue avec la version de l'appli */ });

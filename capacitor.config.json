@@ -3,6 +3,12 @@
   "appName": "Wild Kart",
   "webDir": "www",
   "backgroundColor": "#17143a",
+  "server": {
+    "allowNavigation": [
+      "wild-kart-moutmout.netlify.app"
+    ],
+    "errorPath": "index.html"
+  },
   "android": {
     "allowMixedContent": false,
     "backgroundColor": "#17143a"

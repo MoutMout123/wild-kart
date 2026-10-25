@@ -5,7 +5,8 @@
   "backgroundColor": "#17143a",
   "server": {
     "allowNavigation": [
-      "wild-kart-moutmout.netlify.app"
+      "wild-kart-moutmout.netlify.app",
+      "moutmout123.github.io"
     ],
     "errorPath": "index.html"
   },

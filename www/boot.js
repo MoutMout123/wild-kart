@@ -5,14 +5,14 @@ document.documentElement.classList.add('app');
 // mises à jour sans réinstaller : si internet marche, l'appli ouvre le jeu à jour sur le site.
 // La première fois, les données de ce téléphone (amis, code, kart…) sont emportées avec.
 (function () {
-  var SITE = 'https://wild-kart-moutmout.netlify.app/';
+  var SITE = 'https://moutmout123.github.io/wild-kart-jeu/', OLD = 'https://wild-kart-moutmout.netlify.app/';
   if (location.hostname !== 'localhost' || /[?&]local=1/.test(location.search)) return;
-  var done = false, t = setTimeout(function () { done = true; }, 4000);
-  // « no-cors » : on vérifie seulement qu'internet et le site répondent (aucune autorisation spéciale nécessaire)
-  fetch(SITE + 'version.json?t=' + Date.now(), { cache: 'no-store', mode: 'no-cors' }).then(function () {
-    if (done) return; clearTimeout(t); var data = null, mig = null;
-    try { data = localStorage.getItem('tiltkart.v1'); mig = localStorage.getItem('wk-migre2'); localStorage.setItem('wk-migre2', '1'); } catch (e) { /* rien */ }
-    var imp = data && !mig ? '#import=' + encodeURIComponent(btoa(unescape(encodeURIComponent(data)))) : '';
-    location.replace(SITE + '?app=1' + imp);
-  }).catch(function () { /* pas d'internet : on joue avec la version de l'appli */ });
+  var done = false, t = setTimeout(function () { done = true; }, 5000);
+  fetch(SITE + 'version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (j) {
+    if (done || !j || !j.v) return; clearTimeout(t); var data = null, first = false;
+    try { data = localStorage.getItem('tiltkart.v1'); first = !localStorage.getItem('wk-migre3'); localStorage.setItem('wk-migre3', '1'); } catch (e) { /* rien */ }
+    var imp = data && first ? '#import=' + encodeURIComponent(btoa(unescape(encodeURIComponent(data)))) : '';
+    // la première fois, on passe par l'ancienne adresse : elle apporte aussi ce qui y était enregistré
+    location.replace((first ? OLD : SITE) + '?app=1' + imp);
+  }).catch(function () { /* pas d'internet ou site indisponible : on joue avec la version de l'appli */ });
 })();

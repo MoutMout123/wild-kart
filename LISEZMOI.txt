@@ -1,12 +1,11 @@
 WILD KART — mode d'emploi
 =========================
 
-L'APPLI (Android et iPhone)
-   - Le jeu est maintenant une vraie appli. Tout est expliqué pas à pas dans GUIDE-APPLI.txt,
-     dans le dossier wild-kart-app (fabriquer l'APK Android, l'installer sur l'iPhone ou via
-     TestFlight, mettre à jour, supprimer l'ancien site Netlify).
-   - Android : installe le fichier wild-kart.apk.
-   - iPhone : installe TestFlight depuis l'App Store, puis ouvre le lien d'invitation.
+OÙ JOUER
+   - Site du jeu : https://moutmout123.github.io/wild-kart-jeu/
+   - Android : installe wild-kart.apk (github.com/MoutMout123/wild-kart > Releases), ou joue sur le site.
+   - iPhone : ouvre le site dans Safari > Partager > « Sur l'écran d'accueil ». L'icône s'ouvre en plein
+     écran comme une appli et se met à jour toute seule.
 
 MISES À JOUR (plus rien à réinstaller)
    - Le jeu se met à jour tout seul depuis le site. Quand une nouvelle version existe, un bouton

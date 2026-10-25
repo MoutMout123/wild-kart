@@ -87,16 +87,19 @@ SOIRÉE (en ligne)
    - Roulette équilibrée : un peu de tout sur chaque roue, cases perso possibles.
    - Chacun boit ce qu'il veut, et on garde de l'eau à côté.
 
-OBJETS (15, avec une rareté : la lueur autour de la case objet l'indique)
-   - Communs : Turbo, Flaque, Boule rebondissante, Bouclier.
+OBJETS (19, avec une rareté : la lueur autour de la case objet l'indique)
+   - Communs : Turbo, Flaque, Boule rebondissante, Bouclier, Pot de colle (flaque collante qui
+     ralentit fort pendant 1,5 s, sans faire tourner).
    - Peu communs : Triple turbo, Mine, Aimant, Fantôme, Ressort (grand saut par-dessus les pièges),
-     Bulle (enferme le pilote juste devant toi dans une bulle qui flotte).
-   - Rares : Fusée, Confettis (aveuglent tous ceux devant toi), Boule disco (onde qui renverse
-     les karts proches et efface les pièges autour de toi).
+     Bulle (enferme le pilote juste devant toi), Aspirateur (vole l'objet du pilote juste devant,
+     sinon t'en donne un bon), Ventilo (rafale qui pousse et ralentit les karts autour de toi).
+   - Rares : Fusée, Confettis (gênent quelques secondes les pilotes juste devant toi),
+     Boule disco (onde qui renverse les karts proches et efface les pièges), Grappin (s'accroche
+     au kart devant et te tire vers lui).
    - Très rares : Étoile, Éclair.
-   Le tirage dépend de ta place ET de ton retard : le premier n'a jamais d'objet trop fort, les
-   derniers ont de quoi revenir. Pas deux fois de suite le même objet, et le jeu favorise ceux que
-   tu n'as pas encore eus pendant la course.
+   Vrai tirage au hasard selon la rareté : environ 45 % communs, 32 % peu communs, 18 % rares,
+   5 % très rares. Les derniers ont un peu plus d'objets rares. Presque jamais deux fois de suite
+   le même.
 
 SON : nouvelle musique pour chaque univers (pop, funk, house, latino, rock, ambiance spatiale…),
    moteur qui passe les vitesses, crissements de drift, nouveaux bruitages. Volumes dans Réglages.

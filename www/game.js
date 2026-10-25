@@ -3963,29 +3963,32 @@ Object.assign(ICONS, {
   confettis: '<svg viewBox="0 0 48 48"><path d="M8 40l10-26 16 16z" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M12 30l6 6" stroke="#ff4f3a" stroke-width="3"/><g stroke="#17143a" stroke-width="1.5"><rect x="30" y="6" width="5" height="5" fill="#ff4f7a" transform="rotate(20 32 8)"/><rect x="38" y="16" width="5" height="5" fill="#3ee08f"/><rect x="24" y="4" width="4" height="4" fill="#38b6ff"/><circle cx="42" cy="30" r="2.6" fill="#a87dff"/><circle cx="36" cy="22" r="2" fill="#ffc531"/></g></svg>',
   ressort: '<svg viewBox="0 0 48 48"><g fill="none" stroke="#17143a" stroke-width="5" stroke-linecap="round"><path d="M12 40h24M14 33c10-3 20 0 20 0M14 26c10-3 20 0 20 0M14 19c10-3 20 0 20 0"/></g><g fill="none" stroke="#3ee08f" stroke-width="2.6" stroke-linecap="round"><path d="M14 33c10-3 20 0 20 0M14 26c10-3 20 0 20 0M14 19c10-3 20 0 20 0"/></g><rect x="10" y="8" width="28" height="7" rx="3" fill="#ffc531" stroke="#17143a" stroke-width="3"/></svg>',
   disco: '<svg viewBox="0 0 48 48"><path d="M24 2v8" stroke="#17143a" stroke-width="3"/><circle cx="24" cy="26" r="15" fill="#c8ccd8" stroke="#17143a" stroke-width="3"/><g fill="#fff"><rect x="15" y="17" width="5" height="5"/><rect x="25" y="20" width="5" height="5"/><rect x="19" y="28" width="5" height="5"/><rect x="29" y="30" width="4" height="4"/></g><g fill="#a87dff"><rect x="21" y="16" width="4" height="4"/><rect x="14" y="25" width="4" height="4"/><rect x="27" y="25" width="4" height="4"/></g></svg>',
+  colle: '<svg viewBox="0 0 48 48"><path d="M14 14h20l-3 26H17z" fill="#fff3c4" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M13 10h22v6H13z" fill="#ff8a1e" stroke="#17143a" stroke-width="3"/><path d="M18 22c3 3 9 3 12 0v6c-3 3-9 3-12 0z" fill="#ffc531"/><circle cx="20" cy="34" r="2" fill="#ffc531"/></svg>',
+  aspirateur: '<svg viewBox="0 0 48 48"><rect x="6" y="22" width="22" height="16" rx="6" fill="#a87dff" stroke="#17143a" stroke-width="3"/><circle cx="12" cy="39" r="4" fill="#2b2b3a" stroke="#17143a" stroke-width="2"/><circle cx="24" cy="39" r="4" fill="#2b2b3a" stroke="#17143a" stroke-width="2"/><path d="M26 26c6-10 12-14 16-14" fill="none" stroke="#17143a" stroke-width="4" stroke-linecap="round"/><path d="M38 8l6 4-4 6" fill="#38b6ff" stroke="#17143a" stroke-width="2.5" stroke-linejoin="round"/></svg>',
+  ventilo: '<svg viewBox="0 0 48 48"><circle cx="24" cy="22" r="16" fill="#bfefff" stroke="#17143a" stroke-width="3"/><g fill="#38b6ff" stroke="#17143a" stroke-width="2"><path d="M24 22c-2-8 2-12 6-10s0 8-6 10z"/><path d="M24 22c8-1 11 4 8 7s-7-2-8-7z"/><path d="M24 22c-5 6-11 5-11 1s6-4 11-1z"/></g><circle cx="24" cy="22" r="3" fill="#ffc531" stroke="#17143a" stroke-width="2"/><path d="M18 38h12l2 6H16z" fill="#2b2b3a"/></svg>',
+  grappin: '<svg viewBox="0 0 48 48"><path d="M8 40C14 30 22 22 30 14" fill="none" stroke="#c8ccd8" stroke-width="3" stroke-dasharray="3 3"/><g stroke="#17143a" stroke-width="3" fill="#ffc531" stroke-linejoin="round"><path d="M30 14l6-8 2 9z"/><path d="M30 14l10 2-6 6z"/><path d="M30 14l-2-10 7 4z"/></g><circle cx="8" cy="40" r="4" fill="#ff4f3a" stroke="#17143a" stroke-width="2.5"/></svg>',
 });
-const RARITY = { turbo: 'c', oil: 'c', boule: 'c', shield: 'c', triple: 'u', mine: 'u', aimant: 'u', fantome: 'u', ressort: 'u', bulle: 'u', rocket: 'r', confettis: 'r', disco: 'r', etoile: 'v', eclair: 'v' };
+const RARITY = { turbo: 'c', oil: 'c', boule: 'c', shield: 'c', colle: 'c', triple: 'u', mine: 'u', aimant: 'u', fantome: 'u', ressort: 'u', bulle: 'u', aspirateur: 'u', ventilo: 'u', rocket: 'r', confettis: 'r', disco: 'r', grappin: 'r', etoile: 'v', eclair: 'v' };
 const RARITY_NAME = { c: 'Commun', u: 'Peu commun', r: 'Rare', v: 'Très rare' };
 ITEM_KEYS.length = 0; ITEM_KEYS.push(...Object.keys(RARITY));
 // r = 0 : en tête, r = 1 : loin derrière ; chaque rareté a un poids qui dépend de r, réparti entre ses objets
 function itemOdds11(k) {
   const ks = G.karts.filter((o) => !o.finished), n = Math.max(2, G.karts.length); let lead = -Infinity; for (const o of ks) lead = Math.max(lead, o.prog);
-  const place = k ? k.place : 4, pf = clamp((place - 1) / (n - 1), 0, 1), gap = k && isFinite(lead) ? Math.max(0, (lead - k.prog) * G.W.S.seg) : 0, df = clamp(gap / 650, 0, 1);
-  const r = clamp(pf * .55 + df * .45, 0, 1), L = (a, b) => Math.max(0, a + (b - a) * r);
-  const tier = { c: L(5.2, 1.4), u: L(2.4, 3.2), r: L(.35, 2.6), v: r > .45 ? (r - .45) * 3.4 : 0 };
+  const place = k ? k.place : 4, pf = clamp((place - 1) / (n - 1), 0, 1), gap = k && isFinite(lead) ? Math.max(0, (lead - k.prog) * G.W.S.seg) : 0, df = clamp(gap / 700, 0, 1);
+  const r = clamp(pf * .6 + df * .4, 0, 1), L = (a, b) => a + (b - a) * r;
+  // part de chaque rareté : en tête ~54/32/13/1 %, au milieu ~45/32/18/5 %, loin derrière ~34/31/24/11 %
+  const tier = { c: L(54, 34), u: L(32, 31), r: L(13, 24), v: L(1, 11) };
   const count = {}; for (const it in RARITY) count[RARITY[it]] = (count[RARITY[it]] || 0) + 1;
   const w = {}; for (const it in RARITY) w[it] = tier[RARITY[it]] / count[RARITY[it]];
-  // nuances : le premier pose surtout des pièges, les derniers ont de la vitesse
-  w.oil *= L(1.6, .5); w.mine *= L(1.4, .3); w.turbo *= L(.6, 1.6); w.triple *= L(.3, 1.5); w.boule *= L(1.3, .8);
-  if (place === 1) { w.rocket = 0; w.eclair = 0; w.etoile = 0; w.aimant = 0; w.triple = 0; w.confettis = 0; w.bulle *= .2; }
-  else if (place === 2 && gap < 60) { w.eclair = 0; w.etoile *= .2; }
+  // objets inutiles en tête (rien devant soi)
+  if (place === 1) { w.rocket = 0; w.confettis = 0; w.eclair = 0; w.grappin = 0; w.aspirateur *= .3; w.etoile *= .3; }
   const R = G.race, now = R ? R.t : 0;
-  if (G.lastEclair != null && now - G.lastEclair < 25) w.eclair = 0;
-  if (G.lastConfetti != null && now - G.lastConfetti < 15) w.confettis *= .1;
-  if (G.karts.some((o) => o.star > 0)) w.etoile *= .25;
-  // variété : jamais deux fois de suite le même, et bonus pour ce qu'on n'a pas encore eu dans la course
-  const hist = (k && k.lastItems) || []; hist.forEach((it, i) => { if (w[it] != null) w[it] *= [.06, .3, .6, .8][i] || 1; });
-  if (k) { k.seenItems = k.seenItems || new Set(); for (const it in w) if (!k.seenItems.has(it)) w[it] *= 1.6; }
+  if (G.lastEclair != null && now - G.lastEclair < 20) w.eclair *= .1;
+  if (G.lastConfetti != null && now - G.lastConfetti < 12) w.confettis *= .2;
+  if (G.karts.some((o) => o.star > 0)) w.etoile *= .3;
+  // variété : presque jamais deux fois de suite le même, et un petit bonus pour ce qu'on n'a pas encore eu
+  const hist = (k && k.lastItems) || []; hist.forEach((it, i) => { if (w[it] != null) w[it] *= [.12, .45, .75, .9][i] || 1; });
+  if (k) { k.seenItems = k.seenItems || new Set(); for (const it in w) if (!k.seenItems.has(it)) w[it] *= 1.3; }
   return w;
 }
 function rollItem11(place, k) {
@@ -3999,12 +4002,21 @@ function useItem11(k, it, online) {
   if (it === 'bulle') { let target = null, best = 1e9; for (const o of G.karts) { if (o === k || o.finished) continue; const g = o.prog - k.prog; if (g > 0 && g < best && g * G.W.S.seg < 160) { best = g; target = o; } }
     if (!target) { for (const o of G.karts) { if (o === k || o.finished) continue; const g = Math.abs(o.prog - k.prog); if (g < best) { best = g; target = o; } } }
     if (target) { bubbleKart(target, k); if (online) netEmit({ e: 'bulle', o: k.netId, tg: target.netId }); } if (k.isPlayer) AudioSys.sfx('bubble'); return true; }
+  if (it === 'colle') { const x = k.x - Math.sin(k.h) * 3.4, z = k.z - Math.cos(k.h) * 3.4, id = online ? netNewId() : null; spawnOil(x, z, k.groundY, k, id, 'colle'); if (id) netEmit({ e: 'oil', kind: 'colle', id, x: r2(x), z: r2(z), y: r2(k.groundY), o: k.netId }); if (k.isPlayer) AudioSys.sfx('oil'); return true; }
+  if (it === 'aspirateur') { let tg = null, best = 1e9; for (const o of G.karts) { if (o === k || o.finished) continue; const g = o.prog - k.prog; if (g > 0 && g < best && g * G.W.S.seg < 220) { best = g; tg = o; } }
+    let got = tg && !tg.isRemote && tg.item && tg.item !== 'aspirateur' ? tg.item : null; if (tg && !tg.isRemote && tg.item) { tg.item = null; tg.uses = 0; if (tg.isPlayer) banner('On t\'a aspiré ton objet !', 1.4, true); }
+    if (tg && tg.isRemote && online) netEmit({ e: 'vol', o: k.netId, tg: tg.netId });
+    if (!got) got = pick(['triple', 'rocket', 'bulle', 'ressort', 'aimant']); k.item = got; if (got === 'triple') k.uses = 3; k.lastItems = [got].concat(k.lastItems || []).slice(0, 4);
+    if (k.isPlayer) { AudioSys.sfx('got'); banner('Aspiré : ' + (ITEM_FR[got] || got), 1.3); } return true; }
+  if (it === 'ventilo') { ventiloGust(k, k.x, k.z, k.h); if (online) netEmit({ e: 'ventilo', o: k.netId, x: r2(k.x), z: r2(k.z), h: r3(k.h) }); return true; }
+  if (it === 'grappin') { let tg = null, best = 1e9; for (const o of G.karts) { if (o === k || o.finished) continue; const g = o.prog - k.prog; if (g > 0 && g < best && g * G.W.S.seg < 260) { best = g; tg = o; } }
+    k.grapT = 2.4; k.grapTg = tg; k.boost = Math.max(k.boost, .6); if (k.isPlayer) { AudioSys.sfx('spring'); banner(tg ? 'Grappin sur ' + tg.name + ' !' : 'Grappin !', 1.2); } return true; }
   if (it === 'confettis') { confettiBlast(k, k.prog); if (online) netEmit({ e: 'confettis', o: k.netId, p: r2(k.prog) }); return true; }
   if (it === 'disco') { discoWave(k, k.x, k.z); if (online) netEmit({ e: 'disco', o: k.netId, x: r2(k.x), z: r2(k.z) }); return true; }
   return false;
 }
 function bubbleKart(o, src) { if (o.isRemote || o.star > 0 || o.ghost > 0) return; if (o.shield > 0) { o.shield = 0; return; } o.bubble = 1.7; if (o.drift) endDrift(o, false); if (o.isPlayer) { banner('Dans une bulle !', 1.3, true); vibrate([20, 40, 20]); AudioSys.sfx('bubble'); } }
-function confettiBlast(src, p) { let n = 0; for (const o of G.karts) { if (o === src || o.isRemote || o.prog <= p || o.finished) continue; o.blind = 3.2; n++; if (o.isPlayer) { showConfetti(); banner('Confettis !', 1.2, true); } }
+function confettiBlast(src, p) { let n = 0; for (const o of G.karts) { if (o === src || o.isRemote || o.prog <= p || o.finished || (o.prog - p) * G.W.S.seg > 160) continue; if (o.shield > 0 || o.star > 0) continue; o.blind = 2; n++; if (o.isPlayer) { showConfetti(); banner('Confettis !', 1.2, true); } }
   G.lastConfetti = G.race ? G.race.t : 0; AudioSys.sfx('confetti'); if (src && src.isPlayer) banner('Confettis : ' + n + ' aveuglé' + (n > 1 ? 's' : ''), 1.3); }
 function discoWave(src, x, z) {
   const R2 = 15 * 15; for (const o of G.karts) { if (o === src || o.isRemote || o.finished) continue; if ((o.x - x) ** 2 + (o.z - z) ** 2 > R2) continue; if (o.star > 0 || o.ghost > 0) continue; if (o.shield > 0) { o.shield = 0; continue; } hitKart(o, src); }
@@ -4014,19 +4026,33 @@ function discoWave(src, x, z) {
   AudioSys.sfx('disco');
 }
 function showConfetti() { let el = $('#confetti'); if (!el) { el = document.createElement('div'); el.id = 'confetti'; document.body.appendChild(el); }
-  el.innerHTML = ''; for (let i = 0; i < 70; i++) { const s = document.createElement('i'); s.style.left = rand(0, 100) + '%'; s.style.background = pick(['#ff4f7a', '#ffc531', '#38b6ff', '#3ee08f', '#a87dff', '#fffdf7']); s.style.animationDelay = rand(0, .8) + 's'; s.style.animationDuration = rand(1.6, 2.8) + 's'; s.style.transform = 'rotate(' + rand(0, 360) + 'deg)'; el.appendChild(s); }
-  el.classList.remove('on'); void el.offsetWidth; el.classList.add('on'); clearTimeout(showConfetti.h); showConfetti.h = setTimeout(() => el.classList.remove('on'), 3300); }
+  el.innerHTML = ''; for (let i = 0; i < 26; i++) { const s = document.createElement('i'); s.style.left = rand(0, 100) + '%'; s.style.background = pick(['#ff4f7a', '#ffc531', '#38b6ff', '#3ee08f', '#a87dff', '#fffdf7']); s.style.animationDelay = rand(0, .4) + 's'; s.style.animationDuration = rand(1.2, 1.9) + 's'; s.style.opacity = '.75'; s.style.transform = 'rotate(' + rand(0, 360) + 'deg)'; el.appendChild(s); }
+  el.classList.remove('on'); void el.offsetWidth; el.classList.add('on'); clearTimeout(showConfetti.h); showConfetti.h = setTimeout(() => el.classList.remove('on'), 2300); }
 // physique : bulle (on flotte, on ralentit, pas de direction) et confettis (direction qui tremble)
 function itemStatus11(k, inp, dt) {
   if (k.bubble > 0) { k.bubble -= dt; k.speed *= Math.pow(.25, dt); inp.steer = 0; inp.drift = false; k.y = Math.max(k.y, k.groundY + 1.8 * Math.sin(Math.min(1, (1.7 - k.bubble) / .4) * Math.PI / 2) * (k.bubble > .2 ? 1 : k.bubble / .2)); }
-  if (k.blind > 0) { k.blind -= dt; if (!k.isPlayer) inp.steer = clamp(inp.steer + Math.sin(G.W.clock * 7 + (k.ai ? k.ai.seed || 0 : 0)) * .55, -1, 1); }
+  if (k.blind > 0) { k.blind -= dt; if (!k.isPlayer) inp.steer = clamp(inp.steer + Math.sin(G.W.clock * 7 + (k.ai ? k.ai.seed || 0 : 0)) * .35, -1, 1); }
+  if (k.glue > 0) { k.glue -= dt; const cap = k.maxSpeed * .5; if (k.speed > cap) k.speed = lerp(k.speed, cap, 1 - Math.exp(-dt * 8)); inp.drift = false; }
+  if (k.grapT > 0) { k.grapT -= dt; const tg = k.grapTg; const v = k.maxSpeed * 1.32; if (k.speed < v) k.speed = Math.min(v, k.speed + 70 * dt); if (tg && (tg.finished || tg.prog <= k.prog + 2)) k.grapT = 0; if (k.grapT <= 0) k.grapTg = null; }
 }
+const ITEM_FR = { turbo: 'Turbo', oil: 'Flaque', boule: 'Boule', shield: 'Bouclier', colle: 'Pot de colle', triple: 'Triple turbo', mine: 'Mine', aimant: 'Aimant', fantome: 'Fantôme', ressort: 'Ressort', bulle: 'Bulle', aspirateur: 'Aspirateur', ventilo: 'Ventilo', rocket: 'Fusée', confettis: 'Confettis', disco: 'Boule disco', grappin: 'Grappin', etoile: 'Étoile', eclair: 'Éclair' };
+function glueKart(k) { if (k.star > 0 || k.ghost > 0) return; if (k.shield > 0) { k.shield = 0; return; } k.glue = 1.6; if (k.drift) endDrift(k, false); if (k.isPlayer) { banner('Collé !', 1, true); vibrate(40); AudioSys.sfx('bubble'); } }
+// rafale latérale : pousse et ralentit les karts proches devant et sur les côtés
+function ventiloGust(src, x, z, h) { const fx = Math.sin(h), fz = Math.cos(h);
+  for (const o of G.karts) { if (o === src || o.isRemote || o.finished) continue; const dx = o.x - x, dz = o.z - z, d2 = dx * dx + dz * dz; if (d2 > 30 * 30) continue; if (dx * fx + dz * fz < -6) continue; if (o.star > 0 || o.ghost > 0) continue; if (o.shield > 0) { o.shield = 0; continue; }
+    const P = o.P || G.W.S, j = clamp(o.idx, 0, P.N - 1), side = Math.sign((dx * P.rx[j] + dz * P.rz[j]) || 1); o.x += P.rx[j] * side * 4.5; o.z += P.rz[j] * side * 4.5; o.speed *= .72; if (o.drift) endDrift(o, false); if (o.isPlayer) { banner('Coup de vent !', 1, true); vibrate(30); } }
+  if (G.W && G.W.parts) for (let i = 0; i < 26; i++) G.W.parts.emit(x + fx * 3, (src ? src.y : 0) + 1, z + fz * 3, fx * rand(20, 30) + rand(-6, 6), rand(0, 2), fz * rand(20, 30) + rand(-6, 6), '#dff6ff', .45, 0);
+  AudioSys.sfx('confetti'); }
 // IA : quand utiliser les nouveaux objets
 function aiUse11(k, ahead, behind, ai) {
   switch (k.item) {
     case 'ressort': return G.W.obst.some((o) => o.P === k.P && ((o.i - k.idx + o.P.N) % o.P.N) < 18) || ai.itemT < -4;
     case 'bulle': return ahead(80) || ai.itemT < -5;
     case 'confettis': return k.place > 2 || ai.itemT < -6;
+    case 'colle': return behind(30) || ai.itemT < -3;
+    case 'aspirateur': return G.karts.some((o) => o !== k && !o.finished && o.item && o.prog > k.prog && (o.prog - k.prog) * G.W.S.seg < 200) || ai.itemT < -6;
+    case 'ventilo': return G.karts.some((o) => o !== k && !o.finished && (o.x - k.x) ** 2 + (o.z - k.z) ** 2 < 400) || ai.itemT < -6;
+    case 'grappin': return ahead(110) || ai.itemT < -4;
     case 'disco': return G.karts.some((o) => o !== k && (o.x - k.x) ** 2 + (o.z - k.z) ** 2 < 140) || G.rockets.some((r) => r.target === k) || ai.itemT < -7;
   }
   return null;
@@ -4096,6 +4122,8 @@ function spawnOil(x, z, y, owner, id, kind = 'oil') {
   let m;
   if (kind === 'mine') { m = new T.Group(); const body = new T.Mesh(MINE_GEO, stdMat('#3a3550', .4, .6)); body.position.y = .6; m.add(body);
     const light = new T.Mesh(new T.SphereGeometry(.18, 10, 8), new T.MeshBasicMaterial({ color: '#ff2a2a' })); light.position.y = 1.25; m.add(light); m.userData.light = light; m.position.set(x, y + .1, z); }
+  else if (kind === 'colle') { m = new T.Group(); const pool = new T.Mesh(new T.CircleGeometry(2.1, 24), new T.MeshStandardMaterial({ color: '#ffe9a0', roughness: .25, metalness: .1, emissive: '#7a5a10', emissiveIntensity: .25, polygonOffset: true, polygonOffsetFactor: -3 })); pool.rotation.x = -Math.PI / 2; m.add(pool);
+    for (let q = 0; q < 6; q++) { const bb = new T.Mesh(new T.SphereGeometry(rand(.18, .32), 10, 8), stdMat('#fff6d0', .2, .1)); bb.position.set(rand(-1.3, 1.3), .08, rand(-1.3, 1.3)); m.add(bb); } m.position.set(x, y + .16, z); }
   else { m = new T.Mesh(new T.CircleGeometry(1.9, 24), new T.MeshStandardMaterial({ color: '#1a1828', roughness: .1, metalness: .5, emissive: '#3b1f7a', emissiveIntensity: .35, transparent: true, opacity: .95, polygonOffset: true, polygonOffsetFactor: -3 }));
     m.rotation.x = -Math.PI / 2; m.position.set(x, y + .16, z); }
   G.W.scene.add(m); warpObject(m, x, y + .16, z); G.hazards.push({ x, z, y, life: kind === 'mine' ? 30 : 25, mesh: m, owner, age: 0, id, kind });
@@ -4129,7 +4157,7 @@ function updateItems(dt) {
     const h = G.hazards[n]; h.life -= dt; h.age += dt; let gone = h.life <= 0; const rad2 = h.kind === 'mine' ? 7 : 4.6;
     if (h.kind === 'mine' && h.mesh.userData.light) h.mesh.userData.light.visible = Math.floor(now * 4) % 2 === 0;
     if (!gone) for (const k of G.karts) { if (k.isRemote || (h.owner === k && h.age < 1)) continue; if ((k.x - h.x) ** 2 + (k.z - h.z) ** 2 < rad2 && Math.abs(k.y - h.y) < 2) {
-      hitKart(k, h.owner); netHitReport(k, h.owner, h.id); gone = true;
+      if (h.kind === 'colle') { glueKart(k); netHitReport(k, null, h.id); } else { hitKart(k, h.owner); netHitReport(k, h.owner, h.id); } gone = true;
       if (h.kind === 'mine') for (let m = 0; m < 24; m++) W.parts.emit(h.x, h.y + 1, h.z, rand(-9, 9), rand(3, 12), rand(-9, 9), pick(['#ff4f3a', '#ffc531', '#2b2b3a']), .8);
       break; } }
     if (gone) { disposeObj(h.mesh); G.hazards.splice(n, 1); }
@@ -4337,6 +4365,7 @@ function updateVisuals(dt) {
     M.tilt.visible = !(k.ghost > 0 && Math.floor(now * 12) % 2 === 0);
     if (k.droneT > 0 || M.drone) { if (!M.drone) { M.drone = droneMesh(); G.W.scene.add(M.drone); } k.droneT = Math.max(0, (k.droneT || 0) - dt); M.drone.visible = k.droneT > 0; M.drone.position.set(M.g.position.x, M.g.position.y + 3.4 + (k.droneT < .4 ? (.4 - k.droneT) * 20 : 0), M.g.position.z); M.drone.rotation.y += dt * 2; }
     cageVisual(k, M, dt);
+    if (k.grapT > 0 && k.grapTg) { if (!M.rope) { const gg = new T.BufferGeometry(); gg.setAttribute('position', new T.Float32BufferAttribute(new Float32Array(6), 3)); M.rope = new T.Line(gg, new T.LineBasicMaterial({ color: '#ffc531' })); M.rope.frustumCulled = false; G.W.scene.add(M.rope); } const a = M.rope.geometry.attributes.position; a.setXYZ(0, k.x, k.y + 1.2, k.z); a.setXYZ(1, k.grapTg.x, k.grapTg.y + 1, k.grapTg.z); a.needsUpdate = true; M.rope.visible = true; } else if (M.rope) M.rope.visible = false;
     { const tsc = k.shrink > 0 ? .62 : 1; const cur = M.g.scale.x; M.g.scale.setScalar(lerp(cur, tsc, 1 - Math.exp(-dt * 8))); }
     if (k.star > 0 && Math.random() < .9) W.parts.emit(k.x + rand(-1.5, 1.5), k.y + rand(.3, 2), k.z + rand(-1.5, 1.5), rand(-1, 1), rand(1, 3), rand(-1, 1), pick(['#ff4f3a', '#ffc531', '#3ee08f', '#38b6ff', '#a87dff']), .45);
     if (k.magnet > 0 && Math.random() < .6) W.parts.emit(k.x + Math.sin(k.h) * 3, k.y + 1, k.z + Math.cos(k.h) * 3, Math.sin(k.h) * 8, 0, Math.cos(k.h) * 8, '#6fd8ff', .3, 0);
@@ -5255,6 +5284,8 @@ function onNetEvent(d) {
   else if (d.e === 'confettis') confettiBlast(K(d.o), +d.p);
   else if (d.e === 'disco') discoWave(K(d.o), +d.x, +d.z);
   else if (d.e === 'police') policeSweep(K(d.ex));
+  else if (d.e === 'vol') { const t = K(d.tg); if (t && !t.isRemote && t.item) { t.item = null; t.uses = 0; if (t.isPlayer) banner('On t\'a aspiré ton objet !', 1.4, true); } }
+  else if (d.e === 'ventilo') ventiloGust(K(d.o), +d.x, +d.z, +d.h);
   else if (d.e === 'hit' && d.src === Net.id) { if (R.pt && R.state === 'race') { R.pt.gives++; if (R.pt.gives <= 3) banner('Touché ! Distribue 1', 1.4); } else banner('Touché !', 1); AudioSys.sfx('hit'); }
 }
 function onNetFin(d) {

@@ -1042,6 +1042,47 @@ function decorGeo(name) {
   g.userData.keep = true; DECOR[name] = g; return g;
 }
 
+/* Horizon paysager : relief lointain peu coûteux, partagé par les circuits naturels.
+   Les éléments sont instanciés (2 draw calls au lieu d'un mesh par montagne). */
+function buildScenicHorizon(W, ext, cx, cz, quality) {
+  const decor = W.th.decor;
+  const biomes = {
+    prairie: ['#477e3d', '#65994a', '#789e59'],
+    forest: ['#244d38', '#35694a', '#527d50'],
+    jungle: ['#174b36', '#286348', '#477b54'],
+    canyon: ['#a64f36', '#c87548', '#df9860'],
+    desert: ['#b77b49', '#d19a60', '#e0b477'],
+    snow: ['#71869b', '#9aafc2', '#d6e2ef'],
+    glacier: ['#6587a5', '#8eabc5', '#c6d8e9'],
+    alpine: ['#3c6651', '#6d9270', '#a7b9a0'],
+    safari: ['#8d874d', '#b2a36a', '#c9bd82'],
+    sakura: ['#627d67', '#8c9d83', '#c9a5b2'],
+    autumn: ['#79513b', '#a36a42', '#bd8a56'],
+    provence: ['#6d8051', '#9ba16a', '#b9b184'],
+    volcano: ['#39383e', '#62504d', '#8b6556']
+  };
+  const colors = biomes[decor];
+  if (!colors || quality < .45) return;
+  const count = Math.round(quality >= 1 ? 30 : 19);
+  const hills = [], peaks = [];
+  const base = (x, z) => W.hAt ? W.hAt(x, z) - .8 : -.15;
+  for (let i = 0; i < count; i++) {
+    const a = (i / count) * TAU + rand(-.09, .09);
+    const r = ext + rand(190, 360);
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+    hills.push({ x, z, y: base(x, z), sx: rand(48, 105), sy: rand(22, 58), sz: rand(55, 125), r: rand(0, TAU), s: 1 });
+  }
+  instanced(W.scene, [{ geo: decorGeo('hill'), mat: lam('#ffffff'), colors }], hills);
+  const peakCount = Math.round(count * .38);
+  for (let i = 0; i < peakCount; i++) {
+    const a = (i / peakCount) * TAU + rand(-.12, .12);
+    const r = ext + rand(270, 410);
+    const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, h = rand(42, 96);
+    peaks.push({ x, z, y: base(x, z) + h * .5, sx: rand(28, 54), sy: h, sz: rand(28, 54), r: rand(0, TAU), s: 1 });
+  }
+  instanced(W.scene, [{ geo: new T.ConeGeometry(1, 1, 7, 2), mat: lam('#ffffff'), colors: colors.slice().reverse() }], peaks);
+}
+
 function buildDecor(W) {
   const { S, scene, th } = W;
   const near = W.nearAll || nearTrackFn(S);
@@ -1128,6 +1169,7 @@ function buildDecor(W) {
   else if (th.decor === 'house') buildHouse(W, ext, cx, cz, scatter, ring, q);
   else if (th.decor === 'festival') buildFestival(W, ext, cx, cz, scatter, ring, q);
   else if (th.decor === 'cameleon') buildChameleon(W, ext, cx, cz, scatter, ring, q);
+  buildScenicHorizon(W, ext, cx, cz, q);
   if (W.def.cruise) buildCruise(W, ext, cx, cz);
 }
 function addClouds(W, ext, cx, cz, n = 16) {

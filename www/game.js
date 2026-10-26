@@ -1591,11 +1591,17 @@ function buildJungle(W, ext, cx, cz, scatter, ring, q) {
     W.jgMarks.falls.push({ i, sd }); const d = wallD + 52, fx = S.px[i] + S.rx[i] * sd * d, fz = S.pz[i] + S.rz[i] * sd * d, top = S.py[i] + 26, h = top - base;
     const cliff = new T.Mesh(smooth(wobble(new T.BoxGeometry(26, h + 14, 74, 3, 6, 8), .12, .09, 4), 50), stdMat('#5f6656', .95, 0)); cliff.position.set(S.px[i] + S.rx[i] * sd * (d + 14), base + (h + 14) / 2 - 6, S.pz[i] + S.rz[i] * sd * (d + 14)); cliff.rotation.y = S.hd[i]; scene.add(cliff);
     const cap = new T.Mesh(jgBlob(1, 1, .25, 3, .4), stdMat('#2f6e34', .95, 0)); cap.scale.set(16, 10, 42); cap.position.set(cliff.position.x, top + 4, cliff.position.z); cap.rotation.y = S.hd[i]; scene.add(cap);
-    const fallTex = wt.clone(); fallTex.needsUpdate = true; fallTex.repeat.set(1.2, 2.5); const fm = new T.MeshBasicMaterial({ map: fallTex, transparent: true, opacity: .9, side: T.DoubleSide, color: '#e8fbff' });
+    // eau qui tombe : filets blancs verticaux sur fond bleu-vert, défilement vers le bas
+    const fallTex = canvasTex(128, 256, (x, w, h) => { const g = x.createLinearGradient(0, 0, w, 0); g.addColorStop(0, 'rgba(120,200,215,.75)'); g.addColorStop(.5, 'rgba(170,230,240,.9)'); g.addColorStop(1, 'rgba(120,200,215,.75)'); x.fillStyle = g; x.fillRect(0, 0, w, h);
+      for (let k = 0; k < 90; k++) { const px = Math.random() * w, l = rand(30, 140), py = Math.random() * h; x.strokeStyle = 'rgba(255,255,255,' + rand(.35, .85).toFixed(2) + ')'; x.lineWidth = rand(1, 4); for (const oy of [0, -h, h]) { x.beginPath(); x.moveTo(px, py + oy); x.lineTo(px + rand(-2, 2), py + oy + l); x.stroke(); } } });
+    fallTex.repeat.set(2, 1.6); const fm = new T.MeshBasicMaterial({ map: fallTex, transparent: true, opacity: .95, side: T.DoubleSide, depthWrite: false });
     const fall = new T.Mesh(new T.PlaneGeometry(22, h + 2), fm); fall.position.set(fx, base + h / 2 + 1, fz); fall.rotation.y = S.hd[i] + Math.PI / 2; scene.add(fall);
     const fall2 = new T.Mesh(new T.PlaneGeometry(9, h * .8), fm); fall2.position.set(fx + S.fx[i] * 24 - S.rx[i] * sd * 1, base + h * .4, fz + S.fz[i] * 24 - S.rz[i] * sd * 1); fall2.rotation.y = S.hd[i] + Math.PI / 2; scene.add(fall2);
+    { const rk = stdMat('#545a4a', .95, 0), mo = stdMat('#2f6e34', .95, 0); // rochers qui cassent la silhouette de la falaise
+      for (let k = 0; k < 14; k++) { const f = rand(-36, 36), lat = d + rand(-4, 18), top2 = k < 7, r = rand(4, 9), m = new T.Mesh(jgBlob(r, 1, .3, k + 40, rand(.6, 1)), top2 ? mo : rk);
+        m.position.set(S.px[i] + S.fx[i] * f + S.rx[i] * sd * lat, top2 ? top + rand(-2, 6) : base + rand(0, 6), S.pz[i] + S.fz[i] * f + S.rz[i] * sd * lat); m.rotation.y = rand(0, TAU); scene.add(m); } }
     const pool = new T.Mesh(new T.CircleGeometry(26, 28), wm); pool.rotation.x = -Math.PI / 2; pool.position.set(fx - S.rx[i] * sd * 6, base + 2.3, fz - S.rz[i] * sd * 6); scene.add(pool);
-    addTick(W, (dt) => { fallTex.offset.y += dt * 1.4; if (W.parts && Math.random() < .7) W.parts.emit(fx + S.fx[i] * rand(-10, 10) - S.rx[i] * sd * rand(2, 8), base + 3, fz + S.fz[i] * rand(-10, 10) - S.rz[i] * sd * rand(2, 8), rand(-2, 2), rand(3, 7), rand(-2, 2), '#eefcff', 1.2, .9); }); }
+    addTick(W, (dt) => { fallTex.offset.y -= dt * .9; if (W.parts && Math.random() < .7) W.parts.emit(fx + S.fx[i] * rand(-10, 10) - S.rx[i] * sd * rand(2, 8), base + 3, fz + S.fz[i] * rand(-10, 10) - S.rz[i] * sd * rand(2, 8), rand(-2, 2), rand(3, 7), rand(-2, 2), '#eefcff', 1.2, .9); }); }
   addClouds(W, ext, cx, cz, 10);
 }
 

@@ -1568,10 +1568,12 @@ class Particles {
     this.points.frustumCulled = false; scene.add(this.points); this.c = new T.Color();
   }
   emit(x, y, z, vx, vy, vz, color, life, grav = 1) {
+    if (typeof REC !== 'undefined' && REC.on && !REPLAY.on) REC.pe.push([REC.t, this, x, y, z, vx, vy, vz, color, life, grav]);   // pour le ralenti
     const i = this.i; this.i = (this.i + 1) % this.n; const j = i * 3; this.c.set(color);
     this.pos[j] = x; this.pos[j + 1] = y; this.pos[j + 2] = z; this.vel[j] = vx; this.vel[j + 1] = vy; this.vel[j + 2] = vz;
     this.base[j] = this.c.r; this.base[j + 1] = this.c.g; this.base[j + 2] = this.c.b; this.life[i] = life; this.max[i] = life; this.grav[i] = grav;
   }
+  clear() { this.life.fill(0); for (let i = 0; i < this.n; i++) this.pos[i * 3 + 1] = -9999; this.geo.attributes.position.needsUpdate = true; }
   update(dt) {
     for (let i = 0; i < this.n; i++) {
       if (this.life[i] <= 0) continue; const j = i * 3; this.life[i] -= dt;
@@ -2397,7 +2399,12 @@ const CHEF = { s: 0, r: new Set(), b: new Set() };
 function chefListLoad() { const L = SAVE.chefList ? wkListParse(SAVE.chefList, WK_PK) : null; CHEF.s = L ? L.s : 0; CHEF.r = new Set(L ? L.r : []); CHEF.b = new Set(L ? L.b : []); CHEF.u = L ? L.u : 0; if (typeof updForced === 'function') updForced(CHEF.u); }
 function chefListApply(text, quiet) { const L = wkListParse(text, WK_PK); if (!L || L.s <= CHEF.s) return false; SAVE.chefList = L.text; store(); chefListLoad(); if (!quiet) toast('Liste du chef mise à jour.', 2500); setTimeout(() => { accessTick(); if (Net.host && typeof hostKickBanned === 'function') { hostBroadcastLobby(); hostKickBanned(); } }, 0); return true; }
 // toutes les minutes : le serveur donne la dernière liste du chef (et note quel code ce jeu utilise)
-async function accessSync() { if (typeof acctCall !== 'function') return; const r = await acctCall('state', { code: SAVE.access || '', fid: frMyId(), name: SAVE.name || '', pseudo: SAVE.acct ? SAVE.acct.u : '' }); if (r && r.cl) chefListApply(r.cl, true); accessTick(); }
+async function accessSync() { if (typeof acctCall !== 'function') return; const r = await acctCall('state', { code: SAVE.access || '', fid: frMyId(), name: SAVE.name || '', pseudo: SAVE.acct ? SAVE.acct.u : '' }); if (r && r.cl) chefListApply(r.cl, true); if (r && Array.isArray(r.gone) && r.gone.length) goneApply(r.gone); accessTick(); }
+// comptes supprimés par le chef : on les enlève de ses amis et de ses groupes
+function goneApply(L) { const G0 = new Set(L), me = frMyId(); let ch = false; if (G0.has(me)) return;
+  const fr = frList(), f2 = fr.filter((f) => !G0.has(f.id)); if (f2.length !== fr.length) { SAVE.friends = f2; ch = true; }
+  for (const g of grList()) { const m2 = (g.members || []).filter((m) => !G0.has(m.id)); if (m2.length !== (g.members || []).length) { g.members = m2; ch = true; } }
+  if (ch) { store(); if (typeof frRender === 'function') frRender(); } }
 const chefBanned = () => !!((SAVE.fid && CHEF.b.has(SAVE.fid)) || (SAVE.fidOld || []).some((x) => CHEF.b.has(x)) || (SAVE.acct && CHEF.b.has('@' + String(SAVE.acct.u).toLowerCase())));
 chefListLoad();
 function accessCheck(code) {
@@ -3033,21 +3040,6 @@ function ensureMotion() {
   }).catch(() => false);
 }
 function tiltRel() { let rel = angDiffDeg(SAVE.calib, Input.tiltAngle); if (SAVE.invert) rel = -rel; return rel; }
-function updateSteerInput_old(dt) {
-  const k = Input.keys, p = Input.pad;
-  const l = k.ArrowLeft || k.KeyA || k.KeyQ || p.left, r = k.ArrowRight || k.KeyD || p.right;
-  const target = (r ? 1 : 0) - (l ? 1 : 0);
-  const rate = target === 0 ? 9 : (Math.sign(target) !== Math.sign(Input.digSteer) ? 12 : 5.5);
-  Input.digSteer += clamp(target - Input.digSteer, -rate * dt, rate * dt);
-  if (Input.useTilt) {
-    const rel = tiltRel(), maxA = 26 / SAVE.sens, dz = 1.5; let s = 0;
-    if (Math.abs(rel) > dz) s = Math.sign(rel) * Math.pow(clamp((Math.abs(rel) - dz) / (maxA - dz), 0, 1), 1.2);
-    Input.tiltSteer += (s - Input.tiltSteer) * (1 - Math.exp(-dt * 20));
-  } else Input.tiltSteer = 0;
-  const steer = clamp(Input.tiltSteer + Input.digSteer, -1, 1);
-  const drift = !!(k.Space || k.ShiftLeft || k.ShiftRight || k.ArrowDown || k.KeyS || p.drift);
-  return { steer, drift };
-}
 window.addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT') return;
   Input.keys[e.code] = true;
@@ -4937,11 +4929,6 @@ function aiUse11(k, ahead, behind, ai) {
 
 const ITEM_W = (r) => ({ turbo: 1 + 1.6 * r, triple: .2 + 1.8 * r, oil: 2.6 - 1.8 * r, mine: 1.8 - r, shield: 2 - .8 * r, rocket: .3 + 2.4 * r, boule: 1.4,
   eclair: .02 + 1.3 * r * r * r, aimant: .2 + 1.8 * r, fantome: .9, etoile: .03 + 1.6 * r * r });
-function rollItem_old(place, k) {
-  const r = clamp((place - 1) / 7, 0, 1), w = ITEM_W(r);
-  if (k && k.lastItems) for (const it of k.lastItems) if (w[it]) w[it] *= .15;
-  let tot = 0; for (const n in w) tot += w[n]; let x = Math.random() * tot; for (const n in w) { x -= w[n]; if (x <= 0) return n; } return 'turbo';
-}
 function updateBoxes(dt) {
   const W = G.W, now = performance.now() / 1000;
   if (W.boxMat) W.boxMat.color.setHSL((now * .12) % 1, .75, .68);
@@ -5871,8 +5858,8 @@ $('#spec-res').onclick = () => { AudioSys.sfx('click'); specEnd(); };
 // pendant la course on garde les 8 dernières secondes (position de chaque kart) ; chaque action rapporte des points
 // (dépassement, objet qui touche, envol, photo-finish) ; on garde les 6,5 s autour des 5 secondes les plus fortes
 // on enregistre tout ce qui bouge : karts (et bouclier, bulle…) + tout objet ajouté à la scène pendant la course (objets, pièges, projectiles…)
-const REC = { on: false, t: 0, acc: 0, fr: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, pl: new Map(), passes: new Map() };
-function recReset() { Object.assign(REC, { on: false, t: 0, acc: 0, fr: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, fin: false, pl: new Map(), passes: new Map(), trick: false }); }
+const REC = { on: false, t: 0, acc: 0, fr: [], pe: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, pl: new Map(), passes: new Map() };
+function recReset() { Object.assign(REC, { on: false, t: 0, acc: 0, fr: [], pe: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, fin: false, pl: new Map(), passes: new Map(), trick: false }); }
 function recNodes() { const L = []; for (const k of G.karts) { const M = k.mesh; M.g.userData.recK = k; L.push(M.g, M.tilt); if (M.shield) L.push(M.shield); if (M.bub) L.push(M.bub); }
   for (const o of G.W.scene.children) if (!REC.base.has(o)) L.push(o); return L; }
 // focus : le kart à montrer (celui qu'on touche, qu'on double…) en plus du tien
@@ -5883,15 +5870,16 @@ function recEvent(pts, label, focus, at, actor) { if (!REC.on || !(pts > 0)) ret
   const me = REC.ev[REC.ev.length - 1].a, mine = REC.ev.filter((e) => e.a === me), sc = mine.reduce((n, e) => n + e.pts, 0) * Math.min(1.9, 1 + .3 * (mine.length - 1));
   if (sc > ((REC.pend && REC.pend.sc) || (REC.best && REC.best.sc) || 0)) REC.pend = { sc, at: Math.max(REC.t, ...mine.map((e) => e.t)), ev: mine }; }
 // le clip commence 2 s avant la 1re action du moment fort et finit 1,5 s après la dernière
-function recCut() { const P = REC.pend; if (!P) return; REC.pend = null; const t0 = Math.min(...P.ev.map((e) => e.t)) - 2, fr = REC.fr.filter((f) => f.t >= t0 && f.t <= P.at + 1.5); if (fr.length < 20) return;
+function recCut() { const P = REC.pend; if (!P) return; REC.pend = null; const t0 = Math.min(...P.ev.map((e) => e.t)) - 2, fr = REC.fr.filter((f) => f.t >= t0 && f.t <= P.at + 1.5); if (fr.length < 20) return; const pe = REC.pe.filter((e) => e[0] >= t0 - 1 && e[0] <= P.at + 1.5);
   const cnt = new Map(); for (const e of P.ev) cnt.set(e.label, (cnt.get(e.label) || 0) + 1);
-  REC.best = { sc: P.sc, at: P.at, fr, ev: P.ev, label: [...cnt].map(([l, n]) => l + (n > 1 ? ' ×' + n : '')).join(' · ') }; }
+  REC.best = { sc: P.sc, at: P.at, fr, pe, ev: P.ev, label: [...cnt].map(([l, n]) => l + (n > 1 ? ' ×' + n : '')).join(' · ') }; }
 function recTick(dt) { const R = G.race, P = R && R.player; if (!P || P.spect || R.state === 'attract' || REPLAY.on) return;
   if (R.state === 'race' && !P.finished) REC.on = true; if (!REC.on) return;
   REC.t += dt; REC.acc += dt; if (REC.acc >= 1 / 30) { REC.acc = 0;
     if (!REC.base) REC.base = new Set(G.W.scene.children); const ns = recNodes(), d = new Float32Array(ns.length * 11);
     ns.forEach((o, i) => { d.set([o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z, (o.userData.recK ? !o.userData.recK.spect : o.visible) ? 1 : 0], i * 11); });
-    REC.fr.push({ t: REC.t, ns, d }); while (REC.fr.length && REC.t - REC.fr[0].t > 8) REC.fr.shift(); }
+    REC.fr.push({ t: REC.t, ns, d }); while (REC.fr.length && REC.t - REC.fr[0].t > 8) REC.fr.shift();
+    let c = 0; while (c < REC.pe.length && REC.t - REC.pe[c][0] > 8) c++; if (c) REC.pe.splice(0, c); }
   // dépassements (de tout le monde) : seulement un vrai (le kart doublé est tout près), et compté s'il tient 1,5 s (pas repris tout de suite)
   if (R.t > 6) for (const k of G.karts) { if (k.spect || k.finished) continue; const was = REC.pl.get(k); REC.pl.set(k, k.place); if (!was || k.place >= was) { const q = REC.passes.get(k); if (q && k.place > q.place) REC.passes.delete(k); continue; }
     const o = G.karts.find((x) => x.place === k.place + 1), d = o ? Math.hypot(o.x - k.x, o.z - k.z) : 99; if (d > 22) continue; const last = k.lap >= LAPS, me = k.isPlayer;
@@ -5912,16 +5900,21 @@ const REPLAY = { on: false, t: 0, clip: null, ang: 0, race: null, back: null, li
 const repQa = new T.Quaternion(), repQb = new T.Quaternion();
 // remet la scène comme avant le ralenti (objets d'avant enlevés, objets d'aujourd'hui réaffichés)
 function replayRestore() { const sc = G.W && G.W.scene; if (sc) { for (const o of REPLAY.added) sc.remove(o); if (REPLAY.live) for (const [o, v] of REPLAY.live) o.visible = v; } REPLAY.added = new Set(); REPLAY.live = null; }
-function replayStart(back) { const c = REC.best; if (!c) return; Object.assign(REPLAY, { on: true, t: c.fr[0].t, clip: c, ang: 0, h: null, race: G.race, back, live: new Map(G.W.scene.children.filter((o) => REC.base && !REC.base.has(o)).map((o) => [o, o.visible])), added: new Set() }); camSnap = true; show(null);
+function replayStart(back) { const c = REC.best; if (!c) return; const W0 = G.W; for (const ps of [W0.parts, W0.dust]) ps && ps.clear();
+  Object.assign(REPLAY, { on: true, pi: 0, t: c.fr[0].t, clip: c, ang: 0, h: null, race: G.race, back, live: new Map(G.W.scene.children.filter((o) => REC.base && !REC.base.has(o)).map((o) => [o, o.visible])), added: new Set() }); camSnap = true; show(null);
+  { const pe = c.pe || []; for (let t = c.fr[0].t - 1; t < c.fr[0].t; t += 1 / 30) { while (REPLAY.pi < pe.length && pe[REPLAY.pi][0] <= t) { const e = pe[REPLAY.pi++]; e[1].emit(e[2], e[3], e[4], e[5], e[6], e[7], e[8], e[9], e[10]); } for (const ps of [W0.parts, W0.dust]) ps && ps.update(1 / 30); } }   // particules déjà en l'air au début
   let el = $('#replay'); if (!el) { el = document.createElement('div'); el.id = 'replay'; el.style.cssText = 'position:fixed;left:0;right:0;top:calc(10px + env(safe-area-inset-top));z-index:60;text-align:center;pointer-events:none;color:#fff;text-shadow:0 2px 6px #000;font:800 18px system-ui';
-    el.innerHTML = '<div>🎬 Meilleure action</div><small style="font-weight:600;font-size:14px" id="replay-l"></small><div style="margin-top:8px"><button class="btn sm ghost" id="replay-x" style="pointer-events:auto"><span>Passer</span></button></div>'; document.body.appendChild(el);
+    el.innerHTML = '<div>🎬 Meilleure action</div><small style="font-weight:600;font-size:14px" id="replay-l"></small><button class="btn sm ghost" id="replay-x" style="pointer-events:auto;position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(14px + env(safe-area-inset-bottom))"><span>Passer</span></button>'; document.body.appendChild(el);
     $('#replay-x').onclick = () => { AudioSys.sfx('click'); replayEnd(); }; }
   $('#replay-l').textContent = c.label; el.hidden = false; $('#hud').hidden = true; }
-function replayEnd() { if (!REPLAY.on) return; REPLAY.on = false; replayRestore(); const el = $('#replay'); if (el) el.hidden = true; if (G.race === REPLAY.race && G.race.player) { $('#hud').hidden = false; (REPLAY.back || showResults)(); } }
+function replayEnd() { if (!REPLAY.on) return; REPLAY.on = false; replayRestore(); if (G.W) for (const ps of [G.W.parts, G.W.dust]) ps && ps.clear(); const el = $('#replay'); if (el) el.hidden = true; if (G.race === REPLAY.race && G.race.player) { $('#hud').hidden = false; (REPLAY.back || showResults)(); } }
 function replayFrame(dt) { const c = REPLAY.clip, fr = c.fr, evs = c.ev || [{ t: c.at }];
   // l'action la plus proche : ralenti autour d'elle et son nom affiché
   let cur = evs[0]; for (const e of evs) if (Math.abs(e.t - REPLAY.t) < Math.abs(cur.t - REPLAY.t)) cur = e;
-  const near = Math.abs(REPLAY.t - cur.t) < .9; REPLAY.t += dt * (near ? .35 : 1);
+  const near = Math.abs(REPLAY.t - cur.t) < .9, sp = near ? .35 : 1; REPLAY.t += dt * sp;
+  // étincelles, explosions, fumée… rejouées au même moment, au même rythme
+  { const pe = c.pe || []; while (REPLAY.pi < pe.length && pe[REPLAY.pi][0] <= REPLAY.t) { const e = pe[REPLAY.pi++]; e[1].emit(e[2], e[3], e[4], e[5], e[6], e[7], e[8], e[9], e[10]); }
+    for (const ps of [G.W.parts, G.W.dust]) ps && ps.update(dt * sp); }
   if (G.race !== REPLAY.race) { REPLAY.on = false; REPLAY.added = new Set(); REPLAY.live = null; const el = $('#replay'); if (el) el.hidden = true; return; }
   if (REPLAY.t >= fr[fr.length - 1].t) { replayEnd(); return; }
   { const l = $('#replay-l'), txt = cur.label || c.label; if (l && l.textContent !== txt) l.textContent = txt; }
@@ -6855,18 +6848,6 @@ const WHEEL_POOL = [
 const WHEEL_COLORS = ['#ff4f3a', '#ffc531', '#38b6ff', '#3ee08f', '#7c4dff', '#ff6fb5', '#ff8a3a', '#2ee6ff'];
 const DEFAULT_WHEEL = ['Bois 2', 'Distribue 3', 'Tout le monde boit', 'Gage', 'Joker', 'Chante un refrain', 'Question au choix', 'Verre d\'eau'];
 function wheelEntries() { return (SAVE.wheel && SAVE.wheel.length >= 2 ? SAVE.wheel : DEFAULT_WHEEL).slice(0, 16); }
-// construit les cases d'un tour : { l: étiquette, t: texte final, pen }
-function buildWheel_old(mode, player, others, sips, dose, allowHot) {
-  if (mode === 'custom') return wheelEntries().map((e) => ({ l: e.length > 18 ? e.slice(0, 17) + '…' : e, t: player + ' : ' + e, pen: '' }));
-  const pool = WHEEL_POOL.filter((w) => allowHot || w[4] !== 'hot');
-  return shuffle(pool.slice()).slice(0, 10).map((w) => {
-    const n = Math.max(1, Math.ceil((w[3] || 1) * dose));
-    if (w[4]) { const items = QUIZ[w[4]].items.filter((it) => it[0] !== 'v' && it[0] !== 'a' && it[0] !== 'g'); const it = pick(items); const p2 = others.length ? pick(others) : 'ton voisin';
-      const fill = (t) => t.replace(/\{p\}/g, player).replace(/\{p2\}/g, p2).replace(/\{n\}/g, n + ' ' + gw(n));
-      return { l: w[0], t: fill(cardText(it)), pen: fill(penFor(it[0], sips, it[3])) }; }
-    return { l: w[0], t: (sips ? w[1] : w[2]).replace(/\{p\}/g, player).replace(/\{n\}/g, n + ' ' + gw(n)), pen: '' };
-  });
-}
 function drawWheel(cv, segs, ang, hi) {
   const dpr = Math.min(2, window.devicePixelRatio || 1), css = cv.clientWidth || 280; if (cv.width !== Math.round(css * dpr)) { cv.width = cv.height = Math.round(css * dpr); }
   const x = cv.getContext('2d'), W = cv.width, c = W / 2, R = W / 2 - W * .07, n = segs.length, arc = TAU / n;
@@ -7199,14 +7180,6 @@ function goFullscreen() {
   const el = document.documentElement; const req = el.requestFullscreen || el.webkitRequestFullscreen;
   if (!req) return; try { const p = req.call(el, { navigationUI: 'hide' }); if (p && p.then) p.then(() => { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); }).catch(() => {}); } catch (e) { /* refusé */ }
 }
-function refreshTitle_old() {
-  const chip = $('#ctrl-chip'); const tilt = SAVE.control === 'tilt';
-  chip.classList.toggle('warn', !tilt || (Input.listening && !Input.tiltSeen && isTouch));
-  chip.querySelector('span').textContent = tilt ? (isTouch ? 'Direction : inclinaison' : 'Direction : clavier (sur ordinateur)') : 'Direction : boutons';
-  $('#b-install').hidden = isStandalone();
-  if (!G.race || G.race.state !== 'attract') startAttract(UI.track);
-  AudioSys.stopMusic();
-}
 function isStandalone() { return matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || navigator.standalone === true; }
 function toMenu() { if (Net.peer) netReset(); UI.quiz = null; UI.party = null; UI.mode = 'quick'; G.race = null; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic(); UI.gp = null; show('title'); }
 
@@ -7221,22 +7194,6 @@ function drawTrackThumb(c, def) {
   x.lineJoin = 'round'; path(); x.strokeStyle = '#17143a'; x.lineWidth = 11; x.stroke(); path(); x.strokeStyle = th.curb[0]; x.lineWidth = 7; x.stroke(); path(); x.strokeStyle = '#fffdf7'; x.lineWidth = 3; x.stroke();
   for (const B of Wf.branches) { const bp = () => { x.beginPath(); for (let j = 0; j < B.N; j += 2) { const u = ox + (b - B.px[j]) * sc, v = oz + (f - B.pz[j]) * sc; j ? x.lineTo(u, v) : x.moveTo(u, v); } }; bp(); x.strokeStyle = '#17143a'; x.lineWidth = 9; x.stroke(); bp(); x.strokeStyle = '#ffc531'; x.lineWidth = 4; x.stroke(); }
   const [u0, v0] = P(0); x.fillStyle = '#ffc531'; x.strokeStyle = '#17143a'; x.lineWidth = 3; x.beginPath(); x.arc(u0, v0, 6, 0, TAU); x.fill(); x.stroke();
-}
-function buildTrackCards_old() {
-  const wrap = $('#track-cards'); wrap.innerHTML = ''; const gp = UI.mode === 'gp';
-  $('#tracks-title').textContent = gp ? 'Grand Prix : ' + TRACKS.length + ' courses' : 'Choisis ton circuit';
-  TRACKS.forEach((def, i) => {
-    const b = document.createElement('button'); b.className = 'card panel' + (!gp && i === UI.track ? ' sel' : ''); b.type = 'button';
-    const rec = SAVE.records[def.id] || {};
-    b.innerHTML = (gp ? '<span class="num">Course ' + (i + 1) + '</span>' : '') + '<canvas width="320" height="170"></canvas><h3></h3><p></p><div class="meta"><span class="lvl"></span><span class="rec"></span></div>';
-    b.querySelector('h3').textContent = def.name; b.querySelector('p').textContent = def.desc;
-    b.querySelector('.lvl').innerHTML = [1, 2, 3].map((n) => '<i class="' + (n <= def.level ? 'on' : '') + '"></i>').join('');
-    b.querySelector('.rec').textContent = rec.lap ? 'Record tour ' + fmtTime(rec.lap) : 'Pas encore de record';
-    drawTrackThumb(b.querySelector('canvas'), def);
-    b.onclick = () => { AudioSys.sfx('click'); if (gp) return; UI.track = i; SAVE.track = i; store(); $$('#track-cards .card').forEach((c, j) => c.classList.toggle('sel', j === i)); if (G.race && G.race.state === 'attract' && G.W.ti !== i) startAttract(i); };
-    wrap.appendChild(b);
-  });
-  syncCC();
 }
 function syncCC() { syncBomb(); $$('#cc-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.cc === SAVE.cc))); $$('#bot-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === (SAVE.botLvl != null ? SAVE.botLvl : 1)))); $$('#laps-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === (SAVE.laps || 0)))); $$('#obst-seg button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.v === '1') === (SAVE.obst !== false)))); }
 $$('#bot-seg button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.botLvl = +b.dataset.v; store(); syncCC(); }));
@@ -7290,16 +7247,6 @@ function buildGarageScene() {
   GS.env = makeEnv('#5a4fb0', '#2a2560', '#17143a', 3.5); s.environment = GS.env.texture;
   GS.scene = s;
 }
-function refreshGarageKart_old() {
-  if (!GS.scene) buildGarageScene();
-  if (GS.kart) { GS.scene.remove(GS.kart.g); GS.kart.g.traverse((o) => { if (o.geometry && !o.geometry.userData.keep) o.geometry.dispose(); }); }
-  GS.kart = kartMesh(myCfg()); GS.kart.shadow = null; GS.scene.add(GS.kart.g);
-  $('#g-name').textContent = SAVE.name || 'Toi';
-  const st = statsFor(SAVE.body, SAVE.wheels); const box = $('#g-stats'); box.innerHTML = '';
-  [['Vitesse', st.speed], ['Accélération', st.accel], ['Maniabilité', st.handling], ['Poids', st.weight], ['Tout-terrain', st.off]].forEach(([n, v]) => {
-    const l = document.createElement('span'); l.textContent = n; const bar = document.createElement('div'); bar.className = 'bar'; const i = document.createElement('i'); i.style.width = Math.round(15 + v * 85) + '%'; bar.appendChild(i); box.append(l, bar);
-  });
-}
 function chipGroup(el, obj, key) {
   el.innerHTML = ''; for (const id in obj) { const b = document.createElement('button'); b.type = 'button'; b.textContent = obj[id].name; b.setAttribute('aria-pressed', String(SAVE[key] === id));
     b.onclick = () => { AudioSys.sfx('click'); SAVE[key] = id; store(); chipGroup(el, obj, key); refreshGarageKart(); }; el.appendChild(b); }
@@ -7308,25 +7255,10 @@ function swatchGroup(el, key, list = COLORS) {
   el.innerHTML = ''; for (const c of list) { const b = document.createElement('button'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', 'Couleur ' + c); b.setAttribute('aria-pressed', String(SAVE[key] === c));
     b.onclick = () => { AudioSys.sfx('click'); SAVE[key] = c; store(); swatchGroup(el, key, list); refreshGarageKart(); }; el.appendChild(b); }
 }
-function enterGarage_old() { chipGroup($('#g-body'), BODIES, 'body'); chipGroup($('#g-wheels'), WHEELS, 'wheels'); chipGroup($('#g-pilot'), PILOTS, 'pilot'); chipGroup($('#g-acc'), ACCS, 'acc'); chipGroup($('#g-finish'), FINISHES, 'finish'); chipGroup($('#g-deco'), DECOS, 'deco'); chipGroup($('#g-trail'), TRAILS, 'trail'); swatchGroup($('#g-color'), 'color'); swatchGroup($('#g-helmet'), 'helmet'); swatchGroup($('#g-skin'), 'skin', SKINS); $('#g-pseudo').value = SAVE.name; refreshGarageKart(); }
 function leaveGarage() { if (G.race && G.race.state === 'attract') startAttract(G.W.ti); }
 { const gp = $('#g-pseudo'); if (gp && gp.closest('.g-row')) gp.closest('.g-row').hidden = true; }   // le nom = le pseudo du compte (Réglages > Compte)
-function renderGarage_old(dt) {
-  GS.rot += dt * .6; GS.kart.g.rotation.y = GS.rot;
-  const portrait = camera.aspect < 1;
-  camera.fov = 40; camera.updateProjectionMatrix();
-  if (portrait) { camera.position.set(0, 3.2, 10.5); camera.lookAt(0, 1.6, 0); }
-  else { camera.position.set(2.6, 3, 8.6); camera.lookAt(2.9, .9, 0); }
-  renderer.render(GS.scene, camera);
-}
 
 /* réglages */
-function syncSettings_old() {
-  $$('#set-ctrl button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === SAVE.control)));
-  $$('#set-q button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.v === SAVE.quality)));
-  $('#set-sens').value = SAVE.sens; $('#set-sens-o').textContent = (+SAVE.sens).toFixed(1);
-  $('#set-inv').setAttribute('aria-pressed', String(!!SAVE.invert)); $('#set-snd').setAttribute('aria-pressed', String(!!SAVE.sound)); $('#set-mus').setAttribute('aria-pressed', String(!!SAVE.music)); $('#set-perf').setAttribute('aria-pressed', String(!!SAVE.showPerf)); try { syncVol(); } catch (e) { /* rien */ }
-}
 $$('#set-ctrl button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.control = b.dataset.v; store(); syncSettings(); if (SAVE.control === 'tilt' && isTouch) ensureMotion().then((ok) => { if (!ok) toast('Capteur non autorisé. Sur iPhone, ouvre le jeu dans Safari en https.'); }); }));
 $$('#set-q button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.quality = b.dataset.v; store(); syncSettings(); applyQuality(); toast({ high: 'Haut : ombres et décor complet, à la prochaine course.', medium: 'Moyen : bon compromis, à la prochaine course.', low: 'Bas : le plus fluide, à la prochaine course.' }[SAVE.quality]); }));
 $('#set-sens').oninput = (e) => { SAVE.sens = +e.target.value; store(); $('#set-sens-o').textContent = SAVE.sens.toFixed(1); };

@@ -12,6 +12,10 @@ on:
         default: 'test'
 permissions:
   contents: write
+# un seul envoi à la fois (test et vrai serveur à la suite, jamais en même temps)
+concurrency:
+  group: serveur-cloudflare
+  cancel-in-progress: false
 jobs:
   envoyer:
     runs-on: ubuntu-latest
@@ -66,5 +70,5 @@ jobs:
           SIG=$(node -e "const U=process.argv[1]+'/api/compte',c=(a,b)=>fetch(U,{method:'POST',body:JSON.stringify(Object.assign({a},b))}).then(r=>r.json()),id='wildkart-v7-ESSAI'+Date.now()%100000;(async()=>{const a=await c('sigreg',{id}),b=await c('sigsend',{id,msg:{k:'offer',from:'wkp-essai',cid:'1',sdp:'x'}}),d=await c('sigpoll',{id});await c('sigdel',{id});console.log(JSON.stringify({reg:a.ok,send:b.ok||b.code,recu:(d.msgs||[]).length}))})()" "$URL" || echo erreur)
           { echo "date: $(date -u)"; echo "url: $URL"; echo "ok: $OK"; cat turn.txt; echo "relais actif: $OK_ICE"; echo "mise en relation: $SIG"; echo "réponse:"; head -c 600 essai.txt; echo; echo "deploy:"; tail -15 deploy.log; } > "etat-$CIBLE.txt"
           cd ..; git config user.name "github-actions"; git config user.email "github-actions@users.noreply.github.com"
-          git add "worker/url-$CIBLE.txt" "worker/etat-$CIBLE.txt"; git commit -m "Adresse du serveur $CIBLE [skip ci]" || true; git pull --rebase && git push
+          git add "worker/url-$CIBLE.txt" "worker/etat-$CIBLE.txt"; git commit -m "Adresse du serveur $CIBLE [skip ci]" || true; for i in 1 2 3 4; do git pull --rebase && git push && break; sleep 5; done
           [ "$OK" = 1 ] || { echo "::error::Le serveur ne répond pas correctement"; exit 1; }

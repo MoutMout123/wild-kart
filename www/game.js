@@ -1078,7 +1078,7 @@ function buildScenicHorizon(W, ext, cx, cz, quality) {
     const a = (i / peakCount) * TAU + rand(-.12, .12);
     const r = ext + rand(270, 410);
     const x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r, h = rand(42, 96);
-    peaks.push({ x, z, y: base(x, z) + h * .5, sx: rand(28, 54), sy: h, sz: rand(28, 54), r: rand(0, TAU), s: 1 });
+    peaks.push({ x, z, y: base(x, z), sx: rand(28, 54), sy: h, sz: rand(28, 54), r: rand(0, TAU), s: 1 });
   }
   instanced(W.scene, [{ geo: decorGeo('mountain'), mat: lam('#ffffff'), colors: colors.slice().reverse() }], peaks);
 }

@@ -8,7 +8,7 @@ fs.mkdirSync(OUT, { recursive: true });
 let API = process.env.API || '';
 if (!API) { try { API = fs.readFileSync(path.join(__dirname, '..', 'worker', 'url-test.txt'), 'utf8').trim() + '/api/compte'; } catch (e) { API = ''; } }
 const RES = []; const log = (...a) => console.log(...a);
-async function test(nom, fn) { const t0 = Date.now(); try { const d = await fn(); RES.push([nom, true, d || '']); log('✅', nom, d || ''); } catch (e) { RES.push([nom, false, String(e && e.message || e).slice(0, 300)]); log('❌', nom, e && e.message || e); } finally { log('   (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)'); } }
+async function test(nom, fn) { if (process.env.ONLY && !nom.includes(process.env.ONLY) && !/démarrage/.test(nom)) return; const t0 = Date.now(); try { const d = await fn(); RES.push([nom, true, d || '']); log('✅', nom, d || ''); } catch (e) { RES.push([nom, false, String(e && e.message || e).slice(0, 300)]); log('❌', nom, e && e.message || e); } finally { log('   (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)'); } }
 const ok = (c, msg) => { if (!c) throw new Error(msg); };
 const api = async (a, b) => { const r = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ a }, b || {})) }); return r.json(); };
 const rnd = () => Math.random().toString(36).slice(2, 8);
@@ -81,8 +81,8 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
     await p.evaluate(() => { for (const k of window.__TK.G.karts) if (!k.isPlayer) k.maxSpeed *= .6; }); await sim(p, 60 * 30);
     const a = await p.evaluate(() => ({ place: window.__TK.G.race.player.place, gap: document.querySelector('#h-gap').textContent, streak: document.querySelector('#h-streak').textContent }));
     ok(a.place === 1 && /^\+\d/.test(a.gap) && /Série/.test(a.streak), 'HUD en tête : ' + JSON.stringify(a));
-    await p.evaluate(() => { document.querySelector('[title="Outils de test"]').click(); [...document.querySelectorAll('[data-ti]')].find((x) => x.textContent === 'Pluie').click(); });
-    await sim(p, 60 * 4); const g = await p.evaluate(() => window.__TK.G.W.wx && window.__TK.G.W.wx.grip); ok(g < .95, 'la pluie ne rend pas la piste glissante (' + g + ')');
+    const st = await p.evaluate(() => { const R = window.__TK.G.race; document.querySelector('[title="Outils de test"]').click(); [...document.querySelectorAll('[data-ti]')].find((x) => x.textContent === 'Pluie').click(); return { state: R.state, fin: R.player.finished, toast: (document.querySelector('#toast') || {}).textContent }; });
+    await sim(p, 60 * 4); const g = await p.evaluate(() => window.__TK.G.W.wx && window.__TK.G.W.wx.grip); ok(g < .95, 'la pluie ne rend pas la piste glissante (' + g + ', ' + JSON.stringify(st) + ')');
     await p.evaluate(() => { document.querySelector('[title="Outils de test"]').click(); [...document.querySelectorAll('[data-ti]')].find((x) => /fusée/.test(x.textContent)).click(); });
     let w = '0'; for (let i = 0; i < 20 && w === '0'; i++) { await sim(p, 6); w = await p.evaluate(() => document.querySelector('#h-warn').style.opacity); } await p.shot('course');
     ok(+w > 0, 'pas d\'alerte pour la fusée'); return a.gap + ' · ' + a.streak + ' · adhérence ' + g.toFixed(2); });

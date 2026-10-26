@@ -5274,9 +5274,9 @@ const bombAlive = (k) => k && !k.finished && !k.spect && G.karts.includes(k);
 function bombStep(R, dt) {
   if (R.state !== 'race') { bombDraw(R, dt); return; }
   const S = (R.bomb = R.bomb || { h: null, f: 0, tot: 0, wait: 4, passT: 0, prev: null, prevT: 0, c: {}, sendT: 0, n: 0 });
-  if (Net.host) {
+  if (Net.host || !R.online) {   // en ligne : l'hôte décide ; seul : ce téléphone
     const alive = G.karts.filter(bombAlive);
-    if (alive.length < 2) { if (S.h != null) { S.h = null; bombSend(R, {}); } bombDraw(R, dt); return; }
+    if (alive.length < 2) { if (S.h != null) { S.h = null; bombSend(R, {}); } if (!S.n && !S.alone && R.t > 3) { S.alone = true; banner('Patate chaude : il faut au moins 2 karts (mets « Avec bots »)', 3, true); } bombDraw(R, dt); return; }
     S.passT -= dt; S.prevT -= dt; S.sendT -= dt;
     let H = bombKart(S.h);
     if (S.h != null && !bombAlive(H)) {   // le porteur a fini (ou est parti) : la bombe va au kart le plus proche
@@ -5298,7 +5298,7 @@ function bombStep(R, dt) {
 }
 function bombPass(R, to, from) { const S = R.bomb; if (!S || !to || to.netId === S.h) return; S.prev = from ? from.netId : S.h; S.prevT = 2.5; S.h = to.netId; S.passT = 1.1; S.f = Math.max(S.f, 3); bombSend(R, { by: S.prev }); }
 // un objet du porteur touche quelqu'un : la bombe passe aussi
-function bombHitPass(victim, src) { const R = G.race; if (!R || !R.bombMode || !Net.host || !R.bomb || !victim || !src) return; if (R.bomb.h != null && src.netId === R.bomb.h && victim.netId !== R.bomb.h && bombAlive(victim)) bombPass(R, victim, src); }
+function bombHitPass(victim, src) { const R = G.race; if (!R || !R.bombMode || (R.online && !Net.host) || !R.bomb || !victim || !src) return; if (R.bomb.h != null && src.netId === R.bomb.h && victim.netId !== R.bomb.h && bombAlive(victim)) bombPass(R, victim, src); }
 function bombSend(R, extra) { const S = R.bomb; S.sendT = 1; const d = Object.assign({ e: 'bomb', h: S.h, f: +S.f.toFixed(1), tot: +S.tot.toFixed(1), c: S.c }, extra);
   bombApply(R, d, true); if (Net.peer && Net.host) hostBroadcast(Object.assign({ t: 'ev' }, d)); }
 // ---------- tout le monde ----------
@@ -5796,7 +5796,7 @@ function updateCamera(dt) {
 /* ================= HUD ================= */
 const hud = { pos: $('#h-pos'), suf: $('#h-suf'), posbox: $('#h-posbox'), lap: $('#h-lap'), time: $('#h-time'), item: $('#h-item'), map: $('#h-map'), kmh: $('#h-kmh'), banner: $('#h-banner'), count: $('#h-count') };
 let mapBg = null, mapXf = null, lastItemShown = '';
-function showHud(on) { $('#hud').hidden = !on; { const lb = $('#h-lap') && $('#h-lap').previousElementSibling; if (lb && G.W) lb.textContent = G.W.def.sections ? 'SECTION' : 'TOUR'; } const pad = $('#pad'); pad.hidden = !on; pad.className = padClass(); $('#spec').hidden = true; $('#hud').classList.remove('spec'); $('#b-pause').hidden = false; if (on) requestAnimationFrame(stickRest); const sf = $('#speedfx'); if (sf) sf.classList.remove('on'); if (on) buildMapBg(); hud.count.textContent = ''; hud.banner.className = ''; }
+function showHud(on) { $('#hud').hidden = !on; { const lb = $('#h-lap') && $('#h-lap').previousElementSibling; if (lb && G.W) lb.textContent = G.W.def.arena ? 'TEMPS' : G.W.def.sections ? 'SECTION' : 'TOUR'; } const pad = $('#pad'); pad.hidden = !on; pad.className = padClass(); $('#spec').hidden = true; $('#hud').classList.remove('spec'); $('#b-pause').hidden = false; if (on) requestAnimationFrame(stickRest); const sf = $('#speedfx'); if (sf) sf.classList.remove('on'); if (on) buildMapBg(); hud.count.textContent = ''; hud.banner.className = ''; }
 function buildMapBg() {
   const S = G.W.S, c = hud.map, w = c.width; let a = Infinity, b = -Infinity, e = Infinity, f = -Infinity;
   for (const P of [S].concat(G.W.branches)) for (let i = 0; i < P.N; i++) { a = Math.min(a, P.px[i]); b = Math.max(b, P.px[i]); e = Math.min(e, P.pz[i]); f = Math.max(f, P.pz[i]); }
@@ -5874,7 +5874,7 @@ function showResults() {
   const place = order.indexOf(P) + 1;
   $('#r-title').textContent = place === 1 ? 'Victoire !' : place + (place === 1 ? 'er' : 'e') + ' place';
   const rec = SAVE.records[TRACKS[R.ti].id] || {};
-  $('#r-sub').textContent = TRACKS[R.ti].name + ' · ' + CC[R.cc].name + ' · Meilleur tour ' + fmtTime(P.bestLap) + ' (record ' + fmtTime(rec.lap) + ')';
+  $('#r-sub').textContent = TRACKS[R.ti].name + ' · ' + CC[R.cc].name + ' · Meilleur tour ' + fmtTime(P.bestLap) + ' (record ' + fmtTime(rec.lap) + ')' + (R.bombMode ? ' · ' + bombSummary() : '');
   const btns = $('#r-buttons'); btns.innerHTML = '';
   const mk = (label, cls, fn) => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.innerHTML = '<span></span>'; b.firstChild.textContent = label; b.onclick = () => { AudioSys.sfx('click'); fn(); }; btns.appendChild(b); };
   if (UI.mode === 'gp' && UI.gp) {
@@ -7152,10 +7152,13 @@ function buildTrackCards_old() {
   });
   syncCC();
 }
-function syncCC() { $$('#cc-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.cc === SAVE.cc))); $$('#bot-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === (SAVE.botLvl != null ? SAVE.botLvl : 1)))); $$('#laps-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === (SAVE.laps || 0)))); $$('#obst-seg button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.v === '1') === (SAVE.obst !== false)))); }
+function syncCC() { syncBomb(); $$('#cc-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.cc === SAVE.cc))); $$('#bot-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === (SAVE.botLvl != null ? SAVE.botLvl : 1)))); $$('#laps-seg button').forEach((b) => b.setAttribute('aria-pressed', String(+b.dataset.v === (SAVE.laps || 0)))); $$('#obst-seg button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.v === '1') === (SAVE.obst !== false)))); }
 $$('#bot-seg button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.botLvl = +b.dataset.v; store(); syncCC(); }));
 $$('#laps-seg button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.laps = +b.dataset.v; store(); syncCC(); }));
 $$('#obst-seg button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.obst = b.dataset.v === '1'; store(); syncCC(); }));
+// Patate chaude en entraînement (seul contre les bots)
+function syncBomb() { $$('#bomb-seg button').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.v === '1') === !!SAVE.soloBomb))); }
+$$('#bomb-seg button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.soloBomb = b.dataset.v === '1'; store(); syncBomb(); if (SAVE.soloBomb) toast('Patate chaude : touche un kart pour refiler la bombe. Le Rond-Point Explosif est fait pour ça !', 3500); }));
 $$('#cc-seg button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.cc = +b.dataset.cc; store(); syncCC(); }));
 
 function begin() {
@@ -7172,7 +7175,8 @@ function begin() {
     go();
   });
 }
-function launch() { if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? UI.gp.i % TRACKS.length : UI.track; startRace(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc); }
+function launch() { if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? UI.gp.i % TRACKS.length : UI.track; startRace(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc); if (UI.mode === 'quick' && SAVE.soloBomb) soloBomb(); }
+function soloBomb() { const R = G.race; if (!R || R.online) return; R.bombMode = true; R.bombType = 'sips'; G.netKarts = new Map(); G.karts.forEach((k, i) => { k.netId = k.isPlayer ? 'moi' : 'bot' + i; G.netKarts.set(k.netId, k); }); }
 $('#b-start').onclick = begin;
 
 document.addEventListener('click', (e) => {

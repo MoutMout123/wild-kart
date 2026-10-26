@@ -499,7 +499,7 @@ const NEW_TRACKS = [
   ['ruban', 'ciel', 'Ruban Céleste du Dernier Verre', 4, 4, 1, 'Une seule grande course en trois sections sur un ruban suspendu sans barrières, deux virages relevés et deux envols au-dessus des nuages.', { sections: true, themeX: { roadStyle: 'ribbon', curb: ['#ffd25a', '#fff4fa'], sky: ['#ff9ad5', '#ffe9d0'], fog: '#ffdcea' }, obst: { kinds: ['pillars', 'crushers', 'pillars'] }, obstZones: 4 }],
   ['tonton', 'house', 'Boum chez Tonton', 5, 4, 2, 'XXL : la fête dans une maison géante. On roule sur un tapis rouge entre le canapé, la table basse et les bouteilles, on monte à l\'étage, on plane au-dessus du salon et on passe par la chatière.', { musicStyle: 'funk', obst: { pillar: 'cones', roll: 'beachball', walk: 'sheep', kinds: ['rollers', 'bumpers', 'pillars', 'rollers'] }, obstZones: 4 }],
   ['trainfou', 'col', 'Train Fou', 5, 4, 2, 'XXL : un huit géant dans la montagne, le long d\'une voie ferrée où le train ne s\'arrête jamais. Tunnel, pont, envol et hors-piste.', { railway: true, musicStyle: 'rock', obst: { car: 'car', kinds: ['traffic', 'rollers', 'pillars'] }, obstZones: 4 }],
-  ['croisiere', 'lagon', 'Croisière Karaoké', 5, 4, 1, 'XXL : une seule grande course en trois sections autour d\'un paquebot où tout le monde chante. Passage secret par les cabines et envol au-dessus de la baie.', { sections: true, cruise: true, musicStyle: 'latin', obst: { jet: 'steam', kinds: ['jets', 'walkers', 'bumpers', 'rollers'] }, obstZones: 5 }],
+  ['croisiere', 'lagon', 'Croisière Karaoké', 5, 4, 1, 'XXL : une seule grande course en trois sections autour d\'un paquebot où tout le monde chante. Passage secret par les cabines et envol au-dessus de la baie.', { sections: true, cruise: true, musicStyle: 'latin', obst: { jet: 'steam', kinds: ['jets', 'walkers', 'bumpers', 'rollers'] }, obstZones: 5, rafts: { branch: 1, from: .22, to: .78 } }],
   ['festival', 'festival', 'Festival Boum-Boum', 5, 4, 2, 'XXL : de nuit entre les scènes, les projecteurs et la foule. Feux d\'artifice, flammes de la scène, enceintes-bumpers et un raccourci par la fosse.', { musicStyle: 'house', obst: { jet: 'lava', pillar: 'cones', kinds: ['jets', 'bumpers', 'jets', 'pillars'] }, obstZones: 5 }],
   ['cameleon', 'prairie', 'Circuit Caméléon', 5, 4, 2, 'XXL : le circuit change tout le temps. Toutes les 40 s, la piste devient banquise, désert ou lune, la météo tourne et deux routes s\'ouvrent et se ferment à tour de rôle. Tout est annoncé avant, et il y a toujours un chemin ouvert.', { cham: { period: 40 }, themeX: { decor: 'cameleon' }, musicStyle: 'pop', obst: { kinds: ['pillars', 'rollers', 'walkers', 'bumpers'] }, obstZones: 4 }],
   ['plongeon', 'lagon', 'Grand Plongeon', 6, 3, 3, 'Deux façons de traverser la baie : planer au-dessus de l\'eau ou plonger dans le tunnel sous-marin. Un tire-bouchon à la sortie !', { musicStyle: 'latin', obstZones: 3 }],
@@ -4094,6 +4094,41 @@ function bridgeVisual(o, t) { const P = G.race && G.race.player, near = P && P.P
     else { h.gone = false; m.visible = true; let r = 1; if (q.u < BR.rebuild) { const a = brAt(q.s, t - q.u - .01); if (a.st === 2 && (key === 0 || a.sd === key)) r = q.u / BR.rebuild; } m.position.set(0, -.6 * (1 - r), 0); h.mat.emissiveIntensity = .3 * (1 - r); } }
   // crépitement d'annonce (une fois par cycle) quand le joueur est sur le pont près d'un tronçon qui craque
   const c = o.secs[0].c; if (crack && o.cyc !== c) { o.cyc = c; AudioSys.noise(.5, .05, 2400, 0, null, .3); AudioSys.tone(140, .25, 'square', .03, -40); AudioSys.tone(110, .25, 'square', .03, -40, .25); } }
+// ---------- Croisière : passerelles mobiles sur la route « RISQUÉ » ----------
+// La route RISQUÉ (plus courte que la route principale, qui reste la voie sûre) passe au-dessus de l'eau sur 4 radeaux
+// de ~14 m qui glissent lentement de gauche à droite, chacun avec son décalage (horloge commune : identique en ligne).
+// Entre deux radeaux, un ponton fixe pleine largeur pour se replacer. Un radeau couvre la moitié de la route et va à 2 m/s
+// au plus : on peut toujours le suivre. À côté du radeau = « Plouf ! », le drone repose le kart sur le ponton suivant.
+const RA = { per: 7.5, secs: 4, m: 2, lift: .36 };
+function raftsMake(W, B, def) { const j0 = Math.round(def.from * B.N), j1 = Math.round(def.to * B.N), n = RA.secs, L = (j1 - j0) / n, secs = [], pw = B.hw * .5, amp = B.hw - pw - .4;
+  for (let s = 0; s < n; s++) { const a = Math.round(j0 + s * L), b = Math.round(j0 + (s + 1) * L) - 1; secs.push({ s, a, b, j0: a + RA.m, j1: b - RA.m, c: 0 }); }
+  const a0 = secs[0].a, b0 = secs[n - 1].b; if (!B.brLift) { B.brLift = 1; for (let j = Math.max(0, a0 - 5); j <= Math.min(B.N - 1, b0 + 5); j++) B.py[j] += RA.lift * clamp(j < a0 ? (j - a0 + 5) / 5 : j > b0 ? (b0 + 5 - j) / 5 : 1, 0, 1); }
+  B.hasBridge = true; const jm = Math.round((j0 + j1) / 2); return { kind: 'rafts', P: B, i: j0, j1: j1 - 1, lat: 0, r: 0, x: B.px[jm], z: B.pz[jm], y: B.py[jm], secs, pw, amp }; }
+const raftC = (o, s, t) => o.amp * Math.sin(t * TAU / RA.per + s * 1.9);
+function raftsState(o, t) { for (const q of o.secs) q.c = raftC(o, q.s, t); }
+function raftsSec(o, j) { for (const q of o.secs) if (j >= q.j0 && j <= q.j1) return q; return null; }
+function raftsHits(k, o) { if (k.P !== o.P || k.fallT > 0 || k.ghost > 0 || (k.air && (k.airH || 0) > .6)) return; const q = raftsSec(o, k.idx); if (q && Math.abs(k.lat - q.c) > o.pw + .5) startFall(k); }
+// après une chute : reposé sur le ponton qui suit le radeau
+function raftsSkip(P, j) { for (const o of G.W.obst || []) if (o.kind === 'rafts' && o.P === P) { const q = raftsSec(o, j); if (q) return Math.min(P.N - 1, q.j1 + 1); } return j; }
+// réapparition : en face du radeau suivant (là où il sera dans ~1 s)
+function raftsLat(P, j) { for (const o of G.W.obst || []) if (o.kind === 'rafts' && o.P === P) { const q = o.secs.find((q) => j < q.j0 && j >= q.a - 2); return q ? raftC(o, q.s, (G.W.clock || 0) + 1) : 0; } return 0; }
+// bots : viser le radeau là où il sera à leur arrivée
+function raftsAvoid(k, o, clock) { const B = o.P; if (k.P !== B) return null;
+  for (const q of o.secs) { if (k.idx > q.j1) continue; const da = Math.max(0, (q.j0 - k.idx) * B.seg); if (da > 45) return null; return { da, want: raftC(o, q.s, clock + da / Math.max(12, k.speed) + .25), j: clamp(Math.max(q.j0, k.idx + 4), 0, B.N - 1) }; } return null; }
+function raftsMesh(o, W) { const g = new T.Group(), B = o.P, hw = B.hw, wt = waterTex();
+  const water = [], deck = [], fixed = []; const a0 = o.secs[0].a, b0 = o.secs[o.secs.length - 1].b;
+  for (let j = a0; j <= b0; j++) { const l = new T.PlaneGeometry(hw * 2 + 1, B.seg + .05); l.rotateX(-Math.PI / 2); l.rotateY(B.hd[j]); l.translate(B.px[j], B.py[j] - RA.lift + .14, B.pz[j]); water.push(l); }
+  for (let j = Math.max(1, a0 - 4); j <= Math.min(B.N - 2, b0 + 4); j++) if (!o.secs.some((q) => j >= q.j0 && j <= q.j1)) { const b = new T.BoxGeometry(hw * 2 - .3, .14, B.seg * .9); b.rotateX(-Math.atan2(B.py[j + 1] - B.py[j - 1], 2 * B.seg)); b.rotateY(B.hd[j]); b.translate(B.px[j], B.py[j] - .07, B.pz[j]); fixed.push(b); }
+  g.add(new T.Mesh(mergeGeos(water), new T.MeshStandardMaterial({ map: wt, roughness: .12, metalness: .15, color: '#9fe6ff' })));
+  if (fixed.length) g.add(new T.Mesh(mergeGeos(fixed), stdMat('#c9a27a', .8, 0)));
+  const hull = stdMat('#ff7a1a', .5, .1), top = stdMat('#fffdf7', .6, 0), rail = stdMat('#38b6ff', .4, .2);
+  for (const q of o.secs) { const jm = Math.round((q.j0 + q.j1) / 2), pl = [], hl = [], rl = [];
+    for (let j = q.j0; j <= q.j1; j++) { const put = (geo, y, arr) => { geo.rotateY(B.hd[j]); geo.translate(B.px[j] - B.px[jm], B.py[j] + y, B.pz[j] - B.pz[jm]); arr.push(geo); };
+      put(new T.BoxGeometry(o.pw * 2, .14, B.seg * .98), -.07, pl); put(new T.BoxGeometry(o.pw * 2 + .4, .6, B.seg * .98), -.45, hl);
+      if ((j - q.j0) % 2 === 0) for (const s of [-1, 1]) { const r = new T.CylinderGeometry(.06, .06, .7, 4); r.translate(s * (o.pw + .1), 0, 0); put(r, .35, rl); } }
+    const m = new T.Group(); m.add(new T.Mesh(mergeGeos(hl), hull), new T.Mesh(mergeGeos(pl), top), new T.Mesh(mergeGeos(rl), rail)); m.position.set(B.px[jm], 0, B.pz[jm]); g.add(m); q.mesh = m; q.rx = B.rx[jm]; q.rz = B.rz[jm]; q.x0 = B.px[jm]; q.z0 = B.pz[jm]; }
+  return g; }
+function raftsVisual(o, t) { for (const q of o.secs) { if (!q.mesh) continue; q.mesh.position.set(q.x0 + q.rx * q.c, Math.sin(t * 2 + q.s) * .04, q.z0 + q.rz * q.c); } }
 function planObstacles(W) {
   const S = W.S, N = S.N, def = W.def, th = W.th; const rng = seeded(seedHash(def.id + ':obst', RACE_OPTS.seed || 1));
   const cfg = Object.assign({}, OBST_THEME[th.decor] || OBST_THEME.prairie, def.obst || {}); W.obst = []; W.ramps = [];
@@ -4110,6 +4145,7 @@ function planObstacles(W) {
   // événement fixe du circuit (placé avant les obstacles tirés au hasard, qui l'évitent)
   if (def.rockfall) { const i = Math.round(def.rockfall.at * N) % N; for (let o = -60; o <= 230; o++) blocked[((i + o) % N + N) % N] = 1; W.obst.push(rockfallMake(W, S, i)); }
   const brB = def.bridge && W.branches[def.bridge.branch]; if (brB) W.obst.push(bridgeMake(W, brB, def.bridge));
+  const raB = def.rafts && W.branches[def.rafts.branch]; if (raB) W.obst.push(raftsMake(W, raB, def.rafts));
   // zones d'obstacles
   const zones = def.obstZones || clamp(Math.round(S.L / 520), 2, 4);
   for (let z = 0; z < zones; z++) {
@@ -4135,14 +4171,15 @@ function planObstacles(W) {
     }
   }
   // chemin étroit : un obstacle mobile au milieu
-  for (const B of W.branches) if (B.def.narrow && B !== brB) { const j = Math.floor(B.N * .55); if (cfg.roll) W.obst.push({ kind: 'roller', style: cfg.roll, P: B, i: j, lat: 0, r: 1.7, amp: B.hw * .8, per: 3.6, ph: rng() * TAU });
+  for (const B of W.branches) if (B.def.narrow && B !== brB && B !== raB) { const j = Math.floor(B.N * .55); if (cfg.roll) W.obst.push({ kind: 'roller', style: cfg.roll, P: B, i: j, lat: 0, r: 1.7, amp: B.hw * .8, per: 3.6, ph: rng() * TAU });
     else if (cfg.crush) W.obst.push({ kind: 'crusher', style: cfg.crush, P: B, i: j, lat: 0, r: 2.4, per: 2.6, ph: 0 }); }
-  for (const o of W.obst) { if (o.kind === 'rockfall' || o.kind === 'bridge') continue; if (o.kind === 'traffic' || o.kind === 'ball') { obstState11(o, 0); continue; } o.i = clamp(o.i, 0, o.P.N - 1); o.x = o.P.px[o.i] + o.P.rx[o.i] * o.lat; o.z = o.P.pz[o.i] + o.P.rz[o.i] * o.lat; o.y = o.P.py[o.i]; o.down = false; }
+  for (const o of W.obst) { if (o.kind === 'rockfall' || o.kind === 'bridge' || o.kind === 'rafts') continue; if (o.kind === 'traffic' || o.kind === 'ball') { obstState11(o, 0); continue; } o.i = clamp(o.i, 0, o.P.N - 1); o.x = o.P.px[o.i] + o.P.rx[o.i] * o.lat; o.z = o.P.pz[o.i] + o.P.rz[o.i] * o.lat; o.y = o.P.py[o.i]; o.down = false; }
 }
 // position animée (horloge commune de la course)
 function obstState(o, t) {
   if (o.kind === 'rockfall') { rockfallState(o, t); return; }
   if (o.kind === 'bridge') { bridgeState(o, t); return; }
+  if (o.kind === 'rafts') { raftsState(o, t); return; }
   if (obstState11(o, t)) return;
   if (o.kind === 'roller' || o.kind === 'walker') { const l = Math.sin(t * TAU / o.per + o.ph) * o.amp; o.curLat = l; o.x = o.P.px[o.i] + o.P.rx[o.i] * (o.lat + l); o.z = o.P.pz[o.i] + o.P.rz[o.i] * (o.lat + l); }
   else if (o.kind === 'crusher') { const c = ((t / o.per + o.ph / TAU) % 1 + 1) % 1; o.h = c < .45 ? 7 : c < .53 ? 7 * (1 - (c - .45) / .08) : c < .7 ? 0 : 7 * Math.min(1, (c - .7) / .2); o.down = o.h < 1.6; }
@@ -4152,6 +4189,7 @@ function obstacleHits(k, dt, ax, az) {
   for (const o of W.obst) {
     if (o.kind === 'rockfall') { rockfallHits(k, o); continue; }
     if (o.kind === 'bridge') { bridgeHits(k, o); continue; }
+    if (o.kind === 'rafts') { raftsHits(k, o); continue; }
     if (o.kind === 'crusher' && !o.down) continue;
     if (o.kind === 'jet') { if ((k.x - o.x) ** 2 + (k.z - o.z) ** 2 < (o.r + .9) ** 2 && Math.abs(k.y - o.y) < 4) obstHit11(k, o); continue; }
     const R = o.r + 1.1, bx = k.x, bz = k.z; if ((bx - o.x) ** 2 + (bz - o.z) ** 2 > (R + 4) ** 2 && (ax - o.x) ** 2 + (az - o.z) ** 2 > (R + 4) ** 2) continue;
@@ -4197,7 +4235,7 @@ function planBumps(W) {
 const BUMP_TEX = canvasTex(256, 64, (x, w, h) => { for (let i = 0; i < 16; i++) { x.fillStyle = i % 2 ? '#17143a' : '#ffc531'; x.beginPath(); x.moveTo(i * 20 - 10, h); x.lineTo(i * 20 + 10, 0); x.lineTo(i * 20 + 30, 0); x.lineTo(i * 20 + 10, h); x.fill(); } });
 function updateObstacles(t) { const W = G.W; if (!W.obst) return; for (const o of W.obst) { obstState(o, t); if (o.mesh) obstVisual(o, t); } }
 function obstVisual(o, t) {
-  const m = o.mesh; if (o.kind === 'rockfall') { rockfallVisual(o, t); return; } if (o.kind === 'bridge') { bridgeVisual(o, t); return; } if (obstVisual11(o, t)) return;
+  const m = o.mesh; if (o.kind === 'rockfall') { rockfallVisual(o, t); return; } if (o.kind === 'bridge') { bridgeVisual(o, t); return; } if (o.kind === 'rafts') { raftsVisual(o, t); return; } if (obstVisual11(o, t)) return;
   if (o.kind === 'roller') { m.position.set(o.x, o.y + o.r, o.z); const v = Math.cos(t * TAU / o.per + o.ph) * o.amp * TAU / o.per; m.userData.spin = (m.userData.spin || 0) + v / 60 / o.r; if (m.userData.inner) m.userData.inner.rotation.z = -m.userData.spin; }
   else if (o.kind === 'walker') { const bob = Math.abs(Math.sin(t * 9 + o.ph)) * .25; m.position.set(o.x, o.y + bob + (o.style === 'ghost' ? 1.2 + Math.sin(t * 2 + o.ph) * .4 : 0), o.z); const dir = Math.cos(t * TAU / o.per + o.ph); m.rotation.y = o.P.hd[o.i] + (dir > 0 ? -Math.PI / 2 : Math.PI / 2); }
   else if (o.kind === 'crusher') {
@@ -4900,6 +4938,7 @@ function obstVisual11(o, t) {
 function obstMesh11(o, W) {
   if (o.kind === 'rockfall') return rockfallMesh(o, W);
   if (o.kind === 'bridge') return bridgeMesh(o, W);
+  if (o.kind === 'rafts') return raftsMesh(o, W);
   const g = new T.Group(), R = o.r;
   if (o.kind === 'jet') { const lava = o.style !== 'steam';
     const base = new T.Mesh(new T.CylinderGeometry(R * .9, R, .5, 16), stdMat('#3a3440', .5, .6)); base.position.y = .25; g.add(base);
@@ -5002,7 +5041,7 @@ function fallStep(k, dt) {
   if (k.fallT > 0) return;
   const S = G.W.S, N = S.N, PB = k.P && k.P !== S ? k.P : null;
   if (PB) { // tombé d'un chemin sans rebords : on est reposé sur ce même chemin, un peu devant
-    const j = clamp(k.idx + 2, 0, PB.N - 1), bl = bridgeLat(PB, j); k.idx = j; k.x = PB.px[j] + PB.rx[j] * bl; k.z = PB.pz[j] + PB.rz[j] * bl; k.y = k.groundY = PB.py[j] + 3; k.h = k.vh = PB.hd[j]; k.speed = k.maxSpeed * .35;
+    const j = raftsSkip(PB, clamp(k.idx + 2, 0, PB.N - 1)), bl = bridgeLat(PB, j) || raftsLat(PB, j); k.idx = j; k.x = PB.px[j] + PB.rx[j] * bl; k.z = PB.pz[j] + PB.rz[j] * bl; k.y = k.groundY = PB.py[j] + 3; k.h = k.vh = PB.hd[j]; k.speed = k.maxSpeed * .35;
     k.lat = bl; k.fallT = 0; k.ghost = Math.max(k.ghost || 0, 1.6); k.droneT = 1.4; k.air = 'jump'; k.vy = 0; if (k.isPlayer) AudioSys.sfx('drone'); return; }
   const bad = (j) => S.glide[j] || (S.wz && S.wz[j]); let i = Math.min(clamp(k.idx, 0, N - 1) + 2, N - 1);
   // on repose le kart là où il est tombé (un peu devant), jamais loin en arrière : on cherche la case libre la plus proche, en avant d'abord
@@ -5933,6 +5972,7 @@ function aiControl(k, dt) {
     for (const o of G.W.obst || []) {
       if (o.kind === 'rockfall') { if (o.P !== CP) continue; if (ai.avoid != null && ai.avoid < 1 && (((ai.seed || 0) * 7 + (o.slots[0].c || 0) * 13) % 100) / 100 >= ai.avoid) continue; const rv = rockfallAvoid(k, o, clock); if (rv && (!av || rv.da < av.da)) av = { o: { P: o.P, i: rv.j }, da: rv.da, want: rv.want }; continue; }
       if (o.kind === 'bridge') { if (ai.avoid != null && ai.avoid < 1 && (((ai.seed || 0) * 7 + (o.secs[0].c || 0) * 13) % 100) / 100 >= ai.avoid) continue; const rv = bridgeAvoid(k, o, clock); if (rv && (!av || rv.da < av.da)) av = { o: { P: o.P, i: rv.j }, da: rv.da, want: rv.want, br: true }; continue; }
+      if (o.kind === 'rafts') { const rv = raftsAvoid(k, o, clock); if (rv && (!av || rv.da < av.da)) av = { o: { P: o.P, i: rv.j }, da: rv.da, want: rv.want, br: true }; continue; }
       if (o.P !== CP && o.P !== TP) continue; if (ai.avoid != null && ai.avoid < 1 && ((o.i * 131 + (ai.seed || 0)) % 100) / 100 >= ai.avoid) continue; const da = (o.x - CP.px[ci]) * CP.fx[ci] + (o.z - CP.pz[ci]) * CP.fz[ci]; if (da < -3 || da > 62) continue; if ((o.x - k.x) ** 2 + (o.z - k.z) ** 2 > 72 * 72) continue; if (o.P === CP) { let di = o.i - ci; if (CP.closed !== false) di = ((di % CP.N) + CP.N * 1.5) % CP.N - CP.N * .5; if (di * CP.seg < -6 || di * CP.seg > 72) continue; } if (Math.abs(o.y - CP.py[ci]) > 6) continue;
       const tArr = Math.max(0, da) / Math.max(12, k.speed), tc = clock + tArr;
       if (o.kind === 'crusher' || o.kind === 'jet') { const c = ((tc / o.per + o.ph / TAU) % 1 + 1) % 1; if (o.kind === 'jet' ? (c < .36 || c > .86) : (c < .38 || c > .8)) continue; }
@@ -8112,5 +8152,5 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid };
 })();

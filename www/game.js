@@ -6149,8 +6149,8 @@ function replayFrame(dt) { const c = REPLAY.clip, fr = c.fr, evs = c.ev || [{ t:
     if (!o.parent) { sc.add(o); REPLAY.added.add(o); } });
   for (const o of sc.children) if (!REC.base.has(o) && !seen.has(o)) o.visible = false;   // pas encore là à ce moment de la course
   const pk = (REPLAY.follow && REPLAY.follow.parent ? REPLAY.follow : null) || (cur.a && cur.a.parent ? cur.a : null) || (REPLAY.race.player && REPLAY.race.player.mesh.g);
-  if (c.full) { const k = pk.userData.recK, l = $('#replay-l'), txt = (k ? (k.isPlayer ? 'Toi' : k.name) : '') + ' · ' + fmtTime(Math.max(0, REPLAY.t - fr[0].t)); if (l && l.textContent !== txt) l.textContent = txt; }
   if (!pk) { replayEnd(); return; }
+  if (c.full) { const k = pk.userData.recK, l = $('#replay-l'), txt = (k ? (k.isPlayer ? 'Toi' : k.name) : '') + ' · ' + fmtTime(Math.max(0, REPLAY.t - fr[0].t)); if (l && l.textContent !== txt) l.textContent = txt; }
   // caméra derrière le kart (comme en course) ; pendant une action avec un autre kart, on montre les deux
   const fk = Math.abs(REPLAY.t - cur.t) < 1.6 && cur.f && cur.f.parent ? cur.f : null, far = fk && fk.position.distanceTo(pk.position) > 40, tg = far ? fk : pk;
   const fwd = tmpV.set(0, 0, 1).applyQuaternion(tg.quaternion); fwd.y = 0; fwd.normalize(); const hd = Math.atan2(fwd.x, fwd.z);

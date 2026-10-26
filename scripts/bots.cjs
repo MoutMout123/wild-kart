@@ -20,9 +20,9 @@ const srv = http.createServer((q, r) => { let f = path.join(ROOT, decodeURICompo
 
 async function page(browser, name, opts) {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 600 } }); const p = await ctx.newPage(); p.errs = [];
-  p.on('pageerror', (e) => p.errs.push(String(e))); p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|net::/.test(m.text())) p.errs.push(m.text()); });
+  p.on('pageerror', (e) => p.errs.push(String(e.stack || e).split('\n').slice(0, 3).join(' ← '))); p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|net::/.test(m.text())) p.errs.push(m.text()); });
   await p.addInitScript((o) => { window.TK_BUILD = 'pwa'; window.TK_TEST = true; if (o.api) window.TK_API = o.api; if (o.acct) { try { const k = 'tiltkart.v1', s = JSON.parse(localStorage.getItem(k) || '{}'); s.acct = o.acct; s.name = o.acct.u; localStorage.setItem(k, JSON.stringify(s)); } catch (e) { /* rien */ } } }, { api: API, acct: opts && opts.acct });
-  await p.goto('http://localhost:8766/index.html', { waitUntil: 'domcontentloaded' }); await p.waitForFunction(() => window.__TK, null, { timeout: 60000 });
+  await p.goto('http://localhost:8766/index.html', { waitUntil: 'domcontentloaded', timeout: 90000 }); await p.waitForFunction(() => window.__TK, null, { timeout: 90000 });
   await p.evaluate(() => { for (const s of ['#acct', '#gate']) { const e = document.querySelector(s); if (e) e.hidden = true; } });
   p.shot = (n) => p.screenshot({ path: path.join(OUT, name + '-' + n + '.png') }); return p;
 }
@@ -104,6 +104,7 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
     ok(!r.exp && r.perm, 'fin des blocages à durée'); ok(r.msg === 'flex', 'message du chef'); return 'ok'; });
 
   // ---------- en ligne : deux joueurs, une vraie partie, des emojis ----------
+  const errsSolo = p.errs.slice(); await p.goto('about:blank');   // la 1re page s'arrête : le processeur sert aux 2 bots en ligne
   if (API) await test('En ligne : 2 bots créent et jouent une partie, emojis', async () => {
     const A = await page(browser, 'hote'), B = await page(browser, 'invite');
     await A.evaluate(() => window.__TK.netCreate()); await A.waitForFunction(() => window.__TK.Net.pid, null, { timeout: 30000 }); const code = await A.evaluate(() => window.__TK.Net.code);
@@ -116,7 +117,7 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
     const got = await B.waitForFunction(() => [...document.querySelectorAll('div')].some((d) => d.textContent === 'Hôte 🔥'), null, { timeout: 8000 }).then(() => true, () => false);
     ok(got, 'emoji pas reçu'); const errs = A.errs.concat(B.errs); ok(!errs.length, errs.join(' | ')); await A.context().close(); await B.context().close(); return 'partie ' + code + ', emoji reçu'; });
 
-  await test('Aucune erreur JavaScript pendant les tests', async () => { ok(!p.errs.length, p.errs.slice(0, 5).join(' | ')); return 'ok'; });
+  await test('Aucune erreur JavaScript pendant les tests', async () => { ok(!errsSolo.length, errsSolo.slice(0, 3).join(' | ')); return 'ok'; });
   await browser.close(); srv.close();
   const nOk = RES.filter((r) => r[1]).length, md = '# Bots de test Wild Kart\n\n' + nOk + ' / ' + RES.length + ' tests réussis\n\n| | Test | Détail |\n|---|---|---|\n' + RES.map(([n, o, d]) => '| ' + (o ? '✅' : '❌') + ' | ' + n + ' | ' + String(d).replace(/\|/g, '/').replace(/\n/g, ' ') + ' |').join('\n') + '\n';
   fs.writeFileSync(path.join(OUT, 'rapport.md'), md); if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md); log('\n' + md);

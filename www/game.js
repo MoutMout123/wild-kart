@@ -1752,6 +1752,10 @@ function kartGeometry(cfg) {
   else if (cfg.acc === 'couronne') { add('gold', new T.TorusGeometry(.2, .035, 8, 28), trs(0, top - .03, hz, Math.PI / 2, 0, 0)); for (let k = 0; k < 6; k++) { const a = k / 6 * TAU; add('gold', new T.ConeGeometry(.055, .2, 8), tr(Math.cos(a) * .2, top + .09, hz + Math.sin(a) * .2)); } }
   else if (cfg.acc === 'cornes') { for (const s of [-1, 1]) add('ivory', new T.ConeGeometry(.08, .36, 14), trs(s * .22, top - .02, hz, 0, 0, -s * .55)); }
   else if (cfg.acc === 'aileron') add('paint', rbox(.05, .32, .4, .025), trs(0, top + .06, hz - .1, -.35, 0, 0));
+  else if (cfg.acc === 'chapeau') { add('dark', new T.CylinderGeometry(.24, .24, .03, 20), tr(0, top - .02, hz)); add('dark', new T.CylinderGeometry(.15, .16, .3, 18), tr(0, top + .14, hz)); add('paint', new T.CylinderGeometry(.162, .162, .06, 18), tr(0, top + .03, hz)); }
+  else if (cfg.acc === 'helice') { add('metal', new T.CylinderGeometry(.02, .02, .2, 8), tr(0, top + .08, hz)); add('paint', rbox(.5, .02, .07, .01), tr(0, top + .19, hz)); add('helm', new T.SphereGeometry(.04, 10, 8), tr(0, top + .2, hz)); }
+  else if (cfg.acc === 'aureole') add('gold', new T.TorusGeometry(.17, .025, 8, 28), trs(0, top + .22, hz, Math.PI / 2, 0, 0));
+  else if (cfg.acc === 'oreilles') { for (const s of [-1, 1]) add('paint', new T.ConeGeometry(.09, .2, 4), trs(s * .14, top + .04, hz, 0, Math.PI / 4, -s * .3)); }
   const merged = {}; for (const k in parts) { merged[k] = mergeGeos(parts[k]); merged[k].userData.keep = true; }
   if (deco) deco.userData.keep = true;
   const WD = WHEEL_DIM[cfg.wheels] || WHEEL_DIM.standard;
@@ -5771,51 +5775,66 @@ function goBoosts(R) {
   for (const k of G.karts) if (!k.isPlayer && !k.isRemote && Math.random() < .35) k.boost = .9;
   const h = $('#hints'); if (h) setTimeout(() => (h.hidden = true), 2500);
 }
-/* ================= progression : pièces, niveaux, déblocages, succès, statistiques, coffre ================= */
-// niveau n atteint avec 50 × n × (n + 1) points (100, 300, 600, 1000…) ; les pièces gagnées comptent aussi comme points
+/* ================= progression : pièces, niveaux, déblocages, succès, défis de la semaine, statistiques, coffre ================= */
+// économie mesurée : une course rapporte en général 15 à 45 pièces ; niveau n avec 40 × n × (n + 1) points (80, 240, 480, 800…)
 const RARE_COLORS = { '#22d3c5': 'Turquoise', '#ff7f6e': 'Corail', '#e8b4b8': 'Or rose', '#dfe6ee': 'Platine', '#d4af37': 'Or', '#ff7b3a': 'Phénix', '#ff3df2': 'Néon rose', '#6be38a': 'Caméléon', '#4b5b7a': 'Orage',
-  '#00f5d4': 'Lagon', '#b5179e': 'Prune', '#f8f32b': 'Citron', '#3a86ff': 'Saphir', '#8d99ae': 'Acier', '#ff9e00': 'Mandarine', '#9b5de5': 'Améthyste' };
+  '#00f5d4': 'Lagon', '#b5179e': 'Prune', '#f8f32b': 'Citron', '#3a86ff': 'Saphir', '#8d99ae': 'Acier', '#ff9e00': 'Mandarine', '#9b5de5': 'Améthyste',
+  '#c1121f': 'Rubis', '#2d6a4f': 'Forêt', '#ffd6a5': 'Pêche', '#0b132b': 'Nuit', '#e0fbfc': 'Glacier', '#7f5539': 'Cacao' };
 const CHEST_COLORS = ['#00f5d4', '#b5179e', '#f8f32b', '#3a86ff', '#8d99ae', '#ff9e00', '#9b5de5'];
-const LEVEL_UNLOCKS = [[2, 'color', '#22d3c5'], [3, 'wheels', 'jantes'], [4, 'trail', 'menthe'], [5, 'body', 'scarabee'], [6, 'finish', 'nacre'], [7, 'wheels', 'disco'], [8, 'body', 'lutin'], [9, 'color', '#ff7f6e'],
-  [10, 'body', 'requin'], [11, 'trail', 'lave'], [12, 'wheels', 'crampons'], [13, 'finish', 'brosse'], [14, 'body', 'tracteur'], [15, 'color', '#e8b4b8'], [16, 'trail', 'galaxie'], [18, 'body', 'comete'], [20, 'finish', 'dore']];
-// succès : [id, nom, comment, test(stats, course), récompense]
+Object.assign(ACCS, { chapeau: { name: 'Haut-de-forme' }, helice: { name: 'Hélice' }, aureole: { name: 'Auréole' }, oreilles: { name: 'Oreilles de chat' } });
+Object.assign(TRAILS, { aurore: { name: 'Aurore', c: ['#7cffcb', '#5ad1ff', '#b47cff'] }, braise: { name: 'Braise', c: ['#ffd27f', '#ff6b00', '#5a1a00'] }, glacon: { name: 'Glaçon', c: ['#ffffff', '#bfefff'] }, bulles: { name: 'Bulles', c: ['#e0f7ff', '#8fd8ff', '#ffffff'] } });
+Object.assign(FINISHES, { satin: { name: 'Satin', r: .5, m: .3 }, perle: { name: 'Perle', r: .3, m: .45 } });
+// un déblocage par niveau jusqu'au 30 (ce qui existait avant reste libre)
+const LEVEL_UNLOCKS = [[2, 'color', '#22d3c5'], [3, 'wheels', 'jantes'], [4, 'trail', 'menthe'], [5, 'body', 'scarabee'], [6, 'acc', 'oreilles'], [7, 'finish', 'satin'], [8, 'wheels', 'disco'], [9, 'color', '#ff7f6e'],
+  [10, 'body', 'lutin'], [11, 'trail', 'bulles'], [12, 'acc', 'chapeau'], [13, 'finish', 'nacre'], [14, 'color', '#c1121f'], [15, 'body', 'requin'], [16, 'trail', 'lave'], [17, 'wheels', 'crampons'], [18, 'color', '#2d6a4f'],
+  [19, 'acc', 'helice'], [20, 'body', 'tracteur'], [21, 'finish', 'brosse'], [22, 'trail', 'aurore'], [23, 'color', '#e8b4b8'], [24, 'finish', 'perle'], [25, 'body', 'comete'], [26, 'trail', 'galaxie'], [27, 'color', '#0b132b'],
+  [28, 'trail', 'braise'], [29, 'acc', 'aureole'], [30, 'finish', 'dore']];
+// succès : [id, nom, comment, test(stats, course, progression), récompense, progression (stats) => [actuel, but]]
 const ACHS = [
-  ['r1', 'Premier tour de piste', 'Finir une course', (s) => s.races >= 1, ['title', 'Pilote en herbe']],
-  ['r10', 'Accro', 'Finir 10 courses', (s) => s.races >= 10, ['trail', 'bonbon']],
-  ['r50', 'Vétéran', 'Finir 50 courses', (s) => s.races >= 50, ['title', 'Vétéran']],
-  ['r100', 'Increvable', 'Finir 100 courses', (s) => s.races >= 100, ['color', '#dfe6ee']],
-  ['w1', 'Champion', 'Gagner une course', (s) => s.wins >= 1, ['title', 'Champion']],
-  ['w10', 'Collectionneur de coupes', 'Gagner 10 courses', (s) => s.wins >= 10, ['trail', 'dore']],
-  ['w50', 'Roi de la piste', 'Gagner 50 courses', (s) => s.wins >= 50, ['color', '#d4af37']],
-  ['p5', 'Habitué du podium', 'Finir 5 fois dans les 3 premiers', (s) => s.podiums >= 5, ['title', 'Habitué du podium']],
-  ['h10', 'Tireur', 'Toucher 10 karts', (s) => s.hits >= 10, ['title', 'Tireur']],
-  ['h100', 'Artilleur', 'Toucher 100 karts', (s) => s.hits >= 100, ['trail', 'laser']],
+  ['r1', 'Premier tour de piste', 'Finir une course', (s) => s.races >= 1, ['title', 'Pilote en herbe'], (s) => [s.races, 1]],
+  ['r10', 'Accro', 'Finir 10 courses', (s) => s.races >= 10, ['trail', 'bonbon'], (s) => [s.races, 10]],
+  ['r50', 'Vétéran', 'Finir 50 courses', (s) => s.races >= 50, ['title', 'Vétéran'], (s) => [s.races, 50]],
+  ['r100', 'Increvable', 'Finir 100 courses', (s) => s.races >= 100, ['color', '#dfe6ee'], (s) => [s.races, 100]],
+  ['w1', 'Champion', 'Gagner une course', (s) => s.wins >= 1, ['title', 'Champion'], (s) => [s.wins, 1]],
+  ['w10', 'Collectionneur de coupes', 'Gagner 10 courses', (s) => s.wins >= 10, ['trail', 'dore'], (s) => [s.wins, 10]],
+  ['w50', 'Roi de la piste', 'Gagner 50 courses', (s) => s.wins >= 50, ['color', '#d4af37'], (s) => [s.wins, 50]],
+  ['p5', 'Habitué du podium', 'Finir 5 fois dans les 3 premiers', (s) => s.podiums >= 5, ['title', 'Habitué du podium'], (s) => [s.podiums, 5]],
+  ['h10', 'Tireur', 'Toucher 10 karts', (s) => s.hits >= 10, ['title', 'Tireur'], (s) => [s.hits, 10]],
+  ['h100', 'Artilleur', 'Toucher 100 karts', (s) => s.hits >= 100, ['trail', 'laser'], (s) => [s.hits, 100]],
   ['combo3', 'Massacreur', 'Toucher 3 karts en 5 secondes', (s, c) => c && c.combo3, ['title', 'Massacreur']],
   ['clean', 'Intouchable', 'Gagner sans être touché', (s, c) => c && c.place === 1 && c.taken === 0 && c.n > 1, ['title', 'Intouchable']],
   ['last1', 'Au dernier moment', 'Prendre la 1re place au dernier tour et gagner', (s, c) => c && c.place === 1 && c.lastLap1, ['trail', 'cometet']],
   ['photo', 'Photo-finish', 'Gagner d\'un cheveu (moins d\'une seconde)', (s, c) => c && c.place === 1 && c.photo, ['title', 'Photo-finish']],
   ['remontada', 'Remontada', 'Gagner après avoir été dernier', (s, c) => c && c.place === 1 && c.worst >= c.n && c.n > 3, ['color', '#ff7b3a']],
-  ['lead60', 'Fugitif', 'Rester 1er 60 secondes d\'affilée', (s) => s.streakBest >= 60, ['title', 'Fugitif']],
-  ['lead120', 'Inrattrapable', 'Rester 1er 2 minutes d\'affilée', (s) => s.streakBest >= 120, ['trail', 'flammebleue']],
-  ['style1k', 'Styliste', '1 000 points de style en une course', (s) => s.styleBest >= 1000, ['title', 'Styliste']],
-  ['style5k', 'Show-man', '5 000 points de style en une course', (s) => s.styleBest >= 5000, ['color', '#ff3df2']],
-  ['air25', 'Oiseau', 'Un saut de 2,5 secondes', (s) => s.airBest >= 2.5, ['title', 'Oiseau']],
-  ['trick50', 'Acrobate', 'Faire 50 figures en l\'air', (s) => s.tricks >= 50, ['trail', 'etoiles']],
+  ['lead60', 'Fugitif', 'Rester 1er 60 secondes d\'affilée', (s) => s.streakBest >= 60, ['title', 'Fugitif'], (s) => [s.streakBest, 60]],
+  ['lead120', 'Inrattrapable', 'Rester 1er 2 minutes d\'affilée', (s) => s.streakBest >= 120, ['trail', 'flammebleue'], (s) => [s.streakBest, 120]],
+  ['style1k', 'Styliste', '1 000 points de style en une course', (s) => s.styleBest >= 1000, ['title', 'Styliste'], (s) => [s.styleBest, 1000]],
+  ['style5k', 'Show-man', '5 000 points de style en une course', (s) => s.styleBest >= 5000, ['color', '#ff3df2'], (s) => [s.styleBest, 5000]],
+  ['air25', 'Oiseau', 'Un saut de 2,5 secondes', (s) => s.airBest >= 2.5, ['title', 'Oiseau'], (s) => [Math.round(s.airBest * 10) / 10, 2.5]],
+  ['trick50', 'Acrobate', 'Faire 50 figures en l\'air', (s) => s.tricks >= 50, ['trail', 'etoiles'], (s) => [s.tricks, 50]],
   ['pass10', 'Faufileur', 'Doubler 10 karts dans une course', (s, c) => c && c.passes >= 10, ['title', 'Faufileur']],
-  ['tw10', 'Touche-à-tout', 'Gagner sur 10 circuits différents', (s, c, P) => Object.values(P.tracks).filter((t) => t.w > 0).length >= 10, ['color', '#6be38a']],
-  ['tall', 'Globe-trotter', 'Finir une course sur tous les circuits', (s, c, P) => TRACKS.every((t) => P.tracks[t.id] && P.tracks[t.id].r > 0), ['title', 'Globe-trotter']],
-  ['on1', 'Connecté', 'Finir une course en ligne', (s) => s.online >= 1, ['title', 'Connecté']],
-  ['on20', 'Habitué du réseau', 'Finir 20 courses en ligne', (s) => s.online >= 20, ['title', 'Habitué du réseau']],
-  ['onw10', 'Terreur en ligne', 'Gagner 10 courses en ligne', (s) => s.onlineWins >= 10, ['trail', 'reseau']],
+  ['tw10', 'Touche-à-tout', 'Gagner sur 10 circuits différents', (s, c, P) => Object.values(P.tracks).filter((t) => t.w > 0).length >= 10, ['color', '#6be38a'], (s, P) => [Object.values(P.tracks).filter((t) => t.w > 0).length, 10]],
+  ['tall', 'Globe-trotter', 'Finir une course sur tous les circuits', (s, c, P) => TRACKS.every((t) => P.tracks[t.id] && P.tracks[t.id].r > 0), ['title', 'Globe-trotter'], (s, P) => [TRACKS.filter((t) => P.tracks[t.id] && P.tracks[t.id].r > 0).length, TRACKS.length]],
+  ['on1', 'Connecté', 'Finir une course en ligne', (s) => s.online >= 1, ['title', 'Connecté'], (s) => [s.online, 1]],
+  ['on20', 'Habitué du réseau', 'Finir 20 courses en ligne', (s) => s.online >= 20, ['title', 'Habitué du réseau'], (s) => [s.online, 20]],
+  ['onw10', 'Terreur en ligne', 'Gagner 10 courses en ligne', (s) => s.onlineWins >= 10, ['trail', 'reseau'], (s) => [s.onlineWins, 10]],
   ['rain', 'Pilote de pluie', 'Gagner sous la pluie ou la neige', (s, c) => c && c.place === 1 && c.wet, ['color', '#4b5b7a']],
-  ['lv10', 'Expert', 'Atteindre le niveau 10', (s, c, P) => progLevel(P.xp) >= 10, ['title', 'Expert']],
-  ['lv20', 'Légende', 'Atteindre le niveau 20', (s, c, P) => progLevel(P.xp) >= 20, ['title', 'Légende']],
+  ['wk5', 'Régulier', 'Réussir 5 défis de la semaine', (s) => s.weekly >= 5, ['color', '#e0fbfc'], (s) => [s.weekly, 5]],
+  ['day7', 'Fidèle', 'Réussir 7 défis du jour', (s) => s.daily >= 7, ['title', 'Fidèle'], (s) => [s.daily, 7]],
+  ['lv10', 'Expert', 'Atteindre le niveau 10', (s, c, P) => progLevel(P.xp) >= 10, ['title', 'Expert'], (s, P) => [progLevel(P.xp), 10]],
+  ['lv30', 'Légende', 'Atteindre le niveau 30', (s, c, P) => progLevel(P.xp) >= 30, ['title', 'Légende'], (s, P) => [progLevel(P.xp), 30]],
 ];
-const ITEM_KIND = { body: [BODIES, 'Carrosserie'], wheels: [WHEELS, 'Roues'], trail: [TRAILS, 'Turbo'], finish: [FINISHES, 'Finition'] };
+// défis de la semaine : 3 objectifs (tirés selon la semaine), à cumuler sur toutes tes courses ; 40 pièces chacun
+const WEEK_POOL = [['wins', 'Gagner 3 courses', 3], ['podiums', 'Finir 6 fois sur le podium', 6], ['hits', 'Toucher 15 karts', 15], ['passes', 'Doubler 25 karts', 25], ['tricks', 'Faire 15 figures', 15],
+  ['races', 'Finir 10 courses', 10], ['online', 'Finir 3 courses en ligne', 3], ['style', 'Cumuler 3 000 points de style', 3000], ['lead', 'Cumuler 3 minutes en tête', 180], ['jumps', 'Faire 30 sauts', 30]];
+const weekId = () => { const d = new Date(), t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); return Math.floor((t / 86400e3 + 3) / 7); };
+function weekDefs() { const w = weekId(), h = wkStrHash('semaine:' + w), L = WEEK_POOL.slice(), out = []; for (let i = 0; i < 3; i++) out.push(L.splice((h >>> (i * 5)) % L.length, 1)[0]); return out; }
+const ITEM_KIND = { body: [BODIES, 'Carrosserie'], wheels: [WHEELS, 'Roues'], trail: [TRAILS, 'Turbo'], finish: [FINISHES, 'Finition'], acc: [ACCS, 'Accessoire'] };
 function progData() { const P = SAVE.prog && typeof SAVE.prog === 'object' ? SAVE.prog : (SAVE.prog = {}); P.xp = +P.xp || 0; P.coins = +P.coins || 0; P.st = P.st || {}; P.tracks = P.tracks || {}; P.ach = P.ach || {}; P.own = P.own || {}; P.chestN = +P.chestN || 0;
-  for (const k of ['races', 'wins', 'podiums', 'hits', 'taken', 'passes', 'tricks', 'jumps', 'online', 'onlineWins', 'styleBest', 'streakBest', 'airBest', 'coinsTotal']) P.st[k] = +P.st[k] || 0; return P; }
-const progLevel = (xp) => { let n = 1; while (50 * n * (n + 1) <= xp) n++; return n; };
-const progNeed = (n) => 50 * (n - 1) * n;   // points pour avoir le niveau n
+  for (const k of ['races', 'wins', 'podiums', 'hits', 'taken', 'passes', 'tricks', 'jumps', 'online', 'onlineWins', 'styleBest', 'streakBest', 'airBest', 'coinsTotal', 'weekly', 'daily']) P.st[k] = +P.st[k] || 0;
+  if (!P.week || P.week.id !== weekId()) P.week = { id: weekId(), p: {}, done: {} }; return P; }
+const progLevel = (xp) => { let n = 1; while (40 * n * (n + 1) <= xp) n++; return n; };
+const progNeed = (n) => 40 * (n - 1) * n;   // points pour avoir le niveau n
 // ce qui est verrouillé : les pièces des niveaux et des succès (tout ce qui existait avant reste libre)
 function lockInfo(kind, id) { const P = progData(), lv = progLevel(P.xp); for (const [n, k, i] of LEVEL_UNLOCKS) if (k === kind && i === id) return lv >= n ? null : 'Niveau ' + n;
   for (const a of ACHS) if (a[4][0] === kind && a[4][1] === id) return P.ach[a[0]] ? null : 'Succès « ' + a[1] + ' »';
@@ -5823,48 +5842,75 @@ function lockInfo(kind, id) { const P = progData(), lv = progLevel(P.xp); for (c
   return null; }
 const ownedColors = () => Object.keys(RARE_COLORS).filter((c) => !lockInfo('color', c));
 const itemName = (kind, id) => kind === 'color' ? 'Couleur ' + (RARE_COLORS[id] || id) : kind === 'title' ? 'Titre « ' + id + ' »' : (ITEM_KIND[kind] ? ITEM_KIND[kind][1] + ' ' + (ITEM_KIND[kind][0][id] || {}).name : id);
-// fin de course : pièces, statistiques, succès
+// fin de course : pièces (mesurées), statistiques, succès, défis de la semaine
 function progAward(R, P) { if (!R || !P || R.awarded || P.spect) return; R.awarded = true; const D = progData(), S = D.st, n = G.karts.filter((k) => !k.spect).length, place = P.place, ps = R.ps || {}, L = R.lead || {};
   const lv0 = progLevel(D.xp), parts = [];
-  const base = n > 1 ? [40, 32, 26, 22, 18, 15, 12, 10][place - 1] || 8 : 15; parts.push(['Place', base]);
-  const act = Math.min(30, (ps.hits || 0) * 4 + (ps.passes || 0) * 3); if (act) parts.push(['Actions', act]);
-  const st = Math.min(40, Math.round((L.pts || 0) / 2)); if (st) parts.push(['Série en tête', st]);
-  const sy = Math.min(40, Math.round((R.style || 0) / 40)); if (sy) parts.push(['Style', sy]);
-  if (R.dailyOk) parts.push(['Défi du jour', 60]);
-  let tot = parts.reduce((a, x) => a + x[1], 0); if (R.online) { const b = Math.round(tot * .25); parts.push(['En ligne', b]); tot += b; }
-  D.coins += tot; D.xp += tot; S.coinsTotal += tot;
-  S.races++; if (place === 1 && n > 1) S.wins++; if (place <= 3 && n > 1) S.podiums++; S.hits += ps.hits || 0; S.taken += ps.taken || 0; S.passes += ps.passes || 0; S.tricks += ps.tricks || 0; S.jumps += ps.jumps || 0;
+  const base = n > 1 ? [20, 16, 13, 11, 9, 8, 7, 6][place - 1] || 5 : 6; parts.push(['Place', base]);
+  const act = Math.min(12, (ps.hits || 0) * 2 + (ps.passes || 0)); if (act) parts.push(['Actions', act]);
+  const st = Math.min(10, Math.round((L.pts || 0) / 4)); if (st) parts.push(['Série en tête', st]);
+  const sy = Math.min(10, Math.round((R.style || 0) / 80)); if (sy) parts.push(['Style', sy]);
+  if (R.dailyOk) parts.push(['Défi du jour', 30]);
+  let tot = parts.reduce((a, x) => a + x[1], 0); if (R.online) { const b = Math.round(tot * .2); parts.push(['En ligne', b]); tot += b; }
+  S.races++; if (place === 1 && n > 1) S.wins++; if (place <= 3 && n > 1) S.podiums++; S.hits += ps.hits || 0; S.taken += ps.taken || 0; S.passes += ps.passes || 0; S.tricks += ps.tricks || 0; S.jumps += ps.jumps || 0; if (R.dailyOk) S.daily++;
   if (R.online) { S.online++; if (place === 1) S.onlineWins++; } S.styleBest = Math.max(S.styleBest, R.style || 0); S.streakBest = Math.max(S.streakBest, Math.round(L.best || 0)); S.airBest = Math.max(S.airBest, ps.airBest || 0);
+  // défis de la semaine
+  const W = D.week, add = { wins: place === 1 && n > 1 ? 1 : 0, podiums: place <= 3 && n > 1 ? 1 : 0, hits: ps.hits || 0, passes: ps.passes || 0, tricks: ps.tricks || 0, races: 1, online: R.online ? 1 : 0, style: R.style || 0, lead: Math.round(L.tot || 0), jumps: ps.jumps || 0 }, wkDone = [];
+  for (const [k, txt, goal] of weekDefs()) { W.p[k] = (W.p[k] || 0) + (add[k] || 0); if (!W.done[k] && W.p[k] >= goal) { W.done[k] = 1; S.weekly++; tot += 40; parts.push(['Défi : ' + txt, 40]); wkDone.push(txt); } }
+  D.coins += tot; D.xp += tot; S.coinsTotal += tot;
   const tid = TRACKS[R.ti].id, T0 = D.tracks[tid] || (D.tracks[tid] = { r: 0, w: 0 }); T0.r++; if (place === 1 && n > 1) T0.w++;
   const sec = G.karts.find((k) => k !== P && k.finished && Math.abs(k.finishTime - P.finishTime) < 1);
   const c = { place, n, taken: ps.taken || 0, passes: ps.passes || 0, combo3: !!ps.combo3, lastLap1: !!ps.lastLap1, photo: !!sec, worst: ps.worst || place, wet: !!(G.W.wx && G.W.wx.grip < .9) };
   const got = []; for (const a of ACHS) if (!D.ach[a[0]] && a[3](S, c, D)) { D.ach[a[0]] = Date.now(); got.push(a); if (a[4][0] === 'title' && !SAVE.title) SAVE.title = a[4][1]; }
   const lv = progLevel(D.xp), unl = LEVEL_UNLOCKS.filter(([k]) => k > lv0 && k <= lv);
-  // coffre : toutes les 3 courses
-  let chest = null; D.chestN++; if (D.chestN >= 3) { D.chestN = 0; chest = progChest(); }
-  store(); R.award = { tot, parts, lv0, lv, unl, got, chest }; }
-function progChest() { const D = progData(), free = CHEST_COLORS.filter((c) => !D.own['color:' + c]); if (!free.length) { D.coins += 50; return 'Coffre : 50 pièces'; } const c = pick(free); D.own['color:' + c] = 1; return 'Coffre : couleur ' + RARE_COLORS[c]; }
+  // coffre gratuit toutes les 5 courses
+  let chest = null; D.chestN++; if (D.chestN >= 5) { D.chestN = 0; chest = progChest(); }
+  store(); R.award = { tot, parts, lv0, lv, unl, got, chest, wkDone }; }
+function progChest() { const D = progData(), free = CHEST_COLORS.filter((c) => !D.own['color:' + c]); if (!free.length) { D.coins += 20; return 'Coffre : 20 pièces'; } const c = pick(free); D.own['color:' + c] = 1; return 'Coffre : couleur ' + RARE_COLORS[c]; }
+const escP = (x) => String(x).replace(/[&<>"]/g, '');
+const barP = (a, b) => '<span class="prog-bar"><i style="width:' + Math.round(100 * clamp(a / (b || 1), 0, 1)) + '%"></i></span>';
 // ligne de récompense sous les résultats
-function progHtml(R) { const A = R && R.award; if (!A) return ''; const D = progData(), lv = A.lv, a = D.xp - progNeed(lv), b = progNeed(lv + 1) - progNeed(lv), esc = (x) => String(x).replace(/[&<>"]/g, '');
-  let h = '<div class="prog-res"><b>+' + A.tot + ' pièces</b> <small>(' + A.parts.map((p) => esc(p[0]) + ' ' + p[1]).join(' · ') + ')</small><br><small>Niveau ' + lv + (lv > A.lv0 ? ' 🎉' : '') + '</small> <span class="prog-bar"><i style="width:' + Math.round(100 * a / b) + '%"></i></span>';
+function progHtml(R) { const A = R && R.award; if (!A) return ''; const D = progData(), lv = A.lv, a = D.xp - progNeed(lv), b = progNeed(lv + 1) - progNeed(lv);
+  let h = '<div class="prog-res"><b>+' + A.tot + ' 💰</b> <small>(' + A.parts.map((p) => escP(p[0]) + ' ' + p[1]).join(' · ') + ')</small><br><small>Niveau ' + lv + (lv > A.lv0 ? ' 🎉' : '') + '</small> ' + barP(a, b);
   const news = A.unl.map(([, k, i]) => itemName(k, i)).concat(A.got.map((x) => '🏆 ' + x[1] + ' → ' + itemName(x[4][0], x[4][1]))).concat(A.chest ? ['🎁 ' + A.chest] : []);
-  if (news.length) h += '<br><small>Débloqué : ' + news.map(esc).join(' · ') + '</small>'; return h + '</div>'; }
+  if (news.length) h += '<br><small>Débloqué : ' + news.map(escP).join(' · ') + '</small>'; return h + '</div>'; }
 function progShow(R) { const sub = $('#r-sub'); if (!sub) return; let el = $('#r-prog'); if (!el) { el = document.createElement('div'); el.id = 'r-prog'; sub.after(el); } el.innerHTML = progHtml(R); }
-// garage : onglet Progression (niveau, statistiques, succès, coffre)
-function progRender() { const box = $('#g-prog'); if (!box) return; const D = progData(), S = D.st, lv = progLevel(D.xp), a = D.xp - progNeed(lv), b = progNeed(lv + 1) - progNeed(lv);
-  const next = LEVEL_UNLOCKS.filter(([n]) => n > lv).slice(0, 3);
-  let h = '<div class="prog-head"><b>Niveau ' + lv + '</b> <span class="prog-bar"><i style="width:' + Math.round(100 * a / b) + '%"></i></span> <small>' + a + ' / ' + b + '</small></div>';
-  h += '<p class="hint">💰 ' + D.coins + ' pièces' + (SAVE.title ? ' · Titre : <b>' + SAVE.title + '</b>' : '') + (next.length ? '<br>Prochains déblocages : ' + next.map(([n, k, i]) => 'niv. ' + n + ' ' + itemName(k, i)).join(' · ') : '') + '</p>';
-  h += '<div class="row"><button class="btn sm red" id="g-chest"' + (D.coins < 150 ? ' disabled' : '') + '><span>🎁 Ouvrir un coffre (150 pièces)</span></button></div>';
-  const titles = ACHS.filter((x) => x[4][0] === 'title' && D.ach[x[0]]).map((x) => x[4][1]);
-  if (titles.length) h += '<div class="g-row"><label>Titre</label><div class="chips">' + ['(aucun)'].concat(titles).map((t) => '<button data-title="' + t + '" aria-pressed="' + ((SAVE.title || '(aucun)') === t) + '">' + t + '</button>').join('') + '</div></div>';
-  h += '<h4>Statistiques</h4><div class="prog-st">' + [['Courses', S.races], ['Victoires', S.wins], ['Podiums', S.podiums], ['Karts touchés', S.hits], ['Fois touché', S.taken], ['Dépassements', S.passes], ['Figures', S.tricks], ['En ligne', S.online + ' (' + S.onlineWins + ' victoires)'], ['Meilleure série en tête', S.streakBest + ' s'], ['Meilleur style', S.styleBest], ['Plus long saut', S.airBest.toFixed(1).replace('.', ',') + ' s'], ['Pièces gagnées', S.coinsTotal]].map(([k, v]) => '<span>' + k + '</span><b>' + v + '</b>').join('') + '</div>';
-  const top = Array.isArray(SAVE.topActs) ? SAVE.topActs : []; h += '<h4>Tes 10 meilleures actions</h4>' + (top.length ? top.map((x, i) => '<div class="prog-ach ok"><b>' + (i + 1) + '. ' + String(x.l).replace(/[<>&"]/g, '') + '</b><small>' + x.s + ' pts · ' + String(x.tr).replace(/[<>&"]/g, '') + ' · ' + new Date(x.t).toLocaleDateString('fr-FR') + '</small></div>').join('') : '<p class="hint">Fais une belle action en course : elle apparaîtra ici.</p>');
-  const nA = ACHS.filter((x) => D.ach[x[0]]).length; h += '<h4>Succès (' + nA + '/' + ACHS.length + ')</h4>';
-  h += ACHS.map((x) => '<div class="prog-ach' + (D.ach[x[0]] ? ' ok' : '') + '"><b>' + (D.ach[x[0]] ? '🏆 ' : '🔒 ') + x[1] + '</b><small>' + x[2] + ' → ' + itemName(x[4][0], x[4][1]) + '</small></div>').join('');
-  box.innerHTML = h;
-  const ch = $('#g-chest'); if (ch) ch.onclick = () => { const D2 = progData(); if (D2.coins < 150) return; D2.coins -= 150; const r = progChest(); store(); AudioSys.sfx('star'); toast('🎁 ' + r, 3000); progRender(); enterGarage(); };
-  box.querySelectorAll('[data-title]').forEach((x) => (x.onclick = () => { AudioSys.sfx('click'); SAVE.title = x.dataset.title === '(aucun)' ? '' : x.dataset.title; store(); progRender(); })); }
+// écran « Progression » (depuis le menu) : Niveau, Défis, Succès, Statistiques
+const PGU = { tab: 'niveau' };
+function progOpen(tab) { if (tab) PGU.tab = tab; let el = $('#progx'); if (!el) { el = document.createElement('div'); el.id = 'progx'; el.style.cssText = 'position:fixed;inset:0;z-index:110;background:rgba(15,12,44,.94);display:flex;align-items:flex-start;justify-content:center;padding:max(12px,env(safe-area-inset-top)) 12px 12px;overflow:auto'; document.body.appendChild(el); }
+  el.style.display = 'flex'; progDraw(); }
+function progClose() { const el = $('#progx'); if (el) el.style.display = 'none'; }
+function progDraw() { const el = $('#progx'); if (!el) return; const D = progData(), S = D.st, lv = progLevel(D.xp), a = D.xp - progNeed(lv), b = progNeed(lv + 1) - progNeed(lv), T = PGU.tab;
+  let h = '<div class="gate-box prog-box"><div class="prog-top"><h2>Progression</h2><button class="btn sm ghost" id="pg-x"><span>Fermer</span></button></div>';
+  h += '<div class="prog-head"><b>Niveau ' + lv + '</b> ' + barP(a, b) + ' <small>' + a + ' / ' + b + '</small> <b class="prog-coins">💰 ' + D.coins + '</b></div>';
+  h += '<div class="seg prog-tabs">' + [['niveau', 'Déblocages'], ['defis', 'Défis'], ['succes', 'Succès'], ['stats', 'Stats']].map(([k, n]) => '<button data-pt="' + k + '" aria-pressed="' + (T === k) + '">' + n + '</button>').join('') + '</div><div class="prog-body">';
+  if (T === 'niveau') {
+    h += '<p class="hint">Un nouveau déblocage à chaque niveau. Ils apparaissent ensuite dans le garage.' + (SAVE.title ? ' Titre : <b>' + escP(SAVE.title) + '</b>' : '') + '</p>';
+    h += LEVEL_UNLOCKS.map(([n, k, i]) => '<div class="prog-row' + (lv >= n ? ' ok' : '') + '"><b>' + (lv >= n ? '✅' : '🔒') + ' Niv. ' + n + '</b><span>' + escP(itemName(k, i)) + (k === 'color' ? ' <i class="prog-sw" style="background:' + i + '"></i>' : '') + '</span></div>').join('');
+    h += '<div class="row" style="margin-top:10px"><button class="btn sm red" id="pg-chest"' + (D.coins < 200 ? ' disabled' : '') + '><span>🎁 Coffre (200 💰)</span></button></div><p class="hint">Le coffre donne une couleur rare (sans avantage en course). Un coffre gratuit toutes les 5 courses.</p>';
+    const titles = ACHS.filter((x) => x[4][0] === 'title' && D.ach[x[0]]).map((x) => x[4][1]);
+    if (titles.length) h += '<div class="g-row"><label>Titre</label><div class="chips">' + ['(aucun)'].concat(titles).map((t) => '<button data-title="' + escP(t) + '" aria-pressed="' + ((SAVE.title || '(aucun)') === t) + '">' + escP(t) + '</button>').join('') + '</div></div>';
+  } else if (T === 'defis') {
+    const dd = dailyDef(dailyDay()), mine = SAVE.daily && SAVE.daily.day === dd.day ? SAVE.daily : null;
+    h += '<h4>Défi du jour</h4><div class="prog-row' + (mine && mine.ok ? ' ok' : '') + '"><b>' + escP(TRACKS[dd.ti].name) + '</b><span>🎯 ' + escP(dd.obj[1]) + (mine && mine.ok ? ' · réussi en ' + fmtTime(mine.t) : '') + ' · 30 💰</span></div><div class="row"><button class="btn sm red" id="pg-daily"><span>Jouer le défi du jour</span></button></div>';
+    h += '<h4>Défis de la semaine</h4><p class="hint">À cumuler sur toutes tes courses (solo ou en ligne). 40 💰 chacun. Nouveaux défis chaque lundi.</p>';
+    h += weekDefs().map(([k, txt, goal]) => { const v = Math.min(goal, D.week.p[k] || 0), ok = !!D.week.done[k]; return '<div class="prog-row' + (ok ? ' ok' : '') + '"><b>' + (ok ? '✅ ' : '') + escP(txt) + '</b><span>' + barP(v, goal) + ' ' + (k === 'lead' ? Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0') + ' / 3:00' : v + ' / ' + goal) + '</span></div>'; }).join('');
+  } else if (T === 'succes') {
+    const nA = ACHS.filter((x) => D.ach[x[0]]).length; h += '<p class="hint">' + nA + ' / ' + ACHS.length + ' succès. Chacun donne une récompense unique.</p>';
+    h += ACHS.map((x) => { const ok = !!D.ach[x[0]], pr = !ok && x[5] ? x[5](S, D) : null; return '<div class="prog-row' + (ok ? ' ok' : '') + '"><b>' + (ok ? '🏆 ' : '🔒 ') + escP(x[1]) + '</b><span>' + escP(x[2]) + ' → ' + escP(itemName(x[4][0], x[4][1])) + (pr ? '<br>' + barP(pr[0], pr[1]) + ' ' + pr[0] + ' / ' + pr[1] : '') + '</span></div>'; }).join('');
+  } else {
+    h += '<div class="prog-st">' + [['Courses', S.races], ['Victoires', S.wins], ['Podiums', S.podiums], ['Karts touchés', S.hits], ['Fois touché', S.taken], ['Dépassements', S.passes], ['Sauts', S.jumps], ['Figures', S.tricks], ['En ligne', S.online + ' (' + S.onlineWins + ' victoires)'], ['Défis du jour réussis', S.daily], ['Défis de la semaine réussis', S.weekly], ['Meilleure série en tête', S.streakBest + ' s'], ['Meilleur style', S.styleBest], ['Plus long saut', S.airBest.toFixed(1).replace('.', ',') + ' s'], ['Pièces gagnées', S.coinsTotal]].map(([k, v]) => '<span>' + k + '</span><b>' + v + '</b>').join('') + '</div>';
+    const top = Array.isArray(SAVE.topActs) ? SAVE.topActs : []; h += '<h4>Tes 10 meilleures actions</h4>' + (top.length ? top.map((x, i) => '<div class="prog-row ok"><b>' + (i + 1) + '. ' + escP(x.l) + '</b><span>' + x.s + ' pts · ' + escP(x.tr) + ' · ' + new Date(x.t).toLocaleDateString('fr-FR') + '</span></div>').join('') : '<p class="hint">Fais une belle action en course : elle apparaîtra ici.</p>');
+  }
+  el.innerHTML = h + '</div></div>';
+  $('#pg-x').onclick = () => { AudioSys.sfx('click'); progClose(); };
+  el.querySelectorAll('[data-pt]').forEach((x) => (x.onclick = () => { AudioSys.sfx('click'); PGU.tab = x.dataset.pt; progDraw(); }));
+  const ch = $('#pg-chest'); if (ch) ch.onclick = () => { const D2 = progData(); if (D2.coins < 200) return; D2.coins -= 200; const r = progChest(); store(); AudioSys.sfx('star'); toast('🎁 ' + r, 3000); progDraw(); };
+  const dl = $('#pg-daily'); if (dl) dl.onclick = () => { AudioSys.sfx('click'); progClose(); dailyOpen(); };
+  el.querySelectorAll('[data-title]').forEach((x) => (x.onclick = () => { AudioSys.sfx('click'); SAVE.title = x.dataset.title === '(aucun)' ? '' : x.dataset.title; store(); progDraw(); })); }
+// dans le garage : un résumé et un bouton vers l'écran Progression
+function progRender() { const box = $('#g-prog'); if (!box) return; const D = progData(), lv = progLevel(D.xp), a = D.xp - progNeed(lv), b = progNeed(lv + 1) - progNeed(lv), next = LEVEL_UNLOCKS.find(([n]) => n > lv);
+  box.innerHTML = '<div class="prog-head"><b>Niveau ' + lv + '</b> ' + barP(a, b) + ' <b class="prog-coins">💰 ' + D.coins + '</b></div>' + (next ? '<p class="hint">Prochain déblocage (niv. ' + next[0] + ') : ' + escP(itemName(next[1], next[2])) + '</p>' : '') + '<div class="row"><button class="btn sm red" id="g-progx"><span>Voir la progression</span></button></div>';
+  $('#g-progx').onclick = () => { AudioSys.sfx('click'); progOpen('niveau'); }; }
 /* ---------- défi du jour : même circuit et même objectif pour tout le monde, classement au temps ---------- */
 const DAILY_OBJ = [['win', 'Gagner la course'], ['clean3', 'Finir dans les 3 premiers sans être touché'], ['hits', 'Toucher 3 karts'], ['style', 'Faire 800 points de style'], ['passes', 'Doubler 6 karts'], ['lead', 'Rester 1er 30 secondes d\'affilée']];
 const dailyDay = () => new Date().toISOString().slice(0, 10);
@@ -6019,7 +6065,7 @@ function styleAdd(n, label) { const R = G.race, P = R && R.player; if (!P || !n 
 function leadHud(dt, P, R) { leadEl(); const L = R.lead || (R.lead = { t: 0, pts: 0, best: 0, gap: 0, gapT: 0, trend: 0, air: 0, trick: false }), racing = R.state === 'race' && !P.finished, solo = G.karts.filter((k) => !k.spect).length < 2;
   // série en tête : ×1 puis ×2 après 20 s, ×3 après 45 s ; perdue si on se fait doubler
   if (racing && R.t > 6) { const ps = racePS(); ps.worst = Math.max(ps.worst, P.place); }
-  if (racing && P.place === 1 && !solo) { L.t += dt; const m = L.t > 45 ? 3 : L.t > 20 ? 2 : 1; L.pts += dt * m; L.best = Math.max(L.best, L.t); }
+  if (racing && P.place === 1 && !solo) { L.t += dt; L.tot = (L.tot || 0) + dt; const m = L.t > 45 ? 3 : L.t > 20 ? 2 : 1; L.pts += dt * m; L.best = Math.max(L.best, L.t); }
   else if (racing && L.t > 0) { if (L.t > 8) { const pop = $('#h-pop'); if (pop) { pop.textContent = 'Série en tête perdue (' + Math.round(L.t) + ' s)'; pop.style.opacity = 1; clearTimeout(styleAdd.t); styleAdd.t = setTimeout(() => { pop.style.opacity = 0; }, 1600); } } L.t = 0; }
   // points de style : sauts (et figures)
   if (racing) { if (P.air) { L.air += dt; if (P.trickT > 0) L.trick = true; } else { if (L.air > .7) { styleAdd(Math.round(L.air * 60 + (L.trick ? 120 : 0)), L.trick ? 'Figure' : 'Saut'); const ps = racePS(); ps.jumps++; if (L.trick) ps.tricks++; ps.airBest = Math.max(ps.airBest, L.air); } L.air = 0; L.trick = false; } }
@@ -7488,6 +7534,7 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-go]'); if (!b) return; AudioSys.init(); AudioSys.sfx('click'); trapBack(); const go = b.dataset.go;
   if (go === 'quick' || go === 'gp' || go === 'practice') { UI.mode = go === 'gp' ? 'gp' : 'quick'; show('tracks'); }
   else if (go === 'daily') dailyOpen();
+  else if (go === 'prog') progOpen();
   else if (go === 'rejoin') { show('online'); if (SAVE.lastCode) { $('#on-code').value = SAVE.lastCode; netJoin(SAVE.lastCode); } }
   else if (go === 'chef') { if (!isChef()) return; if (UI.screen !== 'chef') CHU.back = UI.screen; show('chef'); }
   else if (go === 'chefback') show(CHU.back && CHU.back !== 'chef' ? CHU.back : 'title');
@@ -7770,5 +7817,5 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs };
 })();

@@ -235,7 +235,9 @@ p{margin:0;line-height:1.4}
 .hud-pos .of{font-size:18px;color:var(--paper);margin:8px 0 0 6px}
 .hud-pos.p1{color:var(--mint)}
 .prog-bar{display:inline-block;vertical-align:middle;width:110px;height:8px;border-radius:6px;background:rgba(255,255,255,.18);overflow:hidden}.prog-bar i{display:block;height:100%;background:var(--sun)}
-.prog-res{margin:6px 0 2px;line-height:1.5}.prog-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.prog-res{margin:6px 0 2px;line-height:1.5}.gate-box.prog-box{width:min(620px,100%);text-align:left}.prog-top{display:flex;justify-content:space-between;align-items:center}.prog-top h2{margin:0}
+.prog-tabs{margin:10px 0;display:flex;flex-wrap:wrap}.prog-body h4{margin:12px 0 4px}.prog-coins{margin-left:auto}.prog-row{display:flex;flex-direction:column;gap:2px;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.08);opacity:.62}.prog-row.ok{opacity:1}
+.prog-row span{font-size:13px;opacity:.85}.prog-sw{display:inline-block;width:14px;height:14px;border-radius:50%;vertical-align:middle;border:2px solid #fffdf7}.prog-head{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .prog-st{display:grid;grid-template-columns:1fr auto;gap:2px 10px;font-size:14px}.prog-ach{display:flex;flex-direction:column;padding:6px 0;border-bottom:1px solid rgba(255,255,255,.08);opacity:.6}.prog-ach.ok{opacity:1}.prog-ach small{opacity:.8}
 .hud-info{position:absolute;top:calc(max(10px,env(safe-area-inset-top,0px)) + 74px);left:max(16px,env(safe-area-inset-left,0px));display:flex;gap:8px}
 .chip{background:var(--ink);border:2px solid var(--paper);border-radius:10px;padding:4px 9px;display:flex;align-items:baseline;gap:6px;font-variant-numeric:tabular-nums}
@@ -565,6 +567,7 @@ body{font-size:16px}
           <button class="btn ghost" data-go="settings"><span>Réglages</span></button>
           <button class="btn ghost" data-go="friends"><span>Amis et groupes</span></button>
           <button class="btn ghost" data-go="daily"><span>Défi du jour</span></button>
+          <button class="btn ghost" data-go="prog"><span>Progression</span></button>
           <button class="btn red chef-only" data-go="chef" hidden><span>Mode chef 👑</span></button>
         </div>
         <div class="row small-links">

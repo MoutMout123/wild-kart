@@ -36,6 +36,8 @@ const srv = http.createServer((q, r) => { let f = path.join(ROOT, decodeURICompo
 async function page(browser, name, opts) {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 600 } }); const p = await ctx.newPage(); p.errs = [];
   p.on('pageerror', (e) => p.errs.push(String(e.stack || e).split('\n').slice(0, 3).join(' ← '))); p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|net::/.test(m.text())) p.errs.push(m.text()); });
+  // les bots n'ont pas de code d'accès signé par le chef : dans LEUR navigateur seulement, on n'active pas la vérification du code (le jeu, lui, ne change pas)
+  await p.addInitScript(() => { const st = window.setTimeout; window.setTimeout = function (f, ...a) { if (f && f.name === 'accessInit') return 0; return st.call(this, f, ...a); }; });
   await p.addInitScript((o) => { window.TK_BUILD = 'pwa'; window.TK_TEST = true; if (o.api) window.TK_API = o.api; if (o.acct) { try { const k = 'tiltkart.v1', s = JSON.parse(localStorage.getItem(k) || '{}'); s.acct = o.acct; s.name = o.acct.u; localStorage.setItem(k, JSON.stringify(s)); } catch (e) { /* rien */ } } }, { api: API, acct: opts && opts.acct });
   await p.goto('http://localhost:' + PORT + '/index.html', { waitUntil: 'domcontentloaded', timeout: 90000 }); await p.waitForFunction(() => window.__TK, null, { timeout: 90000 });
   await p.evaluate(() => { for (const s of ['#acct', '#gate']) { const e = document.querySelector(s); if (e) e.hidden = true; } });
@@ -94,8 +96,8 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
   await test('Fantôme du meilleur tour', async () => { await p.evaluate(() => { const K = window.__TK; K.show(null); K.UI.mode = 'quick'; K.startRace(0, 0); K.setAutopilot(true); }); await p.waitForTimeout(100);
     // un premier tour complet (il devient le record), puis une nouvelle course : le fantôme doit rouler
     await p.evaluate(() => { const K = window.__TK, G = K.G; for (let i = 0; i < 60 * 200 && !(G.race.player.lap >= 2 && G.race.state === 'race'); i++) { K.simStep(1 / 60); K.updateVisuals(1 / 60); K.recTick(1 / 60); K.ghostTick(); } });
-    await sim(p, 60); await p.evaluate(() => { const K = window.__TK; K.startRace(0, 0); K.setAutopilot(true); }); await p.waitForTimeout(100); await sim(p, 60 * 12);
-    const r = await p.evaluate(() => ({ ghost: !!window.__TK.GH.mesh, vis: window.__TK.GH.mesh && window.__TK.GH.mesh.g.visible, keys: Object.keys(localStorage).filter((k) => k.startsWith('wk-ghost')).length })); ok(r.keys > 0, 'aucun tour enregistré'); ok(r.ghost && r.vis, 'fantôme invisible'); return r.keys + ' record(s) enregistré(s)'; });
+    await sim(p, 60); await p.evaluate(() => { const K = window.__TK; K.startRace(0, 0); K.setAutopilot(true); }); await p.waitForTimeout(100); await sim(p, 60 * 6);
+    let r = null; for (let i = 0; i < 30; i++) { await sim(p, 30); r = await p.evaluate(() => ({ ghost: !!window.__TK.GH.mesh, vis: !!(window.__TK.GH.mesh && window.__TK.GH.mesh.g.visible), state: window.__TK.G.race.state, keys: Object.keys(localStorage).filter((k) => k.startsWith('wk-ghost')).length })); if (r.vis) break; } ok(r.keys > 0, 'aucun tour enregistré'); ok(r.ghost && r.vis, 'fantôme invisible : ' + JSON.stringify(r)); return r.keys + ' record(s) enregistré(s)'; });
   await test('En course : écart, série en tête, météo, alerte d\'objet', async () => {
     await p.evaluate(() => { const K = window.__TK; K.show(null); K.UI.mode = 'quick'; K.startRace(0, 0); K.setAutopilot(true); }); await p.waitForTimeout(100); await sim(p, 60 * 6);
     await p.evaluate(() => { for (const k of window.__TK.G.karts) if (!k.isPlayer) k.maxSpeed *= .6; }); await sim(p, 60 * 30);

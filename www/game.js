@@ -486,7 +486,7 @@ const NEW_TRACKS = [
   ['barbapapa', 'fete', 'Fête Foraine Barbe-à-Papa', 2, 2, 2, 'Autos tamponneuses géantes, ballons qui roulent et un raccourci sous le chapiteau.', { obst: { pillar: 'balloons', roll: 'beachball', kinds: ['bumpers', 'rollers', 'bumpers'] }, obstZones: 3 }],
   ['glissade', 'givre', 'Pic de la Glissade', 3, 3, 3, 'Montée en lacets sur la neige, un virage relevé à flanc de falaise, une piste noire hors-piste et un grand envol vers la vallée.', { obst: { kinds: ['rollers', 'walkers', 'rollers'] }, obstZones: 3 }],
   ['tchintchin', 'recif', 'Récif Tchin-Tchin', 3, 3, 3, 'Sous la mer : une boucle complète la tête en bas sous une arche de corail, une grotte secrète et des geysers de bulles.', { obst: { jet: 'steam', kinds: ['jets', 'walkers', 'rollers'] }, obstZones: 3 }],
-  ['grandsaut', 'canyon', 'Canyon du Grand Saut', 3, 3, 2, 'Un huit géant : un pont au-dessus de ta propre route, deux envols, des rochers qui dévalent et une corniche à flanc de falaise.', { obst: { ball: 'lava', kinds: ['balls', 'pillars', 'rollers'] }, obstZones: 3 }],
+  ['grandsaut', 'canyon', 'Canyon du Grand Saut', 3, 3, 2, 'Un huit géant : un pont au-dessus de ta propre route, deux envols, des rochers qui dévalent et une corniche à flanc de falaise.', { obst: { ball: 'lava', kinds: ['balls', 'pillars', 'rollers'] }, obstZones: 3, rockfall: { at: .30 } }],
   ['gravitezero', 'espace', 'Anneau Gravité Zéro', 3, 3, 3, 'Deux loopings complets, un mur vertical et un sas secret : ici, le haut et le bas, c\'est relatif.', { obst: { pillar: 'crystal', walk: 'rover', roll: 'boulder', kinds: ['bumpers', 'walkers', 'pillars'] }, obstZones: 3 }],
   ['barbecue', 'volcan', 'Forteresse du Barbecue Infernal', 4, 4, 3, 'Remparts, tours de braise et barbecues géants. Gare aux jets de flammes et aux bords sans barrière au-dessus de la lave !', { fortress: true, themeX: { lava: true }, obst: { jet: 'lava', ball: 'lava', kinds: ['jets', 'crushers', 'balls', 'jets'] }, obstZones: 4 }],
   ['flipper', 'pinball', 'Flipper Extra-Bille', 4, 4, 3, 'Dans un flipper géant : bumpers qui te renvoient, billes d\'acier qui dévalent la piste, deux tremplins et une rampe.', { musicStyle: 'house', obst: { pillar: 'crystal', roll: 'gumball', ball: 'metal', kinds: ['bumpers', 'balls', 'bumpers', 'rollers'] }, obstZones: 4 }],
@@ -3840,6 +3840,57 @@ const OBST_THEME = {
   candy: { pillar: 'gumdrop', roll: 'gumball', kinds: ['pillars', 'rollers', 'pillars'] },
   haunted: { pillar: 'tomb', crush: 'thwomp', walk: 'ghost', kinds: ['crushers', 'pillars', 'walkers'] },
 };
+/* ================= v14 : événements de circuit ================= */
+// ---------- Canyon : chute de rochers ----------
+// 3 rangées de 3 couloirs sur ~50 m de ligne droite. À chaque cycle, dans chaque rangée, 2 couloirs reçoivent un rocher
+// et 1 reste libre ; d'une rangée à l'autre le couloir libre ne se décale que d'un cran (slalom toujours faisable).
+// Annonce : panneau avant la zone, ombre au sol qui grossit 2,4 s avant l'impact, poussière et grondement.
+// Le rocher reste 1,4 s puis s'effrite (jamais de blocage permanent). Horloge commune : identique pour tous en ligne.
+const RF = { per: 7.2, warn: 2.4, stay: 1.4, crumble: .5, rows: 3, gap: 12, lanes: [-.58, 0, .58], rr: 2.5 };
+function rockfallMake(W, S, i) { const hw = W.hw, slots = [];
+  for (let q = 0; q < RF.rows; q++) for (let l = 0; l < 3; l++) { const j = (i + q * RF.gap) % S.N, lat = RF.lanes[l] * hw; slots.push({ q, l, j, x: S.px[j] + S.rx[j] * lat, z: S.pz[j] + S.rz[j] * lat, y: S.py[j], hit: new Set(), st: 0, u: 0 }); }
+  return { kind: 'rockfall', P: S, i, lat: 0, r: 0, x: S.px[i], z: S.pz[i], y: S.py[i], slots, cyc: -1 }; }
+const rfSafe = (c, q) => { const h = wkStrHash('rf' + c); let s = h % 3; for (let k = 1; k <= q; k++) s = clamp(s + ((h >>> (k * 3)) % 3) - 1, 0, 2); return s; };   // couloir libre de la rangée q au cycle c
+// état d'un emplacement à l'instant t : 0 rien, 1 ombre (annonce), 2 rocher au sol, 3 il s'effrite
+function rfSlot(o, s, t) { const tt = t - s.q * .45, c = Math.floor(tt / RF.per), u = tt - c * RF.per; s.c = c; s.u = u;
+  if (c < 0 || rfSafe(c, s.q) === s.l) return 0; if (u < RF.warn) return 1; if (u < RF.warn + RF.stay) return 2; if (u < RF.warn + RF.stay + RF.crumble) return 3; return 0; }
+function rockfallState(o, t) { for (const s of o.slots) { const st = rfSlot(o, s, t); if (st === 1 && s.st !== 1) s.hit.clear(); s.st = st; } }
+function rockfallHits(k, o) { if (k.air && (k.airH || 0) > 2.6) return;
+  for (const s of o.slots) { const live = (s.st === 1 && s.u > RF.warn - .12) || s.st === 2; if (!live || s.hit.has(k)) continue;
+    if ((k.x - s.x) ** 2 + (k.z - s.z) ** 2 > (RF.rr + 1.1) ** 2 || Math.abs(k.y - s.y) > 4) continue; s.hit.add(k);
+    HIT_PASSIVE = true; hitKart(k, null); HIT_PASSIVE = false; if (k.isPlayer) { banner('Éboulement !', 1, true); camKick = .35; } } }
+// bots : à l'arrivée prévue, l'emplacement sera-t-il dangereux ? (même logique que pour les autres obstacles)
+function rockfallAvoid(k, o, clock) { const S = o.P; let best = null;
+  for (const s of o.slots) { const da = (s.x - k.x) * Math.sin(k.h) + (s.z - k.z) * Math.cos(k.h); if (da < -2 || da > 70) continue;
+    const tc = clock + Math.max(0, da) / Math.max(12, k.speed), c0 = s.c, tt = tc - s.q * .45, c = Math.floor(tt / RF.per), u = tt - c * RF.per;
+    const danger = c >= 0 && rfSafe(c, s.q) !== s.l && u > RF.warn - .5 && u < RF.warn + RF.stay + .1; if (!danger) continue;
+    if (!best || da < best.da) { const safe = rfSafe(c, s.q); best = { da, want: RF.lanes[safe] * (S.hw || G.W.hw), j: s.j }; } void c0; }
+  return best; }
+function rockfallMesh(o, W) { const g = new T.Group(), rockM = stdMat('#8a5a3a', .95, 0), dark = new T.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: .4, depthWrite: false });
+  const ringM = new T.MeshBasicMaterial({ color: '#ff3a1a', transparent: true, opacity: .6, side: T.DoubleSide, depthWrite: false });
+  for (const s of o.slots) { const r = new T.Mesh(new T.DodecahedronGeometry(RF.rr, 0), rockM); r.visible = false; g.add(r); s.rock = r;
+    const sh = new T.Mesh(new T.CircleGeometry(RF.rr * 1.1, 22), dark); sh.rotation.x = -Math.PI / 2; sh.position.set(s.x, s.y + .14, s.z); sh.visible = false; g.add(sh); s.sh = sh;
+    const ring = new T.Mesh(new T.RingGeometry(RF.rr * 1.15, RF.rr * 1.35, 26), ringM); ring.rotation.x = -Math.PI / 2; ring.position.set(s.x, s.y + .16, s.z); ring.visible = false; g.add(ring); s.ring = ring; }
+  // panneau « chutes de pierres » 70 m avant la zone, sur le bord droit
+  { const S = o.P, j = ((o.i - 35) % S.N + S.N) % S.N, side = W.hw + 2, x = S.px[j] + S.rx[j] * side, z = S.pz[j] + S.rz[j] * side;
+    const post = new T.Mesh(new T.CylinderGeometry(.15, .15, 4, 8), stdMat('#cfd2dc', .4, .6)); post.position.set(x, S.py[j] + 2, z); g.add(post);
+    const tex = canvasTex(128, 128, (c, w, h) => { c.fillStyle = '#ffc531'; c.strokeStyle = '#17143a'; c.lineWidth = 10; c.beginPath(); c.moveTo(w / 2, 10); c.lineTo(w - 10, h - 14); c.lineTo(10, h - 14); c.closePath(); c.fill(); c.stroke();
+      c.fillStyle = '#17143a'; for (const [a, b, r] of [[60, 70, 11], [80, 88, 8], [46, 92, 7], [68, 98, 6]]) { c.beginPath(); c.arc(a, b, r, 0, TAU); c.fill(); } }, false);
+    const sign = new T.Mesh(new T.PlaneGeometry(2.6, 2.6), new T.MeshBasicMaterial({ map: tex, transparent: true, side: T.DoubleSide })); sign.position.set(x, S.py[j] + 4.6, z); sign.rotation.y = S.hd[j] + Math.PI; g.add(sign); }
+  return g; }
+function rockfallVisual(o, t) { const P = G.race && G.race.player; let warnNear = false;
+  for (const s of o.slots) { const r = s.rock, u = s.u;
+    s.sh.visible = s.ring.visible = s.st === 1; r.visible = s.st >= 2 || (s.st === 1 && u > RF.warn - 1.2);
+    if (s.st === 1) { const f = u / RF.warn; s.sh.scale.setScalar(.25 + .75 * f); s.sh.material.opacity = .15 + .35 * f; s.ring.material.opacity = .35 + .4 * Math.abs(Math.sin(t * (6 + f * 10)));
+      if (r.visible) { const fall = (RF.warn - u) / 1.2; r.position.set(s.x, s.y + RF.rr + 38 * fall * fall, s.z); r.rotation.set(u * 3, u * 2, 0); r.scale.setScalar(1); if (G.W.parts && Math.random() < .5) G.W.parts.emit(s.x + rand(-1, 1), r.position.y + 2, s.z + rand(-1, 1), rand(-1, 1), rand(1, 3), rand(-1, 1), '#c8a27a', .5, .2); }
+      else if (Math.random() < .08 && G.W.parts) G.W.parts.emit(s.x + rand(-2, 2), s.y + 24, s.z + rand(-2, 2), 0, -6, 0, '#a07a5a', .9, 1);   // petits cailloux qui tombent : ça va venir
+      if (P && (P.x - s.x) ** 2 + (P.z - s.z) ** 2 < 140 * 140) warnNear = true; }
+    else if (s.st === 2) { r.position.set(s.x, s.y + RF.rr * .8, s.z); r.scale.setScalar(1); if (u - RF.warn < .05 && !s.dust) { s.dust = true; if (G.W.parts) for (let n = 0; n < 26; n++) G.W.parts.emit(s.x, s.y + 1, s.z, rand(-7, 7), rand(2, 7), rand(-7, 7), pick(['#c8a27a', '#8a5a3a', '#e0c49a']), .8, 1);
+        if (P && (P.x - s.x) ** 2 + (P.z - s.z) ** 2 < 60 * 60) { camKick = Math.max(camKick, .18); AudioSys.tone(55, .3, 'sawtooth', .06, -20); } } }
+    else if (s.st === 3) { const f = 1 - (u - RF.warn - RF.stay) / RF.crumble; r.scale.setScalar(Math.max(.05, f)); r.position.y = s.y + RF.rr * .8 * f; s.dust = false; }
+    else s.dust = false; }
+  // grondement d'annonce (une fois par cycle) quand le joueur approche
+  const c = o.slots[0].c; if (warnNear && o.cyc !== c) { o.cyc = c; AudioSys.tone(48, .9, 'sawtooth', .05, 12); AudioSys.tone(62, .7, 'triangle', .04, -8, .2); } }
 function planObstacles(W) {
   const S = W.S, N = S.N, def = W.def, th = W.th; const rng = seeded(seedHash(def.id + ':obst', RACE_OPTS.seed || 1));
   const cfg = Object.assign({}, OBST_THEME[th.decor] || OBST_THEME.prairie, def.obst || {}); W.obst = []; W.ramps = [];
@@ -3853,6 +3904,8 @@ function planObstacles(W) {
   for (const b of W.bumps || []) block(b.i, 40);
   for (const kk of W.kickers || []) block(kk.i, 30);
   if (S.wz) for (let i = 0; i < N; i++) if (S.wz[i]) block(i, 12);
+  // événement fixe du circuit (placé avant les obstacles tirés au hasard, qui l'évitent)
+  if (def.rockfall) { const i = Math.round(def.rockfall.at * N) % N; for (let o = -60; o <= 230; o++) blocked[((i + o) % N + N) % N] = 1; W.obst.push(rockfallMake(W, S, i)); }
   // zones d'obstacles
   const zones = def.obstZones || clamp(Math.round(S.L / 520), 2, 4);
   for (let z = 0; z < zones; z++) {
@@ -3880,10 +3933,11 @@ function planObstacles(W) {
   // chemin étroit : un obstacle mobile au milieu
   for (const B of W.branches) if (B.def.narrow) { const j = Math.floor(B.N * .55); if (cfg.roll) W.obst.push({ kind: 'roller', style: cfg.roll, P: B, i: j, lat: 0, r: 1.7, amp: B.hw * .8, per: 3.6, ph: rng() * TAU });
     else if (cfg.crush) W.obst.push({ kind: 'crusher', style: cfg.crush, P: B, i: j, lat: 0, r: 2.4, per: 2.6, ph: 0 }); }
-  for (const o of W.obst) { if (o.kind === 'traffic' || o.kind === 'ball') { obstState11(o, 0); continue; } o.i = clamp(o.i, 0, o.P.N - 1); o.x = o.P.px[o.i] + o.P.rx[o.i] * o.lat; o.z = o.P.pz[o.i] + o.P.rz[o.i] * o.lat; o.y = o.P.py[o.i]; o.down = false; }
+  for (const o of W.obst) { if (o.kind === 'rockfall') continue; if (o.kind === 'traffic' || o.kind === 'ball') { obstState11(o, 0); continue; } o.i = clamp(o.i, 0, o.P.N - 1); o.x = o.P.px[o.i] + o.P.rx[o.i] * o.lat; o.z = o.P.pz[o.i] + o.P.rz[o.i] * o.lat; o.y = o.P.py[o.i]; o.down = false; }
 }
 // position animée (horloge commune de la course)
 function obstState(o, t) {
+  if (o.kind === 'rockfall') { rockfallState(o, t); return; }
   if (obstState11(o, t)) return;
   if (o.kind === 'roller' || o.kind === 'walker') { const l = Math.sin(t * TAU / o.per + o.ph) * o.amp; o.curLat = l; o.x = o.P.px[o.i] + o.P.rx[o.i] * (o.lat + l); o.z = o.P.pz[o.i] + o.P.rz[o.i] * (o.lat + l); }
   else if (o.kind === 'crusher') { const c = ((t / o.per + o.ph / TAU) % 1 + 1) % 1; o.h = c < .45 ? 7 : c < .53 ? 7 * (1 - (c - .45) / .08) : c < .7 ? 0 : 7 * Math.min(1, (c - .7) / .2); o.down = o.h < 1.6; }
@@ -3891,6 +3945,7 @@ function obstState(o, t) {
 function obstacleHits(k, dt, ax, az) {
   const W = G.W; if (!W.obst || k.isRemote) return; if (ax == null) { ax = k.x; az = k.z; }
   for (const o of W.obst) {
+    if (o.kind === 'rockfall') { rockfallHits(k, o); continue; }
     if (o.kind === 'crusher' && !o.down) continue;
     if (o.kind === 'jet') { if ((k.x - o.x) ** 2 + (k.z - o.z) ** 2 < (o.r + .9) ** 2 && Math.abs(k.y - o.y) < 4) obstHit11(k, o); continue; }
     const R = o.r + 1.1, bx = k.x, bz = k.z; if ((bx - o.x) ** 2 + (bz - o.z) ** 2 > (R + 4) ** 2 && (ax - o.x) ** 2 + (az - o.z) ** 2 > (R + 4) ** 2) continue;
@@ -3936,7 +3991,7 @@ function planBumps(W) {
 const BUMP_TEX = canvasTex(256, 64, (x, w, h) => { for (let i = 0; i < 16; i++) { x.fillStyle = i % 2 ? '#17143a' : '#ffc531'; x.beginPath(); x.moveTo(i * 20 - 10, h); x.lineTo(i * 20 + 10, 0); x.lineTo(i * 20 + 30, 0); x.lineTo(i * 20 + 10, h); x.fill(); } });
 function updateObstacles(t) { const W = G.W; if (!W.obst) return; for (const o of W.obst) { obstState(o, t); if (o.mesh) obstVisual(o, t); } }
 function obstVisual(o, t) {
-  const m = o.mesh; if (obstVisual11(o, t)) return;
+  const m = o.mesh; if (o.kind === 'rockfall') { rockfallVisual(o, t); return; } if (obstVisual11(o, t)) return;
   if (o.kind === 'roller') { m.position.set(o.x, o.y + o.r, o.z); const v = Math.cos(t * TAU / o.per + o.ph) * o.amp * TAU / o.per; m.userData.spin = (m.userData.spin || 0) + v / 60 / o.r; if (m.userData.inner) m.userData.inner.rotation.z = -m.userData.spin; }
   else if (o.kind === 'walker') { const bob = Math.abs(Math.sin(t * 9 + o.ph)) * .25; m.position.set(o.x, o.y + bob + (o.style === 'ghost' ? 1.2 + Math.sin(t * 2 + o.ph) * .4 : 0), o.z); const dir = Math.cos(t * TAU / o.per + o.ph); m.rotation.y = o.P.hd[o.i] + (dir > 0 ? -Math.PI / 2 : Math.PI / 2); }
   else if (o.kind === 'crusher') {
@@ -4637,6 +4692,7 @@ function obstVisual11(o, t) {
   return false;
 }
 function obstMesh11(o, W) {
+  if (o.kind === 'rockfall') return rockfallMesh(o, W);
   const g = new T.Group(), R = o.r;
   if (o.kind === 'jet') { const lava = o.style !== 'steam';
     const base = new T.Mesh(new T.CylinderGeometry(R * .9, R, .5, 16), stdMat('#3a3440', .5, .6)); base.position.y = .25; g.add(base);
@@ -5666,6 +5722,7 @@ function aiControl(k, dt) {
   // obstacles : on vise le côté libre au niveau de l'obstacle le plus proche
   { let av = null; const clock = G.W.clock || 0;
     for (const o of G.W.obst || []) {
+      if (o.kind === 'rockfall') { if (o.P !== CP) continue; if (ai.avoid != null && ai.avoid < 1 && (((ai.seed || 0) * 7 + (o.slots[0].c || 0) * 13) % 100) / 100 >= ai.avoid) continue; const rv = rockfallAvoid(k, o, clock); if (rv && (!av || rv.da < av.da)) av = { o: { P: o.P, i: rv.j }, da: rv.da, want: rv.want }; continue; }
       if (o.P !== CP && o.P !== TP) continue; if (ai.avoid != null && ai.avoid < 1 && ((o.i * 131 + (ai.seed || 0)) % 100) / 100 >= ai.avoid) continue; const da = (o.x - CP.px[ci]) * CP.fx[ci] + (o.z - CP.pz[ci]) * CP.fz[ci]; if (da < -3 || da > 62) continue; if ((o.x - k.x) ** 2 + (o.z - k.z) ** 2 > 72 * 72) continue; if (o.P === CP) { let di = o.i - ci; if (CP.closed !== false) di = ((di % CP.N) + CP.N * 1.5) % CP.N - CP.N * .5; if (di * CP.seg < -6 || di * CP.seg > 72) continue; } if (Math.abs(o.y - CP.py[ci]) > 6) continue;
       const tArr = Math.max(0, da) / Math.max(12, k.speed), tc = clock + tArr;
       if (o.kind === 'crusher' || o.kind === 'jet') { const c = ((tc / o.per + o.ph / TAU) % 1 + 1) % 1; if (o.kind === 'jet' ? (c < .36 || c > .86) : (c < .38 || c > .8)) continue; }
@@ -7825,5 +7882,5 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles };
 })();

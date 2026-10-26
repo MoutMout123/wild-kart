@@ -3170,7 +3170,7 @@ function applyBotLevel(lv) {
     ai.skill *= L.skill; k.maxSpeed *= L.spd; ai.drifty = Math.random() < L.drift; ai.avoid = L.avoid; ai.itemRate = L.item; ai.err = L.err; ai.rubA = L.rubA; ai.rubB = L.rubB; ai.seed = Math.floor(Math.random() * 100); }
 }
 function startRace(ti, ccIdx, who, roster) {
-  G.police = null; Secret.last = -99;
+  G.police = null; Secret.last = -99; recReset(); if (REPLAY.on) { REPLAY.on = false; const el = $('#replay'); if (el) el.hidden = true; }
   if (!roster) { RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto'; }
   setWorld(ti); G.netKarts = new Map();
   if (roster) {
@@ -4798,7 +4798,7 @@ function hitKart(k, src) {
   if (k.spin > 0 || k.star > 0 || k.ghost > 0) return;
   if (k.shield > 0) { k.shield = 0; if (k.isPlayer || (src && src.isPlayer)) AudioSys.sfx('shield'); return; }
   if (G.race && G.race.bombMode) bombHitPass(k, src);
-  k.spin = 1.15; k.speed *= .3; k.boost = 0; if (k.drift) endDrift(k, false);
+  k.spin = 1.15; k.speed *= .3; k.boost = 0; if (k.drift) endDrift(k, false); if (src && src.isPlayer && k !== src) recEvent(3, 'Touché : ' + k.name);
   for (let n = 0; n < 14; n++) G.W.parts.emit(k.x, k.y + 1.2, k.z, rand(-6, 6), rand(3, 8), rand(-6, 6), pick(['#ffc531', '#fffdf7', '#ff4f3a']), .7);
   if (k.isPlayer) { AudioSys.sfx('hit'); vibrate([60, 40, 80]); }
   else if (src && src.isPlayer) AudioSys.sfx('hit');
@@ -5862,6 +5862,50 @@ function specTick(dt) {
 $('#spec-prev').onclick = () => { AudioSys.sfx('click'); specShift(-1); };
 $('#spec-next').onclick = () => { AudioSys.sfx('click'); specShift(1); };
 $('#spec-res').onclick = () => { AudioSys.sfx('click'); specEnd(); };
+/* ================= meilleure action : ralenti de ton plus beau moment de la course ================= */
+// pendant la course on garde les 8 dernières secondes (position de chaque kart) ; chaque action rapporte des points
+// (dépassement, objet qui touche, envol, photo-finish) ; on garde les 6,5 s autour des 5 secondes les plus fortes
+const REC = { on: false, t: 0, acc: 0, fr: [], ks: null, ev: [], best: null, pend: null, place: 0, airT: 0 };
+function recReset() { Object.assign(REC, { on: false, t: 0, acc: 0, fr: [], ks: null, ev: [], best: null, pend: null, place: 0, airT: 0, fin: false }); }
+function recEvent(pts, label) { if (!REC.on) return; REC.ev.push({ t: REC.t, pts, label }); REC.ev = REC.ev.filter((e) => REC.t - e.t < 5);
+  const sc = REC.ev.reduce((n, e) => n + e.pts, 0); if (sc > ((REC.pend && REC.pend.sc) || (REC.best && REC.best.sc) || 0)) REC.pend = { sc, at: REC.t, ev: REC.ev.slice() }; }
+function recCut() { const P = REC.pend; if (!P) return; REC.pend = null; const fr = REC.fr.filter((f) => f.t >= P.at - 5 && f.t <= P.at + 1.5); if (fr.length < 20) return;
+  const cnt = new Map(); for (const e of P.ev) cnt.set(e.label, (cnt.get(e.label) || 0) + 1);
+  REC.best = { sc: P.sc, at: P.at, fr, label: [...cnt].map(([l, n]) => l + (n > 1 ? ' ×' + n : '')).join(' · ') }; }
+function recTick(dt) { const R = G.race, P = R && R.player; if (!P || P.spect || R.state === 'attract' || REPLAY.on) return;
+  if (R.state === 'race' && !P.finished) REC.on = true; if (!REC.on) return;
+  REC.t += dt; REC.acc += dt; if (REC.acc >= 1 / 30) { REC.acc = 0;
+    if (!REC.ks || REC.ks.length !== G.karts.length || REC.ks.some((k, i) => k !== G.karts[i])) REC.ks = G.karts.slice();
+    const ks = REC.ks, d = new Float32Array(ks.length * 8);
+    ks.forEach((k, i) => { const M = k.mesh; d.set([M.g.position.x, M.g.position.y, M.g.position.z, M.g.rotation.x, M.g.rotation.y, M.g.rotation.z, M.tilt.rotation.x, M.tilt.rotation.z], i * 8); });
+    REC.fr.push({ t: REC.t, ks, d }); while (REC.fr.length && REC.t - REC.fr[0].t > 8) REC.fr.shift(); }
+  if (REC.place && P.place < REC.place && R.t > 4) recEvent(2 * (REC.place - P.place), P.place === 1 ? 'Prise de la 1re place' : 'Dépassement');
+  REC.place = P.place;
+  if (P.air) REC.airT += dt; else { if (REC.airT > 1.1) recEvent(Math.min(5, REC.airT * 1.5), 'Envol de ' + REC.airT.toFixed(1).replace('.', ',') + ' s'); REC.airT = 0; }
+  if (P.finished) { if (!REC.fin) { REC.fin = true; const near = G.karts.some((k) => k !== P && !k.spect && (k.finished ? Math.abs(k.finishTime - P.finishTime) < 1 : Math.abs(k.prog - P.prog) < 8));
+      recEvent((P.place === 1 ? 3 : 0) + (near ? 4 : 0), near ? 'Photo-finish' : P.place === 1 ? 'Victoire' : 'Arrivée'); }
+    if (REC.t - (REC.pend ? REC.pend.at : 0) > 1.5) { recCut(); REC.on = false; } return; }
+  if (REC.pend && REC.t - REC.pend.at >= 1.5) recCut(); }
+// lecture : la course est mise en pause, la caméra tourne autour de ton kart, ralenti au moment fort
+const REPLAY = { on: false, t: 0, clip: null, ang: 0, race: null, back: null };
+function replayStart(back) { const c = REC.best; if (!c) return; Object.assign(REPLAY, { on: true, t: c.fr[0].t, clip: c, ang: 0, race: G.race, back }); camSnap = true; show(null);
+  let el = $('#replay'); if (!el) { el = document.createElement('div'); el.id = 'replay'; el.style.cssText = 'position:fixed;left:0;right:0;top:calc(10px + env(safe-area-inset-top));z-index:60;text-align:center;pointer-events:none;color:#fff;text-shadow:0 2px 6px #000;font:800 18px system-ui';
+    el.innerHTML = '<div>🎬 Meilleure action</div><small style="font-weight:600;font-size:14px" id="replay-l"></small><div style="margin-top:8px"><button class="btn sm ghost" id="replay-x" style="pointer-events:auto"><span>Passer</span></button></div>'; document.body.appendChild(el);
+    $('#replay-x').onclick = () => { AudioSys.sfx('click'); replayEnd(); }; }
+  $('#replay-l').textContent = c.label; el.hidden = false; $('#hud').hidden = true; }
+function replayEnd() { if (!REPLAY.on) return; REPLAY.on = false; const el = $('#replay'); if (el) el.hidden = true; if (G.race === REPLAY.race && G.race.player) { $('#hud').hidden = false; (REPLAY.back || showResults)(); } }
+function replayFrame(dt) { const c = REPLAY.clip, fr = c.fr, near = Math.abs(REPLAY.t - c.at) < 1.1; REPLAY.t += dt * (near ? .35 : 1);
+  if (G.race !== REPLAY.race) { REPLAY.on = false; const el = $('#replay'); if (el) el.hidden = true; return; }
+  if (REPLAY.t >= fr[fr.length - 1].t) { replayEnd(); return; }
+  let i = 0; while (i < fr.length - 2 && fr[i + 1].t < REPLAY.t) i++; const a = fr[i], b = fr[i + 1].ks === a.ks ? fr[i + 1] : a, u = b === a ? 0 : clamp((REPLAY.t - a.t) / (b.t - a.t), 0, 1);
+  let pk = null; a.ks.forEach((k, j) => { if (!G.karts.includes(k)) return; const M = k.mesh, o = j * 8, L = (n) => a.d[o + n] + (b.d[o + n] - a.d[o + n]) * u;
+    M.g.position.set(L(0), L(1), L(2)); M.g.rotation.set(L(3), a.d[o + 4] + angDiff(a.d[o + 4], b.d[o + 4]) * u, L(5)); M.tilt.rotation.x = L(6); M.tilt.rotation.z = L(7); M.g.visible = !k.spect; M.tilt.visible = true; if (k === REPLAY.race.player) pk = M.g; });
+  if (!pk) { replayEnd(); return; }
+  REPLAY.ang += dt * (near ? .25 : .5); const h = pk.rotation.y + Math.PI * .15 + REPLAY.ang, dist = near ? 7 : 9.5;
+  tmpV.set(pk.position.x - Math.sin(h) * dist, pk.position.y + (near ? 2.4 : 3.6), pk.position.z - Math.cos(h) * dist);
+  if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * 5)); camSnap = false;
+  camera.fov = lerp(camera.fov, near ? 58 : 70, 1 - Math.exp(-dt * 3)); camera.updateProjectionMatrix();
+  lookV.set(pk.position.x, pk.position.y + 1.2, pk.position.z); camera.lookAt(lookV); G.W.sky.position.copy(camera.position); }
 function showResults() {
   $('#r-big').hidden = true; $('#r-table').className = '';
   if (G.race && G.race.online) return onlineResults();
@@ -5883,9 +5927,10 @@ function showResults() {
   const mk = (label, cls, fn) => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.innerHTML = '<span></span>'; b.firstChild.textContent = label; b.onclick = () => { AudioSys.sfx('click'); fn(); }; btns.appendChild(b); };
   if (UI.mode === 'gp' && UI.gp) {
     UI.gp.i++;
+    if (REC.best) mk('Meilleure action 🎬', 'ghost', () => replayStart(() => show('results')));
     if (UI.gp.i < TRACKS.length) { mk('Classement', 'ghost', showStandings); mk('Course suivante', 'red', () => launch()); }
     else mk('Classement final', 'red', showStandings);
-  } else { mk('Menu', 'ghost', toMenu); if (canSpectate()) mk('Regarder la course', 'ghost', specStart); mk('Rejouer', 'red', () => launch()); }
+  } else { mk('Menu', 'ghost', toMenu); if (canSpectate()) mk('Regarder la course', 'ghost', specStart); if (REC.best) mk('Meilleure action 🎬', 'ghost', () => replayStart()); mk('Rejouer', 'red', () => launch()); }
   show('results');
 }
 function showStandings() {
@@ -6691,7 +6736,7 @@ function renderOnlineResults() {
   $('#r-sub').textContent = TRACKS[R.ti].name + ' · ' + CC[R.cc].name + ' · ' + (allDone ? 'Résultats définitifs' : 'En attente des autres pilotes…');
   if (party && allDone && humans.length > 1) bigLine(humans[0].name + ' distribue ' + Math.ceil(3 * dose) + ' ' + gw(Math.ceil(3 * dose)) + ' · ' + humans[humans.length - 1].name + ' boit le plus.');
   if (R.bombMode) bigLine(bombSummary());
-  const spec = canSpectate() ? [['Regarder la course', 'ghost', specStart]] : [];
+  const spec = canSpectate() ? [['Regarder la course', 'ghost', specStart]] : []; if (REC.best && !R.watching) spec.push(['Meilleure action 🎬', 'ghost', () => replayStart()]);
   if (Net.host && Net.cup && Net.cup.racing) { if (allDone && !R.cupDone) { R.cupDone = true; setTimeout(() => { if (G.race === R && Net.cup && Net.cup.racing) hostCupVerdict(); }, 4000); } spec.push(['Verdict', 'red', hostCupVerdict]); }
   if (Net.cup && Net.cup.racing || R.cupRound) $('#r-sub').textContent = 'Manche ' + (R.cupRound || (Net.cup && Net.cup.round)) + ' · ' + (allDone ? 'verdict dans un instant…' : 'en attente des autres pilotes…');
   setButtons(Net.host ? [['Quitter', 'ghost', () => { netReset(); toMenu(); }]].concat(spec, [['Retour au salon', 'red', () => { hostBroadcast({ t: 'lobbyback' }); goLobby(); }]]) : [['Quitter', 'ghost', () => { netReset(); toMenu(); }]].concat(spec));
@@ -7427,9 +7472,10 @@ function frame(now) {
   // en menu derrière un écran plein (roulette, questions…), on rafraîchit la 3D moins souvent
   const overlay = !racing && ['mini', 'card', 'wheel', 'wedit', 'party', 'online', 'settings', 'install', 'results'].includes(UI.screen);
   if (overlay && (frameN++ % 3)) return;
+  if (REPLAY.on) { replayFrame(dt); renderer.render(G.W.scene, camera); return; }
   if (!G.paused) {
     acc += dt; let n = 0; while (acc >= STEP && n < 6) { simStep(STEP); acc -= STEP; n++; } if (n === 6) acc = 0;
-    updateVisuals(overlay ? dt * 3 : dt);
+    updateVisuals(overlay ? dt * 3 : dt); recTick(overlay ? dt * 3 : dt);
     if (G.race.player) updateHud(dt);
     if (Net.inRace && G.race.online) { Net.sendT += dt; if (Net.sendT >= 1 / 15) { Net.sendT = 0; netSendStates(); } }
   }
@@ -7457,5 +7503,5 @@ $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart };
 })();

@@ -169,7 +169,11 @@ export default async (req) => {
   // le chef supprime un compte (et libère son identifiant ami)
   if (b.a === 'udel') { if (!chefOk(b)) return err('Réservé au chef.', 403); const u = await getU(); if (!u) return err('Aucun compte avec ce pseudo.');
     if (u.fid && (await st.get(fkey(u.fid), { type: 'text' })) === pseudo.toLowerCase()) await st.delete(fkey(u.fid));
-    await st.delete(ukey(pseudo)); return out({ ok: true }); }
+    await st.delete(ukey(pseudo));
+    // on l'enlève aussi de la liste des joueurs du chef
+    const { blobs } = await st.list({ prefix: 'c/' }); for (const x of blobs) { const c = await st.get(x.key, { type: 'json' }); if (!c || !c.users) continue; let ch = false;
+      for (const k of Object.keys(c.users)) if (String(c.users[k].p || '').toLowerCase() === pseudo.toLowerCase()) { delete c.users[k]; ch = true; } if (ch) await st.setJSON(x.key, c); }
+    return out({ ok: true }); }
 
   if (b.a === 'create') {
     const pass = String(b.pass || ''); if (pass.length < 4) return err('Mot de passe : au moins 4 caractères.');
@@ -189,7 +193,7 @@ export default async (req) => {
   let u = await getU();
   if (!u && OLD()) { if (b.a === 'login') { const o = await oldCall('login', { pseudo, pass: b.pass }); if (o && o.ok) u = await importU(st, pseudo, o, b.pass, null); else if (o && o.e) return err(o.e); }
     else if (b.tok) { const o = await oldCall('load', { pseudo, tok: b.tok }); if (o && o.ok) u = await importU(st, pseudo, o, null, b.tok); } }
-  if (!u) return err('Aucun compte avec ce pseudo.');
+  if (!u) return err('Aucun compte avec ce pseudo.', b.tok ? 401 : 200);   // compte supprimé : le jeu se déconnecte
 
   if (b.a === 'login') {
     if (locked(u)) return err('Trop d\'essais ratés. Attends 15 minutes.');

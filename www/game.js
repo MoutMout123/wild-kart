@@ -45,13 +45,17 @@ const GLIDERS = {
   // tous les planeurs planent pareil (seul le look change)
   classique: { name: 'Classique', air: .08 }, parapente: { name: 'Parapente', air: .08 }, papillon: { name: 'Papillon', air: .08 },
   avion: { name: 'Avion en papier', air: .08 }, parapluie: { name: 'Parapluie', air: .08 }, chauvesouris: { name: 'Chauve-souris', air: .08 },
+  // à débloquer : forme d'un planeur existant, couleurs propres
+  feuille: { name: 'Feuille', air: .08, shape: 'papillon', col: { a: '#4caf50', b: '#a5d66f' } }, aigle: { name: 'Aigle', air: .08, shape: 'classique', col: { a: '#6b4226', b: '#f5f3ec' } },
+  ombrelle: { name: 'Ombrelle', air: .08, shape: 'parapluie', col: { a: '#ff9ccf', b: '#ffffff' } }, origami: { name: 'Origami doré', air: .08, shape: 'avion', col: { paper: '#f2c94c', a: '#b8860b' } },
+  dragon: { name: 'Dragon', air: .08, shape: 'chauvesouris', col: { a: '#c1121f', e: '#ff5a00' } }, arcenciel: { name: 'Arc-en-ciel', air: .08, shape: 'parapente', col: { a: '#ff4fd8', b: '#38b6ff' } },
 };
 const SKINS = ['#f3d2b3', '#e0b08a', '#c68b5e', '#8d5a3b', '#5c3a25'];
-function myCfg() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider }; }
+function myCfg() { return { name: SAVE.name || 'Toi', color: SAVE.color, helmet: SAVE.helmet, body: SAVE.body, wheels: SAVE.wheels, pilot: SAVE.pilot, acc: SAVE.acc, finish: SAVE.finish, deco: SAVE.deco, trail: SAVE.trail, skin: SAVE.skin, glider: SAVE.glider, title: SAVE.title || '' }; }
 function cleanCfg(c) {
   c = c || {}; const ok = (v, o, d) => (Object.prototype.hasOwnProperty.call(o, v) ? v : d); const col = (v, d) => (/^#[0-9a-f]{6}$/i.test(v || '') ? v : d);
   return { name: String(c.name || 'Joueur').slice(0, 10), color: col(c.color, '#ff4f3a'), helmet: col(c.helmet, '#ffc531'), body: ok(c.body, BODIES, 'equilibre'), wheels: ok(c.wheels, WHEELS, 'standard'),
-    pilot: ok(c.pilot, PILOTS, 'casque'), acc: ok(c.acc, ACCS, 'aucun'), finish: ok(c.finish, FINISHES, 'brillant'), deco: ok(c.deco, DECOS, 'aucune'), trail: ok(c.trail, TRAILS, 'feu'), skin: col(c.skin, '#e0b08a'), glider: ok(c.glider, GLIDERS, 'classique') };
+    pilot: ok(c.pilot, PILOTS, 'casque'), acc: ok(c.acc, ACCS, 'aucun'), finish: ok(c.finish, FINISHES, 'brillant'), deco: ok(c.deco, DECOS, 'aucune'), trail: ok(c.trail, TRAILS, 'feu'), skin: col(c.skin, '#e0b08a'), glider: ok(c.glider, GLIDERS, 'classique'), title: typeof c.title === 'string' && typeof ACHS !== 'undefined' && ACHS.some((a) => a[4][0] === 'title' && a[4][1] === c.title) ? c.title : '' };
 }
 const COLORS = ['#ff4f3a', '#ffc531', '#38b6ff', '#3ee08f', '#7c4dff', '#ff6fb5', '#f5f3ec', '#2b2b3a'];
 function statsFor(body, wheels, glider) {
@@ -294,8 +298,9 @@ function buildPinball(W, ext, cx, cz, scatter, ring, q) {
 function buildFortress(W) {
   const { scene } = W, S = W.S, N = S.N; const stone = stdMat('#3a3238', .9, 0), dark = stdMat('#251f26', .9, 0), ember = neonMat('#ff6a1a', 1.6);
   const walls = [], merl = [], towers = [], wins = [];
+  const nearBr = (x, z) => W.branches.some((B) => { for (let j = 0; j < B.N; j += 2) if ((B.px[j] - x) ** 2 + (B.pz[j] - z) ** 2 < (B.hw + 9) ** 2) return true; return false; });
   const busy = (i) => S.glide[i] || (S.wz && S.wz[i]) || (S.nowall && S.nowall[i]) || W.branches.some((B) => { const d = (j) => Math.min(Math.abs(i - j), N - Math.abs(i - j)); return d(B.i0) < 40 || d(B.i1) < 40; });
-  for (let i = 0; i < N; i += 6) { if (busy(i)) continue; for (const sg of [-1, 1]) { const d = sg * (W.wallD + 16); const x = S.px[i] + S.rx[i] * d, z = S.pz[i] + S.rz[i] * d, y = hy(W, x, z);
+  for (let i = 0; i < N; i += 6) { if (busy(i)) continue; for (const sg of [-1, 1]) { const d = sg * (W.wallD + 16); const x = S.px[i] + S.rx[i] * d, z = S.pz[i] + S.rz[i] * d, y = hy(W, x, z); if (nearBr(x, z) || nearBr(x + S.rx[i] * sg * 4, z + S.rz[i] * sg * 4)) continue;
     walls.push({ x, z, y, s: 1, r: S.hd[i] }); if ((i / 6) % 2 === 0) merl.push({ x, z, y: y + 11, s: 1, r: S.hd[i] });
     if (i % 120 === 0) { towers.push({ x: x + S.rx[i] * sg * 4, z: z + S.rz[i] * sg * 4, y, s: 1, r: 0 }); for (let h = 0; h < 3; h++) wins.push({ x: x + S.rx[i] * sg * 4 - S.rx[i] * sg * 5.6, z: z + S.rz[i] * sg * 4 - S.rz[i] * sg * 5.6, y: y + 8 + h * 7, s: 1, r: S.hd[i] }); } } }
   instanced(scene, [{ geo: new T.BoxGeometry(2.4, 10, 12.6), mat: stone, off: tr(0, 5, 0) }], walls);
@@ -488,7 +493,7 @@ const NEW_TRACKS = [
   ['tchintchin', 'recif', 'Récif Tchin-Tchin', 3, 3, 3, 'Sous la mer : une boucle complète la tête en bas sous une arche de corail, une grotte secrète et des geysers de bulles.', { obst: { jet: 'steam', kinds: ['jets', 'walkers', 'rollers'] }, obstZones: 3 }],
   ['grandsaut', 'canyon', 'Canyon du Grand Saut', 3, 3, 2, 'Un huit géant : un pont au-dessus de ta propre route, deux envols, des rochers qui dévalent et une corniche à flanc de falaise.', { obst: { ball: 'lava', kinds: ['balls', 'pillars', 'rollers'] }, obstZones: 3, rockfall: { at: .30 } }],
   ['gravitezero', 'espace', 'Anneau Gravité Zéro', 3, 3, 3, 'Deux loopings complets, un mur vertical et un sas secret : ici, le haut et le bas, c\'est relatif.', { obst: { pillar: 'crystal', walk: 'rover', roll: 'boulder', kinds: ['bumpers', 'walkers', 'pillars'] }, obstZones: 3 }],
-  ['barbecue', 'volcan', 'Forteresse du Barbecue Infernal', 4, 4, 3, 'Remparts, tours de braise et barbecues géants. Gare aux jets de flammes et aux bords sans barrière au-dessus de la lave !', { fortress: true, themeX: { lava: true }, obst: { jet: 'lava', ball: 'lava', kinds: ['jets', 'crushers', 'balls', 'jets'] }, obstZones: 4 }],
+  ['barbecue', 'volcan', 'Forteresse du Barbecue Infernal', 4, 4, 3, 'Remparts, tours de braise et barbecues géants. Gare aux jets de flammes et aux bords sans barrière au-dessus de la lave !', { fortress: true, themeX: { lava: true }, obst: { jet: 'lava', ball: 'lava', kinds: ['jets', 'crushers', 'balls', 'jets'] }, obstZones: 4, bridge: { branch: 0, from: .18, to: .84 } }],
   ['flipper', 'pinball', 'Flipper Extra-Bille', 4, 4, 3, 'Dans un flipper géant : bumpers qui te renvoient, billes d\'acier qui dévalent la piste, deux tremplins et une rampe.', { musicStyle: 'house', obst: { pillar: 'crystal', roll: 'gumball', ball: 'metal', kinds: ['bumpers', 'balls', 'bumpers', 'rollers'] }, obstZones: 4 }],
   ['bellemere', 'chateau', 'Manoir de la Belle-Mère', 4, 4, 3, 'Un manoir qui grince : virages serrés, douves sans barrière, fantômes et un passage secret derrière la bibliothèque.', { obstZones: 4 }],
   ['ruban', 'ciel', 'Ruban Céleste du Dernier Verre', 4, 4, 1, 'Une seule grande course en trois sections sur un ruban suspendu sans barrières, deux virages relevés et deux envols au-dessus des nuages.', { sections: true, themeX: { roadStyle: 'ribbon', curb: ['#ffd25a', '#fff4fa'], sky: ['#ff9ad5', '#ffe9d0'], fog: '#ffdcea' }, obst: { kinds: ['pillars', 'crushers', 'pillars'] }, obstZones: 4 }],
@@ -1817,6 +1822,8 @@ Object.assign(BODIES, {
   requin: { name: 'Requin', shape: 'fusee', sc: [1, .9, 1.15], speed: .12, accel: -.04, handling: -.08, weight: .1, off: 0 },
   tracteur: { name: 'Tracteur', shape: 'monstre', sc: [1.05, 1.1, .95], speed: -.1, accel: 0, handling: -.04, weight: .3, off: .28 },
   comete: { name: 'Comète', shape: 'sport', sc: [.95, .9, 1.12], speed: .16, accel: .04, handling: -.2, weight: -.05, off: 0 },
+  mini: { name: 'Mini', shape: 'equilibre', sc: [.88, .92, .84] }, fourgon: { name: 'Fourgonnette', shape: 'baignoire', sc: [1.1, 1.22, 1.08] }, limousine: { name: 'Limousine', shape: 'sport', sc: [1, .88, 1.32] },
+  herisson: { name: 'Hérisson', shape: 'monstre', sc: [.92, .95, .9] }, torpille: { name: 'Torpille', shape: 'fusee', sc: [.84, .84, 1.28] },
 });
 Object.assign(WHEELS, {
   monstre: { name: 'Géantes', speed: -.04, accel: -.02, handling: -.04, weight: .14, off: .45 },
@@ -1926,11 +1933,12 @@ function gliderParts(type) {
 }
 function fixWinding(g) { const idx = g.index; if (idx) { const a = idx.array; for (let i = 0; i < a.length; i += 3) { const t = a[i + 1]; a[i + 1] = a[i + 2]; a[i + 2] = t; } idx.needsUpdate = true; } else { const p = g.attributes.position; for (let i = 0; i < p.count; i += 3) for (let c = 0; c < 3; c++) { const t = p.array[(i + 1) * 3 + c]; p.array[(i + 1) * 3 + c] = p.array[(i + 2) * 3 + c]; p.array[(i + 2) * 3 + c] = t; } p.needsUpdate = true; } g.computeVertexNormals(); }
 function gliderMesh(cfg) {
-  const type = GLIDERS[cfg.glider] ? cfg.glider : 'classique'; const P = gliderParts(type);
+  const GL = GLIDERS[cfg.glider], type = GL ? GL.shape || cfg.glider : 'classique', cc = (GL && GL.col) || {}; const P = gliderParts(type);
   const ds = { side: T.DoubleSide };
   const M = { a: new T.MeshStandardMaterial(Object.assign({ color: cfg.helmet, roughness: .5, metalness: .1 }, ds)), b: new T.MeshStandardMaterial(Object.assign({ color: cfg.color, roughness: .5, metalness: .1 }, ds)),
     line: stdMat('#22213a', .5, .35), paper: new T.MeshStandardMaterial(Object.assign({ color: '#fbfaf4', roughness: .8 }, ds)) };
-  if (type === 'chauvesouris') M.a = new T.MeshStandardMaterial(Object.assign({ color: '#4a2a6a', emissive: '#2a1040', emissiveIntensity: .4, roughness: .6 }, ds));
+  if (type === 'chauvesouris') M.a = new T.MeshStandardMaterial(Object.assign({ color: cc.a || '#4a2a6a', emissive: cc.e || '#2a1040', emissiveIntensity: .4, roughness: .6 }, ds));
+  else if (cc.a) M.a.color.set(cc.a); if (cc.b) M.b.color.set(cc.b); if (cc.paper) M.paper.color.set(cc.paper);
   const root = new T.Group(); root.position.set(0, 2.32, -.3);
   const mk = (list, parent) => { for (const [g, k] of list) { const m = new T.Mesh(g, M[k]); m.castShadow = true; parent.add(m); } };
   const left = new T.Group(), right = new T.Group(); root.add(left, right); mk(P.L, left); mk(P.R, right); mk(P.C, root);
@@ -2282,7 +2290,8 @@ function cageVisual(k, M, dt) { if (!(k.cageVis > 0) && !M.cage) return; if (!M.
   // [vitesse, accélération, maniabilité, poids, tout-terrain] : vitesse + accélération + maniabilité + tout-terrain / 2 = 0 pour chaque pièce (même total pour toutes)
   const B = { equilibre: [0, 0, 0, 0, 0], bolide: [.1, -.08, -.04, .2, .04], libellule: [-.08, .06, .12, -.2, -.2], buggy: [-.08, .04, -.04, .1, .16], fusee: [.16, -.12, -.08, .05, .08],
     sport: [.06, -.02, .02, 0, -.12], monstre: [-.1, 0, -.08, .35, .36], baignoire: [-.06, .06, .04, -.05, -.08],
-    scarabee: [-.06, .12, 0, -.1, -.12], lutin: [-.08, .04, .12, -.2, -.16], requin: [.12, -.04, -.08, .1, 0], tracteur: [-.1, 0, -.04, .3, .28], comete: [.16, .04, -.2, -.05, 0] };
+    scarabee: [-.06, .12, 0, -.1, -.12], lutin: [-.08, .04, .12, -.2, -.16], requin: [.12, -.04, -.08, .1, 0], tracteur: [-.1, 0, -.04, .3, .28], comete: [.16, .04, -.2, -.05, 0],
+    mini: [-.06, .1, .08, -.2, -.24], fourgon: [-.04, .02, -.06, .2, .16], limousine: [.14, -.1, -.06, .15, .04], herisson: [-.08, .02, -.06, .25, .24], torpille: [.18, -.08, -.14, 0, .08] };
   const Wh = { standard: [0, 0, 0, 0, 0], slicks: [.06, 0, -.04, 0, -.04], offroad: [-.05, .01, 0, .05, .08], neon: [.02, .01, .02, -.05, -.1], monstre: [-.06, -.02, -.04, .2, .24],
     ballon: [-.04, .04, .04, -.08, -.08], etoile: [.03, .02, -.04, .04, -.02], bois: [-.05, .06, 0, .06, -.02], jantes: [.06, -.02, -.02, 0, -.04], disco: [0, .03, .03, -.04, -.12], crampons: [-.04, .04, -.04, .05, .08] };
   const put = (O, T2) => { for (const k in T2) if (O[k]) { const [speed, accel, handling, weight, off] = T2[k]; Object.assign(O[k], { speed, accel, handling, weight, off }); } };
@@ -3376,7 +3385,7 @@ function aiBranch(k) {
   for (const B of W.branches) { const d = B.i0 - k.idx; if (d >= -Math.max(3, B.winA ? B.winA[1] - B.i0 : 3) && d < 70) {
     if (B.offroad) { if (d < 30) { const has = ['turbo', 'triple', 'etoile'].includes(k.item) || k.boost > .5 || k.star > 0; ai.br[B.id] = { lap: k.lap, take: has }; if (has) return B; } continue; }
     if (B.gate && B.gate.st) { if (!B.gate.st.mainOpen) return B; if (!B.gate.st.brOpen || B.gate.st.warnBr) continue; }
-    const c = ai.br[B.id]; if (!c || c.lap !== k.lap) ai.br[B.id] = { lap: k.lap, take: Math.random() < (B.def.ai != null ? B.def.ai : .45) }; if (ai.br[B.id].take) return B; } }
+    const c = ai.br[B.id]; if (!c || c.lap !== k.lap) ai.br[B.id] = { lap: k.lap, take: Math.random() < (B.def.ai != null ? B.def.ai : .45) * (B.hasBridge && ai.avoid != null && ai.avoid < .5 ? .6 : 1) }; if (ai.br[B.id].take) return B; } }
   return null;
 }
 
@@ -3891,6 +3900,68 @@ function rockfallVisual(o, t) { const P = G.race && G.race.player; let warnNear 
     else s.dust = false; }
   // grondement d'annonce (une fois par cycle) quand le joueur approche
   const c = o.slots[0].c; if (warnNear && o.cyc !== c) { o.cyc = c; AudioSys.tone(48, .9, 'sawtooth', .05, 12); AudioSys.tone(62, .7, 'triangle', .04, -8, .2); } }
+// ---------- Barbecue : pont de lave qui s'effondre ----------
+// Le raccourci « PONT DE LAVE » (≈ 56 m plus court que la route) devient un pont de planches en 6 tronçons de ~19 m
+// (trou de ~11 m, puis ~8 m de planches toujours solides sur toute la largeur pour changer de côté).
+// Dans un tronçon actif, le tablier s'effondre d'un côté (le trou dépasse le milieu d'1 m : il faut choisir son côté) ;
+// le côté change tous les 2 tronçons (~38 m : un slalom large) et s'inverse à chaque cycle de 10 s.
+// L'autre côté reste TOUJOURS solide (6 m de large) et la route principale n'est jamais touchée : aucun blocage.
+// Lisible : le côté qui va céder rougeoie, tremble et crépite 1,8 s avant de tomber ; l'ancien trou s'est refermé
+// juste avant (jamais deux côtés dangereux en même temps). Le pont se dégrade pendant la course : 2 tronçons actifs
+// au départ, un de plus toutes les 35 s. Horloge commune (en ligne aussi).
+// Tomber = « Grillé ! » puis le drone repose le kart sur le côté solide, un peu plus loin (≈ 2 s perdues).
+const BR = { per: 10, rebuild: .8, warn: 1.8, secs: 6, rank: [2, 4, 0, 5, 1, 3], over: 1, edge: .6, m: 2, lift: .36 };   // m : bande solide (en échantillons) au début et à la fin de chaque tronçon
+function bridgeMake(W, B, def) { const j0 = Math.round(def.from * B.N), j1 = Math.round(def.to * B.N), n = BR.secs, L = (j1 - j0) / n, secs = [];
+  for (let s = 0; s < n; s++) { const a = Math.round(j0 + s * L), b = Math.round(j0 + (s + 1) * L) - 1; secs.push({ s, a, b, j0: a + BR.m, j1: b - BR.m, st: 0, sd: 0, u: 0 }); }
+  // tablier surélevé de 36 cm au-dessus de la chaussée (petite rampe de 10 m à chaque bout) : la lave se voit dans les trous
+  const a0 = secs[0].a, b0 = secs[n - 1].b; if (!B.brLift) { B.brLift = 1; for (let j = Math.max(0, a0 - 5); j <= Math.min(B.N - 1, b0 + 5); j++) B.py[j] += BR.lift * clamp(j < a0 ? (j - a0 + 5) / 5 : j > b0 ? (b0 + 5 - j) / 5 : 1, 0, 1); }
+  B.hasBridge = true; const jm = Math.round((j0 + j1) / 2); return { kind: 'bridge', P: B, i: j0, j1: j1 - 1, lat: 0, r: 0, x: B.px[jm], z: B.pz[jm], y: B.py[jm], secs, cyc: -1 }; }
+// état d'un tronçon : 0 solide, 1 le côté sd craque (annonce), 2 le côté sd est tombé
+function brAt(s, t) { const c = Math.floor(t / BR.per), u = t - c * BR.per, sd = (Math.floor(s / 2) + c) % 2 ? 1 : -1;
+  const act = c >= 0 && BR.rank[s] < Math.min(BR.secs, 2 + Math.floor(t / 35)); if (!act || u < BR.rebuild) return { st: 0, sd, u, c };
+  return { st: u < BR.rebuild + BR.warn ? 1 : 2, sd, u, c }; }
+function bridgeState(o, t) { for (const q of o.secs) { const a = brAt(q.s, t); q.st = a.st; q.sd = a.sd; q.u = a.u; q.c = a.c; } }
+function bridgeSec(o, j) { if (j < o.i || j > o.j1) return null; for (const q of o.secs) if (j >= q.j0 && j <= q.j1) return q; return null; }
+function bridgeHits(k, o) { if (k.P !== o.P || k.fallT > 0 || k.ghost > 0 || (k.air && (k.airH || 0) > .6)) return; const q = bridgeSec(o, k.idx); if (!q || q.st !== 2) return;
+  if (k.lat * q.sd > -BR.edge) { startFall(k); if (k.isPlayer) camKick = .3; } }
+// réapparition après une chute dans le pont : sur le côté solide du tronçon (0 = milieu, hors du pont)
+function bridgeLat(P, j) { for (const o of G.W.obst || []) if (o.kind === 'bridge' && o.P === P) { const q = bridgeSec(o, j); return q && q.st ? -q.sd * P.hw * .5 : 0; } return 0; }
+// bots : le côté sera-t-il tombé (ou sur le point de tomber) à leur arrivée ? → viser l'autre côté
+function bridgeAvoid(k, o, clock) { const B = o.P; if (k.P !== B) return null; let best = null;
+  for (const q of o.secs) { const da = (q.j0 - k.idx) * B.seg; if ((q.j1 - k.idx) * B.seg < -1 || da > 60) continue;
+    const tc = clock + Math.max(0, da) / Math.max(12, k.speed), bad = (x) => x.st === 2 || (x.st === 1 && x.u > BR.rebuild + BR.warn - .8); let a = brAt(q.s, tc); if (!bad(a)) { a = brAt(q.s, tc + .6); if (!bad(a)) continue; }
+    if (!best || da < best.da) best = { da: Math.max(0, da), want: -a.sd * B.hw * .45, j: clamp(q.j0, 0, B.N - 1) }; }
+  return best; }
+function bridgeMesh(o, W) { const g = new T.Group(), B = o.P, hw = B.hw, ov = BR.over;
+  const wood = canvasTex(64, 64, (c, w, h) => { c.fillStyle = '#7a4a26'; c.fillRect(0, 0, w, h); c.fillStyle = '#5a321a'; for (let y = 0; y < h; y += 16) c.fillRect(0, y, w, 3); c.fillStyle = '#8f5a30'; for (let n = 0; n < 30; n++) c.fillRect(Math.random() * w, Math.random() * h, 8, 1); });
+  const lavaM = new T.MeshBasicMaterial({ color: '#ff6a1a' });
+  // 3 bandes par tronçon : gauche [-hw, -1], milieu [-1, 1], droite [1, hw]
+  const bands = { '-1': [-hw, -ov], 0: [-ov, ov], 1: [ov, hw] };
+  for (const q of o.secs) { q.strip = {};
+    for (const key of [-1, 0, 1]) { const [l0, l1] = bands[key], wd = l1 - l0 - .12, mid = (l0 + l1) / 2, pl = [], lv = [];
+      for (let j = q.j0; j <= q.j1; j++) { const a = B.hd[j], cx = B.px[j] + B.rx[j] * mid, cz = B.pz[j] + B.rz[j] * mid, y = B.py[j];
+        const b = new T.BoxGeometry(wd, .14, B.seg * .86); b.rotateY(a); b.translate(cx, y - .07, cz); pl.push(b);
+        const l = new T.PlaneGeometry(wd + .1, B.seg + .05); l.rotateX(-Math.PI / 2); l.rotateY(a); l.translate(cx, y - BR.lift + .14, cz); lv.push(l); }
+      const mat = new T.MeshStandardMaterial({ color: '#ffffff', map: wood, roughness: .9, metalness: 0, emissive: '#ff3a00', emissiveIntensity: 0 });
+      const deck = new T.Mesh(mergeGeos(pl), mat), lava = new T.Mesh(mergeGeos(lv), lavaM); g.add(lava, deck); q.strip[key] = { deck, mat }; } }
+  { const pl = [], a0 = o.secs[0].a, b0 = o.secs[o.secs.length - 1].b, solid = (j) => j < a0 || j > b0 || o.secs.some((q) => j >= q.a && j <= q.b && (j < q.j0 || j > q.j1));
+    for (let j = Math.max(1, a0 - 4); j <= Math.min(B.N - 2, b0 + 4); j++) if (solid(j)) { const b = new T.BoxGeometry(B.hw * 2 - .3, .14, B.seg * .9); b.rotateX(-Math.atan2(B.py[j + 1] - B.py[j - 1], 2 * B.seg)); b.rotateY(B.hd[j]); b.translate(B.px[j], B.py[j] - .07, B.pz[j]); pl.push(b); }
+    if (pl.length) g.add(new T.Mesh(mergeGeos(pl), new T.MeshStandardMaterial({ color: '#d8c0a0', map: wood, roughness: .9, metalness: 0 }))); }
+  // poteaux de part et d'autre (repère : « c'est un pont »)
+  const postG = []; for (let j = o.secs[0].a; j <= o.secs[o.secs.length - 1].b; j += 4) for (const sd of [-1, 1]) { const p = new T.CylinderGeometry(.16, .2, 1.6, 6); p.translate(B.px[j] + B.rx[j] * sd * (hw + .3), B.py[j] + .8, B.pz[j] + B.rz[j] * sd * (hw + .3)); postG.push(p); }
+  g.add(new T.Mesh(mergeGeos(postG), stdMat('#3a2414', .9, 0)));
+  return g; }
+function bridgeVisual(o, t) { const P = G.race && G.race.player, near = P && P.P === o.P; let crack = false; const B = o.P;
+  const spark = (q, key, cols, vy, sz, life) => { const j = q.j0 + Math.floor(Math.random() * (q.j1 - q.j0 + 1)), l = key ? key * rand(BR.over + .5, B.hw - .5) : rand(-BR.over, BR.over); G.W.parts.emit(B.px[j] + B.rx[j] * l, B.py[j] + .3, B.pz[j] + B.rz[j] * l, rand(-.5, .5), vy, rand(-.5, .5), pick(cols), sz, life); };
+  for (const q of o.secs) for (const key of [-1, 0, 1]) { const h = q.strip[key], m = h.deck, me = key === 0 || key === q.sd;
+    if (me && q.st === 1) { const f = (q.u - BR.rebuild) / BR.warn; h.mat.emissiveIntensity = .25 + .55 * f * (.6 + .4 * Math.sin(t * (14 + 20 * f))); m.position.set(rand(-.04, .04) * f, rand(-.03, .03) * f, rand(-.04, .04) * f); m.visible = true; crack = crack || (near && Math.abs(q.j0 - P.idx) < 40);
+      if (G.W.parts && Math.random() < .25 * f) spark(q, key, ['#ff7a1a', '#ffb43a'], rand(1, 3), .5, .5); }
+    else if (me && q.st === 2) { const f = q.u - BR.rebuild - BR.warn; m.visible = f < 1.2; m.position.set(0, -6 * f * f - .4, 0); h.mat.emissiveIntensity = .6;
+      if (!h.gone) { h.gone = true; if (key === 0 && near && Math.abs(q.j0 - P.idx) < 50) { AudioSys.tone(70, .4, 'sawtooth', .07, -30); AudioSys.noise(.35, .06, 900, 0, null, .4); } }
+      if (G.W.parts && Math.random() < .1) spark(q, key, ['#ff5a10', '#ffa020'], rand(3, 6), .6, .8); }
+    else { h.gone = false; m.visible = true; let r = 1; if (q.u < BR.rebuild) { const a = brAt(q.s, t - q.u - .01); if (a.st === 2 && (key === 0 || a.sd === key)) r = q.u / BR.rebuild; } m.position.set(0, -.6 * (1 - r), 0); h.mat.emissiveIntensity = .3 * (1 - r); } }
+  // crépitement d'annonce (une fois par cycle) quand le joueur est sur le pont près d'un tronçon qui craque
+  const c = o.secs[0].c; if (crack && o.cyc !== c) { o.cyc = c; AudioSys.noise(.5, .05, 2400, 0, null, .3); AudioSys.tone(140, .25, 'square', .03, -40); AudioSys.tone(110, .25, 'square', .03, -40, .25); } }
 function planObstacles(W) {
   const S = W.S, N = S.N, def = W.def, th = W.th; const rng = seeded(seedHash(def.id + ':obst', RACE_OPTS.seed || 1));
   const cfg = Object.assign({}, OBST_THEME[th.decor] || OBST_THEME.prairie, def.obst || {}); W.obst = []; W.ramps = [];
@@ -3906,6 +3977,7 @@ function planObstacles(W) {
   if (S.wz) for (let i = 0; i < N; i++) if (S.wz[i]) block(i, 12);
   // événement fixe du circuit (placé avant les obstacles tirés au hasard, qui l'évitent)
   if (def.rockfall) { const i = Math.round(def.rockfall.at * N) % N; for (let o = -60; o <= 230; o++) blocked[((i + o) % N + N) % N] = 1; W.obst.push(rockfallMake(W, S, i)); }
+  const brB = def.bridge && W.branches[def.bridge.branch]; if (brB) W.obst.push(bridgeMake(W, brB, def.bridge));
   // zones d'obstacles
   const zones = def.obstZones || clamp(Math.round(S.L / 520), 2, 4);
   for (let z = 0; z < zones; z++) {
@@ -3931,13 +4003,14 @@ function planObstacles(W) {
     }
   }
   // chemin étroit : un obstacle mobile au milieu
-  for (const B of W.branches) if (B.def.narrow) { const j = Math.floor(B.N * .55); if (cfg.roll) W.obst.push({ kind: 'roller', style: cfg.roll, P: B, i: j, lat: 0, r: 1.7, amp: B.hw * .8, per: 3.6, ph: rng() * TAU });
+  for (const B of W.branches) if (B.def.narrow && B !== brB) { const j = Math.floor(B.N * .55); if (cfg.roll) W.obst.push({ kind: 'roller', style: cfg.roll, P: B, i: j, lat: 0, r: 1.7, amp: B.hw * .8, per: 3.6, ph: rng() * TAU });
     else if (cfg.crush) W.obst.push({ kind: 'crusher', style: cfg.crush, P: B, i: j, lat: 0, r: 2.4, per: 2.6, ph: 0 }); }
-  for (const o of W.obst) { if (o.kind === 'rockfall') continue; if (o.kind === 'traffic' || o.kind === 'ball') { obstState11(o, 0); continue; } o.i = clamp(o.i, 0, o.P.N - 1); o.x = o.P.px[o.i] + o.P.rx[o.i] * o.lat; o.z = o.P.pz[o.i] + o.P.rz[o.i] * o.lat; o.y = o.P.py[o.i]; o.down = false; }
+  for (const o of W.obst) { if (o.kind === 'rockfall' || o.kind === 'bridge') continue; if (o.kind === 'traffic' || o.kind === 'ball') { obstState11(o, 0); continue; } o.i = clamp(o.i, 0, o.P.N - 1); o.x = o.P.px[o.i] + o.P.rx[o.i] * o.lat; o.z = o.P.pz[o.i] + o.P.rz[o.i] * o.lat; o.y = o.P.py[o.i]; o.down = false; }
 }
 // position animée (horloge commune de la course)
 function obstState(o, t) {
   if (o.kind === 'rockfall') { rockfallState(o, t); return; }
+  if (o.kind === 'bridge') { bridgeState(o, t); return; }
   if (obstState11(o, t)) return;
   if (o.kind === 'roller' || o.kind === 'walker') { const l = Math.sin(t * TAU / o.per + o.ph) * o.amp; o.curLat = l; o.x = o.P.px[o.i] + o.P.rx[o.i] * (o.lat + l); o.z = o.P.pz[o.i] + o.P.rz[o.i] * (o.lat + l); }
   else if (o.kind === 'crusher') { const c = ((t / o.per + o.ph / TAU) % 1 + 1) % 1; o.h = c < .45 ? 7 : c < .53 ? 7 * (1 - (c - .45) / .08) : c < .7 ? 0 : 7 * Math.min(1, (c - .7) / .2); o.down = o.h < 1.6; }
@@ -3946,6 +4019,7 @@ function obstacleHits(k, dt, ax, az) {
   const W = G.W; if (!W.obst || k.isRemote) return; if (ax == null) { ax = k.x; az = k.z; }
   for (const o of W.obst) {
     if (o.kind === 'rockfall') { rockfallHits(k, o); continue; }
+    if (o.kind === 'bridge') { bridgeHits(k, o); continue; }
     if (o.kind === 'crusher' && !o.down) continue;
     if (o.kind === 'jet') { if ((k.x - o.x) ** 2 + (k.z - o.z) ** 2 < (o.r + .9) ** 2 && Math.abs(k.y - o.y) < 4) obstHit11(k, o); continue; }
     const R = o.r + 1.1, bx = k.x, bz = k.z; if ((bx - o.x) ** 2 + (bz - o.z) ** 2 > (R + 4) ** 2 && (ax - o.x) ** 2 + (az - o.z) ** 2 > (R + 4) ** 2) continue;
@@ -3991,7 +4065,7 @@ function planBumps(W) {
 const BUMP_TEX = canvasTex(256, 64, (x, w, h) => { for (let i = 0; i < 16; i++) { x.fillStyle = i % 2 ? '#17143a' : '#ffc531'; x.beginPath(); x.moveTo(i * 20 - 10, h); x.lineTo(i * 20 + 10, 0); x.lineTo(i * 20 + 30, 0); x.lineTo(i * 20 + 10, h); x.fill(); } });
 function updateObstacles(t) { const W = G.W; if (!W.obst) return; for (const o of W.obst) { obstState(o, t); if (o.mesh) obstVisual(o, t); } }
 function obstVisual(o, t) {
-  const m = o.mesh; if (o.kind === 'rockfall') { rockfallVisual(o, t); return; } if (obstVisual11(o, t)) return;
+  const m = o.mesh; if (o.kind === 'rockfall') { rockfallVisual(o, t); return; } if (o.kind === 'bridge') { bridgeVisual(o, t); return; } if (obstVisual11(o, t)) return;
   if (o.kind === 'roller') { m.position.set(o.x, o.y + o.r, o.z); const v = Math.cos(t * TAU / o.per + o.ph) * o.amp * TAU / o.per; m.userData.spin = (m.userData.spin || 0) + v / 60 / o.r; if (m.userData.inner) m.userData.inner.rotation.z = -m.userData.spin; }
   else if (o.kind === 'walker') { const bob = Math.abs(Math.sin(t * 9 + o.ph)) * .25; m.position.set(o.x, o.y + bob + (o.style === 'ghost' ? 1.2 + Math.sin(t * 2 + o.ph) * .4 : 0), o.z); const dir = Math.cos(t * TAU / o.per + o.ph); m.rotation.y = o.P.hd[o.i] + (dir > 0 ? -Math.PI / 2 : Math.PI / 2); }
   else if (o.kind === 'crusher') {
@@ -4693,6 +4767,7 @@ function obstVisual11(o, t) {
 }
 function obstMesh11(o, W) {
   if (o.kind === 'rockfall') return rockfallMesh(o, W);
+  if (o.kind === 'bridge') return bridgeMesh(o, W);
   const g = new T.Group(), R = o.r;
   if (o.kind === 'jet') { const lava = o.style !== 'steam';
     const base = new T.Mesh(new T.CylinderGeometry(R * .9, R, .5, 16), stdMat('#3a3440', .5, .6)); base.position.y = .25; g.add(base);
@@ -4795,8 +4870,8 @@ function fallStep(k, dt) {
   if (k.fallT > 0) return;
   const S = G.W.S, N = S.N, PB = k.P && k.P !== S ? k.P : null;
   if (PB) { // tombé d'un chemin sans rebords : on est reposé sur ce même chemin, un peu devant
-    const j = clamp(k.idx + 2, 0, PB.N - 1); k.idx = j; k.x = PB.px[j]; k.z = PB.pz[j]; k.y = k.groundY = PB.py[j] + 3; k.h = k.vh = PB.hd[j]; k.speed = k.maxSpeed * .35;
-    k.lat = 0; k.fallT = 0; k.ghost = Math.max(k.ghost || 0, 1.6); k.droneT = 1.4; k.air = 'jump'; k.vy = 0; if (k.isPlayer) AudioSys.sfx('drone'); return; }
+    const j = clamp(k.idx + 2, 0, PB.N - 1), bl = bridgeLat(PB, j); k.idx = j; k.x = PB.px[j] + PB.rx[j] * bl; k.z = PB.pz[j] + PB.rz[j] * bl; k.y = k.groundY = PB.py[j] + 3; k.h = k.vh = PB.hd[j]; k.speed = k.maxSpeed * .35;
+    k.lat = bl; k.fallT = 0; k.ghost = Math.max(k.ghost || 0, 1.6); k.droneT = 1.4; k.air = 'jump'; k.vy = 0; if (k.isPlayer) AudioSys.sfx('drone'); return; }
   const bad = (j) => S.glide[j] || (S.wz && S.wz[j]); let i = Math.min(clamp(k.idx, 0, N - 1) + 2, N - 1);
   // on repose le kart là où il est tombé (un peu devant), jamais loin en arrière : on cherche la case libre la plus proche, en avant d'abord
   if (bad(i)) { let f = i, b2 = i, nf = 0, nb = 0; while (bad(f) && nf < 400 && f < N - 1) { f++; nf++; } if (bad(f)) nf = 1e9; while (bad(b2) && nb < 400) { b2 = (b2 - 1 + N) % N; nb++; } i = nf <= nb * 2 ? f : b2; }
@@ -5717,12 +5792,15 @@ function aiControl(k, dt) {
   lat = draft13(k, lat, TP, ti, thw);
   for (const h of G.hazards) { if (!aiDodge13(k, h)) continue; const di = Math.round((h.x - CP.px[ci]) * CP.fx[ci] + (h.z - CP.pz[ci]) * CP.fz[ci]); if (di > 0 && di < 35) { const hl = (h.x - TP.px[ti]) * TP.rx[ti] + (h.z - TP.pz[ti]) * TP.rz[ti]; if (Math.abs(hl - lat) < 3.5) lat = hl + (hl > 0 ? -4.5 : 4.5); } }
   lat = bombAiLat(k, lat, TP, ti, thw);
+  // pont du Barbecue : le bot qui a choisi la route reste du bon côté avant la bifurcation (sinon il glisse sur le pont)
+  if (!wb && CP === S) for (const B of W.branches) { const d = B.i0 - ci; if (B.hasBridge && d > -6 && d < 45 && ai.br && ai.br[B.id] && !ai.br[B.id].take) lat = B.side > 0 ? Math.min(lat, -thw * .35) : Math.max(lat, thw * .35); }
   lat = clamp(lat, -thw * .82, thw * .82);
   let tx = TP.px[ti] + TP.rx[ti] * lat, tz = TP.pz[ti] + TP.rz[ti] * lat;
   // obstacles : on vise le côté libre au niveau de l'obstacle le plus proche
   { let av = null; const clock = G.W.clock || 0;
     for (const o of G.W.obst || []) {
       if (o.kind === 'rockfall') { if (o.P !== CP) continue; if (ai.avoid != null && ai.avoid < 1 && (((ai.seed || 0) * 7 + (o.slots[0].c || 0) * 13) % 100) / 100 >= ai.avoid) continue; const rv = rockfallAvoid(k, o, clock); if (rv && (!av || rv.da < av.da)) av = { o: { P: o.P, i: rv.j }, da: rv.da, want: rv.want }; continue; }
+      if (o.kind === 'bridge') { if (ai.avoid != null && ai.avoid < 1 && (((ai.seed || 0) * 7 + (o.secs[0].c || 0) * 13) % 100) / 100 >= ai.avoid) continue; const rv = bridgeAvoid(k, o, clock); if (rv && (!av || rv.da < av.da)) av = { o: { P: o.P, i: rv.j }, da: rv.da, want: rv.want, br: true }; continue; }
       if (o.P !== CP && o.P !== TP) continue; if (ai.avoid != null && ai.avoid < 1 && ((o.i * 131 + (ai.seed || 0)) % 100) / 100 >= ai.avoid) continue; const da = (o.x - CP.px[ci]) * CP.fx[ci] + (o.z - CP.pz[ci]) * CP.fz[ci]; if (da < -3 || da > 62) continue; if ((o.x - k.x) ** 2 + (o.z - k.z) ** 2 > 72 * 72) continue; if (o.P === CP) { let di = o.i - ci; if (CP.closed !== false) di = ((di % CP.N) + CP.N * 1.5) % CP.N - CP.N * .5; if (di * CP.seg < -6 || di * CP.seg > 72) continue; } if (Math.abs(o.y - CP.py[ci]) > 6) continue;
       const tArr = Math.max(0, da) / Math.max(12, k.speed), tc = clock + tArr;
       if (o.kind === 'crusher' || o.kind === 'jet') { const c = ((tc / o.per + o.ph / TAU) % 1 + 1) % 1; if (o.kind === 'jet' ? (c < .36 || c > .86) : (c < .38 || c > .8)) continue; }
@@ -5734,7 +5812,7 @@ function aiControl(k, dt) {
       const want = ok1 && ok2 ? (Math.abs(l1 - cur) < Math.abs(l2 - cur) ? l1 : l2) : ok1 ? l1 : l2;
       if (!av || da < av.da) av = { o, da, want };
     }
-    if (av) { const P2 = av.o.P, j = clamp(av.o.i + (av.da < 12 ? 7 : 0), 0, P2.N - 1); tx = P2.px[j] + P2.rx[j] * av.want; tz = P2.pz[j] + P2.rz[j] * av.want; } }
+    if (av) { const P2 = av.o.P, j = clamp(av.br ? Math.max(av.o.i, k.idx + 5) : av.o.i + (av.da < 12 ? 7 : 0), 0, P2.N - 1); if (av.br) ai.wob = 0; tx = P2.px[j] + P2.rx[j] * av.want; tz = P2.pz[j] + P2.rz[j] * av.want; } }
   const d = angDiff(k.h, Math.atan2(tx - k.x, tz - k.z)); let steer = clamp(-d * 2.6, -1, 1);
   if (ai.err) { ai.errT = (ai.errT != null ? ai.errT : rand(2, 6)) - dt; if (ai.errT < 0) { if (Math.random() < ai.err) ai.wob = rand(.5, .9); ai.errT = rand(2.5, 6); } if (ai.wob > 0) { ai.wob -= dt; steer = clamp(steer + Math.sin(ai.wob * 8 + (ai.seed || 0)) * .75, -1, 1); } }
   let mult = (k.isPlayer ? CC[R.cc].ai * 1.02 : CC[R.cc].ai) * ai.skill;
@@ -5836,16 +5914,20 @@ function goBoosts(R) {
 // économie mesurée : une course rapporte en général 15 à 45 pièces ; niveau n avec 40 × n × (n + 1) points (80, 240, 480, 800…)
 const RARE_COLORS = { '#22d3c5': 'Turquoise', '#ff7f6e': 'Corail', '#e8b4b8': 'Or rose', '#dfe6ee': 'Platine', '#d4af37': 'Or', '#ff7b3a': 'Phénix', '#ff3df2': 'Néon rose', '#6be38a': 'Caméléon', '#4b5b7a': 'Orage',
   '#00f5d4': 'Lagon', '#b5179e': 'Prune', '#f8f32b': 'Citron', '#3a86ff': 'Saphir', '#8d99ae': 'Acier', '#ff9e00': 'Mandarine', '#9b5de5': 'Améthyste',
-  '#c1121f': 'Rubis', '#2d6a4f': 'Forêt', '#ffd6a5': 'Pêche', '#0b132b': 'Nuit', '#e0fbfc': 'Glacier', '#7f5539': 'Cacao' };
+  '#c1121f': 'Rubis', '#2d6a4f': 'Forêt', '#ffd6a5': 'Pêche', '#0b132b': 'Nuit', '#e0fbfc': 'Glacier', '#7f5539': 'Cacao',
+  '#ff006e': 'Framboise', '#80ffdb': 'Menthe glacée', '#5e548e': 'Lavande', '#ffb703': 'Tournesol', '#14213d': 'Marine', '#e63946': 'Cerise', '#a7c957': 'Pistache', '#3d405b': 'Ardoise' };
 const CHEST_COLORS = ['#00f5d4', '#b5179e', '#f8f32b', '#3a86ff', '#8d99ae', '#ff9e00', '#9b5de5'];
 Object.assign(ACCS, { chapeau: { name: 'Haut-de-forme' }, helice: { name: 'Hélice' }, aureole: { name: 'Auréole' }, oreilles: { name: 'Oreilles de chat' } });
 Object.assign(TRAILS, { aurore: { name: 'Aurore', c: ['#7cffcb', '#5ad1ff', '#b47cff'] }, braise: { name: 'Braise', c: ['#ffd27f', '#ff6b00', '#5a1a00'] }, glacon: { name: 'Glaçon', c: ['#ffffff', '#bfefff'] }, bulles: { name: 'Bulles', c: ['#e0f7ff', '#8fd8ff', '#ffffff'] } });
-Object.assign(FINISHES, { satin: { name: 'Satin', r: .5, m: .3 }, perle: { name: 'Perle', r: .3, m: .45 } });
+Object.assign(FINISHES, { satin: { name: 'Satin', r: .5, m: .3 }, perle: { name: 'Perle', r: .3, m: .45 }, irise: { name: 'Irisé', r: .18, m: .75 } });
 // un déblocage par niveau jusqu'au 30 (ce qui existait avant reste libre)
 const LEVEL_UNLOCKS = [[2, 'color', '#22d3c5'], [3, 'wheels', 'jantes'], [4, 'trail', 'menthe'], [5, 'body', 'scarabee'], [6, 'acc', 'oreilles'], [7, 'finish', 'satin'], [8, 'wheels', 'disco'], [9, 'color', '#ff7f6e'],
   [10, 'body', 'lutin'], [11, 'trail', 'bulles'], [12, 'acc', 'chapeau'], [13, 'finish', 'nacre'], [14, 'color', '#c1121f'], [15, 'body', 'requin'], [16, 'trail', 'lave'], [17, 'wheels', 'crampons'], [18, 'color', '#2d6a4f'],
   [19, 'acc', 'helice'], [20, 'body', 'tracteur'], [21, 'finish', 'brosse'], [22, 'trail', 'aurore'], [23, 'color', '#e8b4b8'], [24, 'finish', 'perle'], [25, 'body', 'comete'], [26, 'trail', 'galaxie'], [27, 'color', '#0b132b'],
-  [28, 'trail', 'braise'], [29, 'acc', 'aureole'], [30, 'finish', 'dore']];
+  [28, 'trail', 'braise'], [29, 'acc', 'aureole'], [30, 'finish', 'dore'],
+  // karts, planeurs et couleurs en plus (sur des niveaux existants, puis jusqu'au 40)
+  [4, 'glider', 'feuille'], [9, 'body', 'mini'], [11, 'color', '#ffb703'], [13, 'glider', 'aigle'], [16, 'color', '#80ffdb'], [18, 'body', 'fourgon'], [20, 'color', '#e63946'], [22, 'glider', 'ombrelle'], [25, 'color', '#5e548e'], [27, 'body', 'limousine'],
+  [31, 'color', '#a7c957'], [32, 'glider', 'origami'], [33, 'body', 'herisson'], [34, 'color', '#3d405b'], [35, 'glider', 'dragon'], [36, 'color', '#14213d'], [37, 'body', 'torpille'], [38, 'color', '#ff006e'], [39, 'glider', 'arcenciel'], [40, 'finish', 'irise']].sort((a, b) => a[0] - b[0]);
 // succès : [id, nom, comment, test(stats, course, progression), récompense, progression (stats) => [actuel, but]]
 const ACHS = [
   ['r1', 'Premier tour de piste', 'Finir une course', (s) => s.races >= 1, ['title', 'Pilote en herbe'], (s) => [s.races, 1]],
@@ -5880,13 +5962,28 @@ const ACHS = [
   ['day7', 'Fidèle', 'Réussir 7 défis du jour', (s) => s.daily >= 7, ['title', 'Fidèle'], (s) => [s.daily, 7]],
   ['lv10', 'Expert', 'Atteindre le niveau 10', (s, c, P) => progLevel(P.xp) >= 10, ['title', 'Expert'], (s, P) => [progLevel(P.xp), 10]],
   ['lv30', 'Légende', 'Atteindre le niveau 30', (s, c, P) => progLevel(P.xp) >= 30, ['title', 'Légende'], (s, P) => [progLevel(P.xp), 30]],
+  ['w25', 'Grand champion', 'Gagner 25 courses', (s) => s.wins >= 25, ['title', 'Grand champion'], (s) => [s.wins, 25]],
+  ['p25', 'Abonné au podium', 'Finir 25 fois dans les 3 premiers', (s) => s.podiums >= 25, ['color', '#7f5539'], (s) => [s.podiums, 25]],
+  ['h50', 'Bombardier', 'Toucher 50 karts', (s) => s.hits >= 50, ['title', 'Bombardier'], (s) => [s.hits, 50]],
+  ['pass100', 'Dépasseur fou', 'Doubler 100 karts au total', (s) => s.passes >= 100, ['title', 'Dépasseur fou'], (s) => [s.passes, 100]],
+  ['j100', 'Kangourou', 'Faire 100 sauts', (s) => s.jumps >= 100, ['title', 'Kangourou'], (s) => [s.jumps, 100]],
+  ['trick200', 'Voltigeur', 'Faire 200 figures en l\'air', (s) => s.tricks >= 200, ['title', 'Voltigeur'], (s) => [s.tricks, 200]],
+  ['nohit', 'Prudent', 'Finir une course sans être touché', (s, c) => c && c.taken === 0 && c.n > 1, ['title', 'Prudent']],
+  ['coins1k', 'Tirelire', 'Gagner 1 000 pièces au total', (s) => s.coinsTotal >= 1000, ['title', 'Tirelire'], (s) => [s.coinsTotal, 1000]],
+  ['onw3', 'Star du réseau', 'Gagner 3 courses en ligne', (s) => s.onlineWins >= 3, ['title', 'Star du réseau'], (s) => [s.onlineWins, 3]],
+  ['tw20', 'Maître des circuits', 'Gagner sur 20 circuits différents', (s, c, P) => Object.values(P.tracks).filter((t) => t.w > 0).length >= 20, ['title', 'Maître des circuits'], (s, P) => [Object.values(P.tracks).filter((t) => t.w > 0).length, 20]],
+  ['day30', 'Assidu', 'Réussir 30 défis du jour', (s) => s.daily >= 30, ['title', 'Assidu'], (s) => [s.daily, 30]],
+  ['wk20', 'Infatigable', 'Réussir 20 défis de la semaine', (s) => s.weekly >= 20, ['title', 'Infatigable'], (s) => [s.weekly, 20]],
+  ['lv20', 'Pro', 'Atteindre le niveau 20', (s, c, P) => progLevel(P.xp) >= 20, ['title', 'Pro'], (s, P) => [progLevel(P.xp), 20]],
+  ['lv40', 'Maître absolu', 'Atteindre le niveau 40', (s, c, P) => progLevel(P.xp) >= 40, ['title', 'Maître absolu'], (s, P) => [progLevel(P.xp), 40]],
 ];
-// défis de la semaine : 3 objectifs (tirés selon la semaine), à cumuler sur toutes tes courses ; 40 pièces chacun
+// défis de la semaine : 4 objectifs (tirés selon la semaine), à cumuler sur toutes tes courses ; 35 pièces chacun
 const WEEK_POOL = [['wins', 'Gagner 3 courses', 3], ['podiums', 'Finir 6 fois sur le podium', 6], ['hits', 'Toucher 15 karts', 15], ['passes', 'Doubler 25 karts', 25], ['tricks', 'Faire 15 figures', 15],
-  ['races', 'Finir 10 courses', 10], ['online', 'Finir 3 courses en ligne', 3], ['style', 'Cumuler 3 000 points de style', 3000], ['lead', 'Cumuler 3 minutes en tête', 180], ['jumps', 'Faire 30 sauts', 30]];
+  ['races', 'Finir 10 courses', 10], ['online', 'Finir 3 courses en ligne', 3], ['style', 'Cumuler 3 000 points de style', 3000], ['lead', 'Cumuler 3 minutes en tête', 180], ['jumps', 'Faire 30 sauts', 30],
+  ['clean', 'Finir 3 courses sans être touché', 3], ['top5', 'Finir 8 fois dans les 5 premiers', 8], ['daily', 'Réussir 2 défis du jour', 2], ['tracks', 'Courir sur 5 circuits différents', 5]];
 const weekId = () => { const d = new Date(), t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()); return Math.floor((t / 86400e3 + 3) / 7); };
-function weekDefs() { const w = weekId(), h = wkStrHash('semaine:' + w), L = WEEK_POOL.slice(), out = []; for (let i = 0; i < 3; i++) out.push(L.splice((h >>> (i * 5)) % L.length, 1)[0]); return out; }
-const ITEM_KIND = { body: [BODIES, 'Carrosserie'], wheels: [WHEELS, 'Roues'], trail: [TRAILS, 'Turbo'], finish: [FINISHES, 'Finition'], acc: [ACCS, 'Accessoire'] };
+function weekDefs() { const w = weekId(), h = wkStrHash('semaine:' + w), L = WEEK_POOL.slice(), out = []; for (let i = 0; i < 4; i++) out.push(L.splice((h >>> (i * 5)) % L.length, 1)[0]); return out; }
+const ITEM_KIND = { body: [BODIES, 'Carrosserie'], wheels: [WHEELS, 'Roues'], trail: [TRAILS, 'Turbo'], finish: [FINISHES, 'Finition'], acc: [ACCS, 'Accessoire'], glider: [GLIDERS, 'Planeur'] };
 function progData() { const P = SAVE.prog && typeof SAVE.prog === 'object' ? SAVE.prog : (SAVE.prog = {}); P.xp = +P.xp || 0; P.coins = +P.coins || 0; P.st = P.st || {}; P.tracks = P.tracks || {}; P.ach = P.ach || {}; P.own = P.own || {}; P.chestN = +P.chestN || 0;
   for (const k of ['races', 'wins', 'podiums', 'hits', 'taken', 'passes', 'tricks', 'jumps', 'online', 'onlineWins', 'styleBest', 'streakBest', 'airBest', 'coinsTotal', 'weekly', 'daily']) P.st[k] = +P.st[k] || 0;
   if (!P.week || P.week.id !== weekId()) P.week = { id: weekId(), p: {}, done: {} }; return P; }
@@ -5911,8 +6008,9 @@ function progAward(R, P) { if (!R || !P || R.awarded || P.spect) return; R.award
   S.races++; if (place === 1 && n > 1) S.wins++; if (place <= 3 && n > 1) S.podiums++; S.hits += ps.hits || 0; S.taken += ps.taken || 0; S.passes += ps.passes || 0; S.tricks += ps.tricks || 0; S.jumps += ps.jumps || 0; if (R.dailyOk) S.daily++;
   if (R.online) { S.online++; if (place === 1) S.onlineWins++; } S.styleBest = Math.max(S.styleBest, R.style || 0); S.streakBest = Math.max(S.streakBest, Math.round(L.best || 0)); S.airBest = Math.max(S.airBest, ps.airBest || 0);
   // défis de la semaine
-  const W = D.week, add = { wins: place === 1 && n > 1 ? 1 : 0, podiums: place <= 3 && n > 1 ? 1 : 0, hits: ps.hits || 0, passes: ps.passes || 0, tricks: ps.tricks || 0, races: 1, online: R.online ? 1 : 0, style: R.style || 0, lead: Math.round(L.tot || 0), jumps: ps.jumps || 0 }, wkDone = [];
-  for (const [k, txt, goal] of weekDefs()) { W.p[k] = (W.p[k] || 0) + (add[k] || 0); if (!W.done[k] && W.p[k] >= goal) { W.done[k] = 1; S.weekly++; tot += 40; parts.push(['Défi : ' + txt, 40]); wkDone.push(txt); } }
+  const W = D.week, add = { wins: place === 1 && n > 1 ? 1 : 0, podiums: place <= 3 && n > 1 ? 1 : 0, hits: ps.hits || 0, passes: ps.passes || 0, tricks: ps.tricks || 0, races: 1, online: R.online ? 1 : 0, style: R.style || 0, lead: Math.round(L.tot || 0), jumps: ps.jumps || 0, clean: n > 1 && !(ps.taken > 0) ? 1 : 0, top5: place <= 5 && n > 1 ? 1 : 0, daily: R.dailyOk ? 1 : 0 }, wkDone = [];
+  { const tid = TRACKS[R.ti].id; W.tr = W.tr || []; if (!W.tr.includes(tid)) { W.tr.push(tid); add.tracks = 1; } }
+  for (const [k, txt, goal] of weekDefs()) { W.p[k] = (W.p[k] || 0) + (add[k] || 0); if (!W.done[k] && W.p[k] >= goal) { W.done[k] = 1; S.weekly++; tot += 35; parts.push(['Défi : ' + txt, 35]); wkDone.push(txt); } }
   D.coins += tot; D.xp += tot; S.coinsTotal += tot;
   const tid = TRACKS[R.ti].id, T0 = D.tracks[tid] || (D.tracks[tid] = { r: 0, w: 0 }); T0.r++; if (place === 1 && n > 1) T0.w++;
   const sec = G.karts.find((k) => k !== P && k.finished && Math.abs(k.finishTime - P.finishTime) < 1);
@@ -5949,7 +6047,7 @@ function progDraw() { const el = $('#progx'); if (!el) return; const D = progDat
   } else if (T === 'defis') {
     const dd = dailyDef(dailyDay()), mine = SAVE.daily && SAVE.daily.day === dd.day ? SAVE.daily : null;
     h += '<h4>Défi du jour</h4><div class="prog-row' + (mine && mine.ok ? ' ok' : '') + '"><b>' + escP(TRACKS[dd.ti].name) + '</b><span>🎯 ' + escP(dd.obj[1]) + (mine && mine.ok ? ' · réussi en ' + fmtTime(mine.t) : '') + ' · 30 💰</span></div><div class="row"><button class="btn sm red" id="pg-daily"><span>Jouer le défi du jour</span></button></div>';
-    h += '<h4>Défis de la semaine</h4><p class="hint">À cumuler sur toutes tes courses (solo ou en ligne). 40 💰 chacun. Nouveaux défis chaque lundi.</p>';
+    h += '<h4>Défis de la semaine</h4><p class="hint">À cumuler sur toutes tes courses (solo ou en ligne). 35 💰 chacun. Nouveaux défis chaque lundi.</p>';
     h += weekDefs().map(([k, txt, goal]) => { const v = Math.min(goal, D.week.p[k] || 0), ok = !!D.week.done[k]; return '<div class="prog-row' + (ok ? ' ok' : '') + '"><b>' + (ok ? '✅ ' : '') + escP(txt) + '</b><span>' + barP(v, goal) + ' ' + (k === 'lead' ? Math.floor(v / 60) + ':' + String(v % 60).padStart(2, '0') + ' / 3:00' : v + ' / ' + goal) + '</span></div>'; }).join('');
   } else if (T === 'succes') {
     const nA = ACHS.filter((x) => D.ach[x[0]]).length; h += '<p class="hint">' + nA + ' / ' + ACHS.length + ' succès. Chacun donne une récompense unique.</p>';
@@ -6310,7 +6408,7 @@ function showResults() {
   order.forEach((k, i) => {
     const tr = document.createElement('tr'); if (k.isPlayer) tr.className = 'me';
     const cells = [String(i + 1), k.name, fmtTime(k.finishTime)]; if (UI.mode === 'gp') cells.push('+' + POINTS[i]);
-    cells.forEach((c, j) => { const td = document.createElement('td'); td.textContent = c; if (j >= 2) td.className = 'r'; tr.appendChild(td); }); tb.appendChild(tr);
+    cells.forEach((c, j) => { const td = document.createElement('td'); td.textContent = c; if (j >= 2) td.className = 'r'; if (j === 1 && k.cfg && k.cfg.title) { const t = document.createElement('small'); t.className = 'ktitle'; t.textContent = k.cfg.title; td.appendChild(t); } tr.appendChild(td); }); tb.appendChild(tr);
   });
   const place = order.indexOf(P) + 1;
   $('#r-title').textContent = place === 1 ? 'Victoire !' : place + (place === 1 ? 'er' : 'e') + ' place';
@@ -7882,5 +7980,5 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt };
 })();

@@ -155,6 +155,11 @@ export default async (req) => {
     for (const x of blobs) { const c = await st.get(x.key, { type: 'json' }); if (!c) continue; if (c.exp < Date.now() - 3 * 86400e3) { await st.delete(x.key); continue; } codes.push(c); }
     codes.sort((a, b) => b.exp - a.exp); return out({ ok: true, codes });
   }
+  // serveur de test seulement : joueurs fictifs pour essayer le mode chef (bloquer, supprimer…)
+  if (b.a === 'tfake') { if (!globalThis.WK_TEST) return err('Seulement sur le serveur de test.', 403); const made = [];
+    for (let i = 1; i <= 3; i++) { const p = 'testeur' + i, fid = 'TEST-' + (1000 + i); if (!(await st.get(ukey(p), { type: 'json' }))) { const u = { p, fid, save: {}, at: Date.now(), created: Date.now() }; await setPass(u, 'test'); await st.setJSON(ukey(p), u); await st.set(fkey(fid), p); } made.push({ fid, p }); }
+    const key = 'c/test-faux', c = (await st.get(key, { type: 'json' })) || { id: 'test-faux', exp: Date.now() + 30 * 86400e3, first: Date.now(), users: {} };
+    for (const m of made) c.users[m.fid] = { n: m.p, p: m.p, t: Date.now() }; await st.setJSON(key, c); return out({ ok: true, made }); }
   // défi du jour : classement (meilleur temps de chaque compte qui a réussi l'objectif)
   if (b.a === 'dget' || b.a === 'dput') { const today = new Date().toISOString().slice(0, 10), day = String(b.day || today); if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Math.abs(Date.parse(day) - Date.parse(today)) > 86400e3) return err('Jour invalide.');
     const key = 'd/' + day, D = (await st.get(key, { type: 'json' })) || { list: [] };

@@ -166,12 +166,16 @@ export default async (req) => {
   }
 
   if (!PSEUDO.test(pseudo)) return err('Pseudo : 3 à 16 lettres ou chiffres (sans espace).');
+  // le chef supprime un compte (et libère son identifiant ami) ; « x/ » empêche de le recopier depuis l'ancien serveur
+  if (b.a === 'udel') { if (!chefOk(b)) return err('Réservé au chef.', 403); const u = await getU(); if (!u) return err('Aucun compte avec ce pseudo.');
+    if (u.fid && (await st.get(fkey(u.fid), { type: 'text' })) === pseudo.toLowerCase()) await st.delete(fkey(u.fid));
+    await st.delete(ukey(pseudo)); await st.set('x/' + pseudo.toLowerCase(), String(Date.now())); return out({ ok: true }); }
 
   if (b.a === 'create') {
     const pass = String(b.pass || ''); if (pass.length < 4) return err('Mot de passe : au moins 4 caractères.');
     let fid = FID.test(String(b.fid || '')) ? String(b.fid) : 'JOUEUR-' + (1000 + crypto.randomInt(9000));
     const save = b.save && typeof b.save === 'object' ? b.save : {}; if (JSON.stringify(save).length > MAX_SAVE) return err('Sauvegarde trop grosse.');
-    if (OLD() && !(await getU())) { const o = await oldCall('login', { pseudo, pass });
+    if (OLD() && !(await getU()) && !(await st.get('x/' + pseudo.toLowerCase()))) { const o = await oldCall('login', { pseudo, pass });
       if (o && o.ok) { const u2 = await importU(st, pseudo, o, pass, null); const tok = addTok(u2); await putU(u2); return out(pub(u2, tok)); }
       if (o && o.e && o.e !== 'Aucun compte avec ce pseudo.') return err('Ce pseudo est déjà pris. Choisis-en un autre.'); }
     const u = { p: pseudo, fid, save, at: Date.now(), created: Date.now() }; await setPass(u, pass); const tok = addTok(u), rec = newRec(); u.rec = sha(recNorm(rec));
@@ -183,7 +187,7 @@ export default async (req) => {
   }
 
   let u = await getU();
-  if (!u && OLD()) { if (b.a === 'login') { const o = await oldCall('login', { pseudo, pass: b.pass }); if (o && o.ok) u = await importU(st, pseudo, o, b.pass, null); else if (o && o.e) return err(o.e); }
+  if (!u && OLD() && !(await st.get('x/' + pseudo.toLowerCase()))) { if (b.a === 'login') { const o = await oldCall('login', { pseudo, pass: b.pass }); if (o && o.ok) u = await importU(st, pseudo, o, b.pass, null); else if (o && o.e) return err(o.e); }
     else if (b.tok) { const o = await oldCall('load', { pseudo, tok: b.tok }); if (o && o.ok) u = await importU(st, pseudo, o, null, b.tok); } }
   if (!u) return err('Aucun compte avec ce pseudo.');
 

@@ -2744,7 +2744,7 @@ function chefWire() { const qa = (s) => [...document.querySelectorAll('#chef-roo
   const rs = q('#ch-rshare'); if (rs) rs.onclick = async () => { const t = 'Wild Kart : code pour changer ton mot de passe (compte ' + CHU.resetU + ', valable 24 h). Ouvre Compte > « Oublié ? » et colle :\n' + CHU.reset; if (navigator.share) { try { await navigator.share({ text: t }); } catch (e) { /* annulé */ } } else { try { await navigator.clipboard.writeText(t); toast('Copié.', 1500); } catch (e) { /* rien */ } } };
   q('#ch-del').onclick = async () => { const u = q('#ch-du').value.trim(); if (!/^[A-Za-z0-9_-]{3,16}$/.test(u)) { toast('Pseudo : 3 à 16 lettres ou chiffres.', 2000); return; }
     if (CHU.delAsk !== u) { CHU.delAsk = u; chefRender(); q('#ch-du').value = u; setTimeout(() => { if (CHU.delAsk === u) { CHU.delAsk = ''; chefRender(); } }, 5000); return; }
-    CHU.delAsk = ''; const r = await acctCall('udel', Object.assign({ pseudo: u }, chefAuth('udel'))); if (r && r.ok) chefLoadCodes(); else chefRender(); toast(r && r.ok ? 'Compte ' + u + ' supprimé.' : (r && r.e) || 'Serveur indisponible.', 3000); };
+    CHU.delAsk = ''; const r = await acctCall('udel', Object.assign({ pseudo: u }, chefAuth('udel'))); if (r && r.ok) chefLoadCodes(); else chefRender(); toast(r && r.ok ? (r.gone ? 'Aucun compte « ' + u + ' » : il n\'existe pas ou a déjà été supprimé.' : 'Compte ' + u + ' supprimé.') : (r && r.e) || 'Serveur indisponible.', 3000); };
   q('#ch-key').onclick = async () => { try { await navigator.clipboard.writeText('WKCHEF.' + SAVE.chefKey); toast('Clé du chef copiée.', 2000); } catch (e) { toast('Copie impossible.', 2000); } };
   q('#ch-upd').onclick = () => { chefState().u = Date.now(); store(); chefPublish(); toast('Mise à jour envoyée à tous les jeux.', 3000); updCheck(true); };
   const ban = (fid) => { const c = chefState(); c.b = c.b.includes(fid) ? c.b.filter((x) => x !== fid) : c.b.concat([fid]); store(); chefPublish(); chefRender(); };
@@ -4798,7 +4798,7 @@ function hitKart(k, src) {
   if (k.spin > 0 || k.star > 0 || k.ghost > 0) return;
   if (k.shield > 0) { k.shield = 0; if (k.isPlayer || (src && src.isPlayer)) AudioSys.sfx('shield'); return; }
   if (G.race && G.race.bombMode) bombHitPass(k, src);
-  k.spin = 1.15; k.speed *= .3; k.boost = 0; if (k.drift) endDrift(k, false); if (src && src.isPlayer && k !== src) recEvent(3, 'Touché : ' + k.name, k);
+  k.spin = 1.15; k.speed *= .3; k.boost = 0; if (k.drift) endDrift(k, false); if (src && src.isPlayer && k !== src) recEvent(Math.hypot(k.x - src.x, k.z - src.z) < 45 ? 4 : 3, 'Touché : ' + k.name, k);
   for (let n = 0; n < 14; n++) G.W.parts.emit(k.x, k.y + 1.2, k.z, rand(-6, 6), rand(3, 8), rand(-6, 6), pick(['#ffc531', '#fffdf7', '#ff4f3a']), .7);
   if (k.isPlayer) { AudioSys.sfx('hit'); vibrate([60, 40, 80]); }
   else if (src && src.isPlayer) AudioSys.sfx('hit');
@@ -4888,7 +4888,7 @@ function useItem11(k, it, online) { if (k.spect) return; if (useItem13(k, it, on
   if (it === 'disco') { discoWave(k, k.x, k.z); if (online) netEmit({ e: 'disco', o: k.netId, x: r2(k.x), z: r2(k.z) }); return true; }
   return false;
 }
-function bubbleKart(o, src) { if (o.isRemote || o.star > 0 || o.ghost > 0) return; if (o.shield > 0) { o.shield = 0; return; } o.bubble = 1.7; if (o.drift) endDrift(o, false); if (o.isPlayer) { banner('Dans une bulle !', 1.3, true); vibrate([20, 40, 20]); AudioSys.sfx('bubble'); } }
+function bubbleKart(o, src) { if (o.isRemote || o.star > 0 || o.ghost > 0) return; if (o.shield > 0) { o.shield = 0; return; } o.bubble = 1.7; if (o.drift) endDrift(o, false); if (src && src.isPlayer && o !== src) recEvent(3, 'Bulle sur ' + o.name, o); if (o.isPlayer) { banner('Dans une bulle !', 1.3, true); vibrate([20, 40, 20]); AudioSys.sfx('bubble'); } }
 function confettiBlast(src, p) { let n = 0; for (const o of G.karts) { if (o === src || o.isRemote || o.prog <= p || o.finished || (o.prog - p) * G.W.S.seg > 160) continue; if (o.shield > 0 || o.star > 0) continue; o.blind = 2; n++; if (o.isPlayer) { showConfetti(); banner('Confettis !', 1.2, true); } }
   G.lastConfetti = G.race ? G.race.t : 0; AudioSys.sfx('confetti'); if (src && src.isPlayer) banner('Confettis : ' + n + ' aveuglé' + (n > 1 ? 's' : ''), 1.3); }
 function discoWave(src, x, z) {
@@ -5509,13 +5509,16 @@ const R13X = {
     if (r.age < r.fly) { const a = r.aimTg; if (a && !a.finished && r.age < r.fly * .6) { const left = r.fly - r.age, [px, pz] = predict13(a, left), dx = px - r.x, dz = pz - r.z; r.h = Math.atan2(dx, dz); r.speed = clamp(Math.hypot(dx, dz) / left, 15, 110); }
       r.x += Math.sin(r.h) * r.speed * dt; r.z += Math.cos(r.h) * r.speed * dt; r.y = lerp(r.y0, gy, r.age / r.fly) + Math.sin(Math.PI * r.age / r.fly) * 7; r.mesh.userData.spin.rotation.x += dt * 10;
       for (const k of G.karts) if (k !== r.owner && hit13(r, k, 2.6)) { blast13(r, 6, r.owner, true); end13(r, n); return; } }
-    else { r.y = gy; r.mesh.userData.spark.visible = Math.floor(r.age * 14) % 2 === 0; if (r.age > r.fly + .65 || G.karts.some((k) => k !== r.owner && hit13(r, k, 5))) { blast13(r, 6.2, r.owner, true); end13(r, n); return; } }
+    else { r.y = gy; r.mesh.userData.spark.visible = Math.floor(r.age * 14) % 2 === 0; if ((r.aimTg && r.age > r.fly + .65) || G.karts.some((k) => k !== r.owner && hit13(r, k, 5))) { blast13(r, 6.2, r.owner, true); end13(r, n); return; }
+      if (!r.aimTg && !r.armed) { r.armed = true; r.life = Math.max(r.life, 10); } }   // personne devant : il reste armé sur la piste pour ceux qui arrivent
     r.mesh.position.set(r.x, r.y + .5, r.z); r.mesh.rotation.y = r.h; if (r.life <= 0) end13(r, n); },
   chewing(r, n, dt) { r.life -= dt; r.age += dt; const W = G.W, S = W.S, a = r.aimTg; if (a && !a.finished && r.age < 1.5) { const th = Math.atan2(a.x - r.x, a.z - r.z), df = angDiff(r.h, th); if (Math.abs(df) < .9) r.h += clamp(df, -2 * dt, 2 * dt); else r.aimTg = null; } r.x += Math.sin(r.h) * r.speed * dt; r.z += Math.cos(r.h) * r.speed * dt; r.y = lerp(r.y, trackY13(r, -6, 10), .3);
-    const i = r.idx; r.lat = (r.x - S.px[i]) * S.rx[i] + (r.z - S.pz[i]) * S.rz[i]; if (Math.abs(r.lat) > W.lim && !openSide(S, i)) { end13(r, n); return; }
+    const i = r.idx; r.lat = (r.x - S.px[i]) * S.rx[i] + (r.z - S.pz[i]) * S.rz[i];
+    // contre le bord ou en fin de course : il reste collé sur la piste (pour ceux qui arrivent derrière)
+    if (!r.stuck && ((Math.abs(r.lat) > W.lim && !openSide(S, i)) || r.life <= 0)) { r.stuck = true; r.speed = 0; r.aimTg = null; r.life = 10; if (Math.abs(r.lat) > W.lim) { const sg = Math.sign(r.lat); r.x -= S.rx[i] * sg * (Math.abs(r.lat) - W.lim + .5); r.z -= S.rz[i] * sg * (Math.abs(r.lat) - W.lim + .5); } }
     r.mesh.userData.spin.rotation.y += dt * 8; r.mesh.position.set(r.x, r.y + .8, r.z);
     for (const k of G.karts) { if (k === r.owner && r.age < .8) continue; if (!hit13(r, k, 3.1)) continue; if (k.mirror > 0) { mirror13(r, k); return; }
-      if (!(k.star > 0) && !(k.ghost > 0)) { if (k.shield > 0) k.shield = 0; else { k.gum = 2.4; if (k.drift) endDrift(k, false); if (k.isPlayer) { banner('Chewing-gum !', 1.1, true); vibrate(40); AudioSys.sfx('bubble'); } } }
+      if (!(k.star > 0) && !(k.ghost > 0)) { if (k.shield > 0) k.shield = 0; else { k.gum = 2.4; if (r.owner && r.owner.isPlayer && k !== r.owner) recEvent(3, 'Chewing-gum sur ' + k.name, k); if (k.drift) endDrift(k, false); if (k.isPlayer) { banner('Chewing-gum !', 1.1, true); vibrate(40); AudioSys.sfx('bubble'); } } }
       netHitReport(k, r.owner, r.id); end13(r, n); return; }
     if (r.life <= 0) end13(r, n); },
   bouquet(r, n, dt) { r.life -= dt; r.age += dt; const tg = r.target, alive = tg && !tg.finished && !tg.spect;
@@ -5867,12 +5870,13 @@ $('#spec-res').onclick = () => { AudioSys.sfx('click'); specEnd(); };
 // (dépassement, objet qui touche, envol, photo-finish) ; on garde les 6,5 s autour des 5 secondes les plus fortes
 // on enregistre tout ce qui bouge : karts (et bouclier, bulle…) + tout objet ajouté à la scène pendant la course (objets, pièges, projectiles…)
 const REC = { on: false, t: 0, acc: 0, fr: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0 };
-function recReset() { Object.assign(REC, { on: false, t: 0, acc: 0, fr: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, fin: false }); }
+function recReset() { Object.assign(REC, { on: false, t: 0, acc: 0, fr: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, fin: false, pass: null, trick: false }); }
 function recNodes() { const L = []; for (const k of G.karts) { const M = k.mesh; M.g.userData.recK = k; L.push(M.g, M.tilt); if (M.shield) L.push(M.shield); if (M.bub) L.push(M.bub); }
   for (const o of G.W.scene.children) if (!REC.base.has(o)) L.push(o); return L; }
 // focus : le kart à montrer (celui qu'on touche, qu'on double…) en plus du tien
-function recEvent(pts, label, focus) { if (!REC.on) return; REC.ev.push({ t: REC.t, pts, label, f: focus && focus.mesh ? focus.mesh.g : null }); REC.ev = REC.ev.filter((e) => REC.t - e.t < 5);
-  const sc = REC.ev.reduce((n, e) => n + e.pts, 0); if (sc > ((REC.pend && REC.pend.sc) || (REC.best && REC.best.sc) || 0)) REC.pend = { sc, at: REC.t, ev: REC.ev.slice() }; }
+function recEvent(pts, label, focus, at) { if (!REC.on || !(pts > 0)) return; REC.ev.push({ t: at == null ? REC.t : at, pts, label, f: focus && focus.mesh ? focus.mesh.g : null }); REC.ev = REC.ev.filter((e) => REC.t - e.t < 5);
+  // plusieurs actions coup sur coup valent plus (combo)
+  const sc = REC.ev.reduce((n, e) => n + e.pts, 0) * (1 + .3 * (REC.ev.length - 1)); if (sc > ((REC.pend && REC.pend.sc) || (REC.best && REC.best.sc) || 0)) REC.pend = { sc, at: REC.t, ev: REC.ev.slice() }; }
 // le clip commence 2 s avant la 1re action du moment fort et finit 1,5 s après la dernière
 function recCut() { const P = REC.pend; if (!P) return; REC.pend = null; const t0 = Math.min(...P.ev.map((e) => e.t)) - 2, fr = REC.fr.filter((f) => f.t >= t0 && f.t <= P.at + 1.5); if (fr.length < 20) return;
   const cnt = new Map(); for (const e of P.ev) cnt.set(e.label, (cnt.get(e.label) || 0) + 1);
@@ -5883,11 +5887,18 @@ function recTick(dt) { const R = G.race, P = R && R.player; if (!P || P.spect ||
     if (!REC.base) REC.base = new Set(G.W.scene.children); const ns = recNodes(), d = new Float32Array(ns.length * 11);
     ns.forEach((o, i) => { d.set([o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z, (o.userData.recK ? !o.userData.recK.spect : o.visible) ? 1 : 0], i * 11); });
     REC.fr.push({ t: REC.t, ns, d }); while (REC.fr.length && REC.t - REC.fr[0].t > 8) REC.fr.shift(); }
-  if (REC.place && P.place < REC.place && R.t > 4) recEvent(2 * (REC.place - P.place), P.place === 1 ? 'Prise de la 1re place' : 'Dépassement', G.karts.find((k) => k.place === P.place + 1));
+  // dépassement : seulement un vrai (le kart doublé est tout près), et compté s'il tient 1,5 s (pas repris tout de suite)
+  if (REC.place && P.place < REC.place && R.t > 6) { const o = G.karts.find((k) => k.place === P.place + 1), d = o ? Math.hypot(o.x - P.x, o.z - P.z) : 99;
+    if (d < 22) { const last = P.lap >= LAPS; REC.pass = { t: REC.t, place: P.place, o, pts: (P.place === 1 ? 5 : 2.5) * (last ? 1.6 : 1) + (d < 6 ? 1.5 : 0), label: P.place === 1 ? (last ? 'Prise de la 1re place au dernier tour' : 'Prise de la 1re place') : 'Dépassement sur ' + o.name }; } }
+  if (REC.pass && P.place > REC.pass.place) REC.pass = null;   // repris aussitôt : ça ne compte pas
+  if (REC.pass && REC.t - REC.pass.t > 1.5) { const q = REC.pass; REC.pass = null; recEvent(q.pts, q.label, q.o, q.t); }
   REC.place = P.place;
-  if (P.air) REC.airT += dt; else { if (REC.airT > 1.1) recEvent(Math.min(5, REC.airT * 1.5), 'Envol de ' + REC.airT.toFixed(1).replace('.', ',') + ' s'); REC.airT = 0; }
+  // gros saut (avec figure en l'air : bonus)
+  if (P.trickT > 0 && !REC.trick) REC.trick = true;
+  if (P.air) REC.airT += dt; else { if (REC.airT > 1.3) recEvent(Math.min(5, REC.airT * 1.4) + (REC.trick ? 1.5 : 0), (REC.trick ? 'Figure en l\'air · ' : 'Envol de ') + REC.airT.toFixed(1).replace('.', ',') + ' s'); REC.airT = 0; REC.trick = false; }
   if (P.finished) { if (!REC.fin) { REC.fin = true; const near = G.karts.some((k) => k !== P && !k.spect && (k.finished ? Math.abs(k.finishTime - P.finishTime) < 1 : Math.abs(k.prog - P.prog) < 8));
-      recEvent((P.place === 1 ? 3 : 1) + (near ? 4 : 0), near ? 'Photo-finish' : P.place === 1 ? 'Victoire' : 'Arrivée'); }   // toujours au moins l'arrivée
+      const nk = G.karts.find((k) => k !== P && !k.spect && Math.hypot(k.x - P.x, k.z - P.z) < 30);
+      recEvent((P.place === 1 ? 3 : 1) + (near ? 6 : 0), near ? (P.place === 1 ? 'Victoire au photo-finish' : 'Photo-finish') : P.place === 1 ? 'Victoire' : 'Arrivée', near ? nk : null); }   // toujours au moins l'arrivée
     if (REC.t - (REC.pend ? REC.pend.at : 0) > 1.5) { recCut(); REC.on = false; } return; }
   if (REC.pend && REC.t - REC.pend.at >= 1.5) recCut(); }
 // lecture : la course est mise en pause, la caméra tourne autour de ton kart, ralenti au moment fort
@@ -6728,7 +6739,7 @@ function onNetEvent(d) {
   else if (d.e === 'police') policeSweep(K(d.ex));
   else if (d.e === 'vol') { const t = K(d.tg); if (t && !t.isRemote && t.item) { t.item = null; t.uses = 0; if (t.isPlayer) banner('On t\'a aspiré ton objet !', 1.4, true); } }
   else if (d.e === 'ventilo') ventiloGust(K(d.o), +d.x, +d.z, +d.h);
-  else if (d.e === 'hit' && d.src === Net.id) { if (R.pt && R.state === 'race') { R.pt.gives++; if (R.pt.gives <= 3) banner('Touché ! Distribue 1', 1.4); } else banner('Touché !', 1); AudioSys.sfx('hit'); }
+  else if (d.e === 'hit' && d.src === Net.id) { { const v = K(d.v); if (v && R.player) recEvent(Math.hypot(v.x - R.player.x, v.z - R.player.z) < 45 ? 4 : 3, 'Touché : ' + v.name, v); } if (R.pt && R.state === 'race') { R.pt.gives++; if (R.pt.gives <= 3) banner('Touché ! Distribue 1', 1.4); } else banner('Touché !', 1); AudioSys.sfx('hit'); }
 }
 function onNetFin(d) {
   const R = G.race; if (!R || !R.online) return; const k = G.netKarts.get(d.id); if (!k || k.finished) return;

@@ -53,7 +53,9 @@ const btoa = globalThis.btoa || ((x) => Buffer.from(x, 'binary').toString('base6
 // actions réservées au chef : signées avec sa clé (« action.horodatage »)
 function chefOk(b) { const ts = +b.ts; if (!ts || Math.abs(Date.now() - ts) > 10 * 60e3) return false; try { return nacl.sign.detached.verify(new TextEncoder().encode(b.a + '.' + ts), b64u(b.sig), CHEF_PK); } catch (e) { return false; } }
 async function codeSeen(st, p, who) { const id = wkCodeId(p), key = 'c/' + id; const c = (await st.get(key, { type: 'json' })) || { id, exp: p.exp, first: Date.now(), users: {} };
-  if (who) { const u = c.users[who.fid]; if (u && Date.now() - u.t < 10 * 60e3 && u.n === who.n && u.p === who.p) return; c.users[who.fid] = { n: who.n, p: who.p, t: Date.now() };
+  if (who) { const u = c.users[who.fid]; if (u && Date.now() - u.t < 10 * 60e3 && u.n === who.n && u.p === who.p) return;
+    if (who.p && !(await st.get('u/' + who.p.toLowerCase(), { type: 'text' }))) { who.p = ''; if (u && Date.now() - u.t < 10 * 60e3 && u.n === who.n && !u.p) return; }   // compte supprimé
+    c.users[who.fid] = { n: who.n, p: who.p, t: Date.now() };
     const ks = Object.keys(c.users); if (ks.length > 60) { ks.sort((a, b) => c.users[a].t - c.users[b].t); for (const k of ks.slice(0, ks.length - 60)) delete c.users[k]; } }
   else if (c.chef) return; else c.chef = Date.now();
   await st.setJSON(key, c); }
@@ -172,7 +174,7 @@ export default async (req) => {
     await st.delete(ukey(pseudo));
     // on l'enlève aussi de la liste des joueurs du chef
     const { blobs } = await st.list({ prefix: 'c/' }); for (const x of blobs) { const c = await st.get(x.key, { type: 'json' }); if (!c || !c.users) continue; let ch = false;
-      for (const k of Object.keys(c.users)) if (String(c.users[k].p || '').toLowerCase() === pseudo.toLowerCase()) { delete c.users[k]; ch = true; } if (ch) await st.setJSON(x.key, c); }
+      for (const k of Object.keys(c.users)) if (String(c.users[k].p || '').toLowerCase() === pseudo.toLowerCase() || (u && k === u.fid)) { delete c.users[k]; ch = true; } if (ch) await st.setJSON(x.key, c); }
     return out({ ok: true }); }
 
   if (b.a === 'create') {

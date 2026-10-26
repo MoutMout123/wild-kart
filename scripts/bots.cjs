@@ -1,7 +1,22 @@
 // Wild Kart : bots de test. Ils jouent tout seuls et vérifient les fonctions du jeu et du serveur de test.
 // Lancement : node scripts/bots.cjs   (variable API = adresse du serveur de test, sinon lue dans worker/url-test.txt)
+// Tout en même temps (6 groupes en parallèle, ~3 min) : PAR=1 node scripts/bots.cjs ; un seul groupe : ONLY='expression' node scripts/bots.cjs
 // Résultat : test-results/rapport.md + captures d'écran ; code de sortie 1 si un test échoue.
-const http = require('http'), fs = require('fs'), path = require('path');
+const http = require('http'), fs = require('fs'), path = require('path'), { spawn } = require('child_process');
+// les groupes qui tournent en même temps (chacun son navigateur)
+const GROUPS = { serveur: '^Serveur', course: 'Course solo|vidéo|Revoir', fantome: 'Fantôme|En course', garage: 'Garage|Progression|Mode chef', defi: '^Défi', ligne: 'En ligne' };
+const PORT = +process.env.PORT || 8766;
+if (process.env.GROUP && !process.env.ONLY && GROUPS[process.env.GROUP]) process.env.ONLY = GROUPS[process.env.GROUP];
+if (process.env.PAR) { // chef d'orchestre : lance les groupes en parallèle puis rassemble les rapports
+  const OUT0 = path.join(__dirname, '..', 'test-results'); fs.mkdirSync(OUT0, { recursive: true }); const t0 = Date.now();
+  Promise.all(Object.entries(GROUPS).map(([g, re], i) => new Promise((res) => { const c = spawn(process.execPath, [__filename], { env: Object.assign({}, process.env, { PAR: '', ONLY: re, PORT: String(8770 + i), GROUP: g }), stdio: ['ignore', 'pipe', 'pipe'] });
+    let o = ''; c.stdout.on('data', (d) => { o += d; }); c.stderr.on('data', (d) => { o += d; }); c.on('close', (code) => { console.log('--- groupe ' + g + ' (' + (code ? 'échec' : 'ok') + ')\n' + o.split('\n').filter((l) => /^(✅|❌)/.test(l)).join('\n')); res(code); }); })))
+    .then((codes) => { const rows = []; for (const g of Object.keys(GROUPS)) { try { rows.push(...fs.readFileSync(path.join(OUT0, 'rapport-' + g + '.md'), 'utf8').split('\n').filter((l) => /^\| (✅|❌)/.test(l))); } catch (e) { rows.push('| ❌ | Groupe ' + g + ' | pas de rapport |'); } }
+      const seen = new Set(), uniq = rows.filter((r) => { const k = r.split('|')[2]; if (/démarrage sans erreur/.test(k) && seen.has(k)) return false; seen.add(k); return true; });
+      const nOk = uniq.filter((r) => r.startsWith('| ✅')).length, md = '# Bots de test Wild Kart\n\n' + nOk + ' / ' + uniq.length + ' tests réussis (6 groupes en parallèle, ' + Math.round((Date.now() - t0) / 1000) + ' s)\n\n| | Test | Détail |\n|---|---|---|\n' + uniq.join('\n') + '\n';
+      fs.writeFileSync(path.join(OUT0, 'rapport.md'), md); if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md); console.log('\n' + md); process.exit(nOk === uniq.length && codes.every((c) => !c) ? 0 : 1); });
+  return;
+}
 const { chromium } = require('playwright');
 const ROOT = path.join(__dirname, '..', 'www'), OUT = path.join(__dirname, '..', 'test-results');
 fs.mkdirSync(OUT, { recursive: true });
@@ -22,7 +37,7 @@ async function page(browser, name, opts) {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 600 } }); const p = await ctx.newPage(); p.errs = [];
   p.on('pageerror', (e) => p.errs.push(String(e.stack || e).split('\n').slice(0, 3).join(' ← '))); p.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource|net::/.test(m.text())) p.errs.push(m.text()); });
   await p.addInitScript((o) => { window.TK_BUILD = 'pwa'; window.TK_TEST = true; if (o.api) window.TK_API = o.api; if (o.acct) { try { const k = 'tiltkart.v1', s = JSON.parse(localStorage.getItem(k) || '{}'); s.acct = o.acct; s.name = o.acct.u; localStorage.setItem(k, JSON.stringify(s)); } catch (e) { /* rien */ } } }, { api: API, acct: opts && opts.acct });
-  await p.goto('http://localhost:8766/index.html', { waitUntil: 'domcontentloaded', timeout: 90000 }); await p.waitForFunction(() => window.__TK, null, { timeout: 90000 });
+  await p.goto('http://localhost:' + PORT + '/index.html', { waitUntil: 'domcontentloaded', timeout: 90000 }); await p.waitForFunction(() => window.__TK, null, { timeout: 90000 });
   await p.evaluate(() => { for (const s of ['#acct', '#gate']) { const e = document.querySelector(s); if (e) e.hidden = true; } });
   p.shot = (n) => p.screenshot({ path: path.join(OUT, name + '-' + n + '.png') }); return p;
 }
@@ -30,12 +45,13 @@ async function page(browser, name, opts) {
 const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK, G = K.G; for (let i = 0; i < n; i++) { K.simStep(1 / 60); K.updateVisuals(1 / 60); if (G.race && G.race.player) K.updateHud(1 / 60); K.recTick(1 / 60); K.ghostTick(); if (extra === 'untilFinish' && G.race.player && G.race.player.finished) return i; } return n; }, [n, extra]);
 
 (async () => {
-  await new Promise((r) => srv.listen(8766, r));
+  await new Promise((r) => srv.listen(PORT, r));
   const browser = await chromium.launch({ args: ['--use-gl=swiftshader', '--enable-unsafe-swiftshader', '--autoplay-policy=no-user-gesture-required'] });
   log('Serveur de test :', API || '(aucun)');
 
   // ---------- serveur de test ----------
   let acct = null;
+  if (API && !/^\^?Serveur/.test(process.env.ONLY || '')) { try { const u = 'bot' + rnd(), r = await api('create', { pseudo: u, pass: 'abcd', fid: 'BOT-' + (1000 + Math.floor(Math.random() * 9000)) }); if (r.ok) acct = { u, tok: r.tok, fid: r.fid }; } catch (e) { /* le test du serveur le signalera */ } }
   if (API) {
     await test('Serveur : création de compte, connexion', async () => { const u = 'bot' + rnd(), r = await api('create', { pseudo: u, pass: 'abcd', fid: 'BOT-' + (1000 + Math.floor(Math.random() * 9000)) }); ok(r.ok && r.tok, JSON.stringify(r));
       const l = await api('login', { pseudo: u, pass: 'abcd' }); ok(l.ok, 'connexion : ' + JSON.stringify(l)); acct = { u, tok: l.tok, fid: r.fid }; return u; });
@@ -126,6 +142,6 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
   await test('Aucune erreur JavaScript pendant les tests', async () => { ok(!errsSolo.length, errsSolo.slice(0, 3).join(' | ')); return 'ok'; });
   await browser.close(); srv.close();
   const nOk = RES.filter((r) => r[1]).length, md = '# Bots de test Wild Kart\n\n' + nOk + ' / ' + RES.length + ' tests réussis\n\n| | Test | Détail |\n|---|---|---|\n' + RES.map(([n, o, d]) => '| ' + (o ? '✅' : '❌') + ' | ' + n + ' | ' + String(d).replace(/\|/g, '/').replace(/\n/g, ' ') + ' |').join('\n') + '\n';
-  fs.writeFileSync(path.join(OUT, 'rapport.md'), md); if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md); log('\n' + md);
+  fs.writeFileSync(path.join(OUT, process.env.GROUP ? 'rapport-' + process.env.GROUP + '.md' : 'rapport.md'), md); if (process.env.GITHUB_STEP_SUMMARY && !process.env.GROUP) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, md); log('\n' + md);
   process.exit(nOk === RES.length ? 0 : 1);
 })().catch((e) => { console.error(e); process.exit(1); });

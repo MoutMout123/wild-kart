@@ -6266,7 +6266,7 @@ function playerFinished() {
 }
 
 /* ---- visuel par image ---- */
-function updateVisuals(dt) {
+function updateVisuals(dt) { emoTick(dt);
   const R = G.race, W = G.W, S = W.S; const now = performance.now() / 1000;
   W.padTex.offset.y -= dt * 1.6; if (W.anim) for (const f of W.anim) f(dt, now);
   for (const k of G.karts) {
@@ -6496,7 +6496,7 @@ function recTick(dt) { const R = G.race, P = R && R.player; if (!P || P.spect ||
     const o = G.karts.find((x) => x.place === k.place + 1), d = o ? Math.hypot(o.x - k.x, o.z - k.z) : 99; if (d > 22) continue; const last = k.lap >= LAPS, me = k.isPlayer;
     REC.passes.set(k, { t: REC.t, place: k.place, o, pts: ((k.place === 1 ? 5 : 2.5) * (last ? 1.6 : 1) + (d < 6 ? 1.5 : 0)) * (me ? 1.2 : 1),
       label: (me ? 'Tu ' : k.name + ' ') + (k.place === 1 ? 'prend' + (me ? 's' : '') + ' la 1re place' + (last ? ' au dernier tour' : '') : 'double' + (me ? 's ' : ' ') + o.name) }); }
-  for (const [k, q] of REC.passes) if (REC.t - q.t > 1.5) { REC.passes.delete(k); if (k.place <= q.place) { recEvent(q.pts, q.label, q.o, q.t, k); if (k.isPlayer) { const ps = racePS(); ps.passes++; if (q.place === 1 && k.lap >= LAPS) ps.lastLap1 = true; } } }
+  for (const [k, q] of REC.passes) if (REC.t - q.t > 1.5) { REC.passes.delete(k); if (k.place <= q.place) { recEvent(q.pts, q.label, q.o, q.t, k); emoOnPass(k, q.o); if (k.isPlayer) { const ps = racePS(); ps.passes++; if (q.place === 1 && k.lap >= LAPS) ps.lastLap1 = true; } } }
   REC.place = P.place;
   // gros saut (avec figure en l'air : bonus)
   if (P.trickT > 0 && !REC.trick) REC.trick = true;
@@ -7360,6 +7360,7 @@ function onNetEvent(d) {
   const R = G.race; if (!R || !R.online || !G.netKarts) return; const K = (id) => G.netKarts.get(id) || null;
   if (d.e === 'bomb') { bombNet(d); return; }
   if (d.e === 'emo') { emoShow(String(d.n || '').slice(0, 12), String(d.x || '')); return; }
+  if (d.e === 'kemo') { const k = (G.karts || []).find((q) => q.netId === d.id && !q.isPlayer); if (k) kartEmote(k, String(d.x || '')); return; }
   if (d.e === 'reflect' || d.e === 'swap') { net13(d, K); return; }
   if (d.e === 'hit' && R.bombMode && Net.host) bombHitPass(K(d.v), K(d.src));
   if (d.e === 'oil') spawnOil(+d.x, +d.z, +d.y, K(d.o), d.id, d.kind || 'oil');
@@ -7413,6 +7414,20 @@ const EMOS = ['👍', '😂', '🔥', '😮', '😡', 'GG'];
 function emoRow() { const btns = $('#r-buttons'); if (!btns || $('#emo-row')) return; const row = document.createElement('div'); row.id = 'emo-row'; row.className = 'chips'; row.style.cssText = 'width:100%;justify-content:center';
   for (const x of EMOS) { const b = document.createElement('button'); b.type = 'button'; b.textContent = x; b.onclick = () => { if (Date.now() - (emoRow.t || 0) < 900) return; emoRow.t = Date.now(); const n = SAVE.acct ? SAVE.acct.u : SAVE.name || 'Toi'; netEmit({ e: 'emo', n, x }); emoShow('Toi', x); }; row.appendChild(b); }
   btns.appendChild(row); }
+// emotes en course : bouton 😜 (ou touches 1 à 4), bulle au-dessus du kart, vue par tous en ligne
+const TAUNTS = ['😜', '👋', '🐢', '😎'];
+function kartEmote(k, x) { if (!k || !k.mesh || !k.mesh.g || !TAUNTS.concat(EMOS).includes(x)) return; const g = k.mesh.g; if (k.emoS) { g.remove(k.emoS); k.emoS.material.map.dispose(); k.emoS.material.dispose(); }
+  const t = canvasTex(128, 128, (c, w, h) => { c.fillStyle = 'rgba(255,253,247,.95)'; c.beginPath(); c.arc(64, 58, 50, 0, TAU); c.fill(); c.beginPath(); c.moveTo(52, 100); c.lineTo(64, 124); c.lineTo(76, 100); c.fill(); c.font = '64px system-ui,"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji"'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(x, 64, 62); }, false);
+  const sp = new T.Sprite(new T.SpriteMaterial({ map: t, depthTest: false, transparent: true })); sp.scale.setScalar(2.6); sp.position.set(0, 4.2, 0); sp.renderOrder = 10; g.add(sp); k.emoS = sp; k.emoT = 2.4; }
+function emoTick(dt) { for (const k of G.karts || []) if (k.emoS && (k.emoT -= dt) <= 0) { k.mesh.g.remove(k.emoS); k.emoS.material.map.dispose(); k.emoS.material.dispose(); k.emoS = null; } else if (k.emoS) k.emoS.scale.setScalar(2.6 * Math.min(1, (2.4 - k.emoT) * 6)); }
+function playerEmote(x) { const R = G.race, P = R && R.player; if (!P || P.spect || !['race', 'done'].includes(R.state) || (playerEmote.r === R && (R.t || 0) - playerEmote.t < 1.5)) return; playerEmote.r = R; playerEmote.t = R.t || 0;
+  kartEmote(P, x); if (R.online) netEmit({ e: 'kemo', id: P.netId, x }); AudioSys.sfx('click'); $('#emo-pick').hidden = true; $('#b-emo').classList.remove('pulse'); }
+function emoPickOpen() { const el = $('#emo-pick'); if (!el.hidden) { el.hidden = true; return; } el.innerHTML = ''; TAUNTS.forEach((x) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = x; b.onclick = (e) => { e.stopPropagation(); playerEmote(x); }; el.appendChild(b); }); el.hidden = false; clearTimeout(emoPickOpen.t); emoPickOpen.t = setTimeout(() => (el.hidden = true), 3500); }
+$('#b-emo').onclick = (e) => { e.stopPropagation(); emoPickOpen(); };
+window.addEventListener('keydown', (e) => { if (e.target && e.target.tagName === 'INPUT') return; const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code); if (n >= 0 && !e.repeat && G.race) playerEmote(TAUNTS[n]); });
+// après un dépassement : le bouton clignote « Nargue ! » ; un bot qui te double te nargue parfois
+function emoOnPass(k, o) { if (k.isPlayer) { const b = $('#b-emo'); b.classList.add('pulse'); clearTimeout(emoOnPass.t); emoOnPass.t = setTimeout(() => b.classList.remove('pulse'), 3000); }
+  else if (o && o.isPlayer && !k.isRemote && Math.random() < .3 && !(k.emoCd > G.race.t)) { k.emoCd = (G.race.t || 0) + 10; kartEmote(k, pick(['😜', '👋', '😎'])); } }
 function emoShow(n, x) { if (!EMOS.includes(x)) return; const el = document.createElement('div'); el.textContent = n + ' ' + x; el.style.cssText = 'position:fixed;z-index:80;left:' + (10 + Math.random() * 70) + '%;bottom:18%;font:800 20px system-ui;color:#fffdf7;text-shadow:0 2px 4px #000;pointer-events:none;transition:transform 2.4s ease-out,opacity 2.4s';
   document.body.appendChild(el); requestAnimationFrame(() => { el.style.transform = 'translateY(-38vh)'; el.style.opacity = '0'; }); setTimeout(() => el.remove(), 2600); AudioSys.sfx('click'); }
 function goLobby() {
@@ -8152,5 +8167,5 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote };
 })();

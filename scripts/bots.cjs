@@ -109,6 +109,11 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
     await p.evaluate(() => { document.querySelector('[title="Outils de test"]').click(); [...document.querySelectorAll('[data-ti]')].find((x) => /fusée/.test(x.textContent)).click(); });
     let w = '0'; for (let i = 0; i < 20 && w === '0'; i++) { await sim(p, 6); w = await p.evaluate(() => document.querySelector('#h-warn').style.opacity); } await p.shot('course');
     ok(+w > 0, 'pas d\'alerte pour la fusée'); return a.gap + ' · ' + a.streak + ' · adhérence ' + g.toFixed(2); });
+  await test('En course : emotes (bouton, touches 1-4, bulle au-dessus du kart, « Nargue ! » après un dépassement)', async () => { const r = await p.evaluate(() => { const K = window.__TK, G = K.G; K.startRace(0, 1); K.show(null); for (let i = 0; i < 60 * 6; i++) K.simStep(1 / 60); const P = G.race.player;
+      document.querySelector('#b-emo').click(); const n = document.querySelectorAll('#emo-pick button').length; document.querySelector('#emo-pick button').click(); const a = !!P.emoS;
+      for (let i = 0; i < 60 * 3; i++) { K.simStep(1 / 60); K.updateVisuals(1 / 60); } const gone = !P.emoS; window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Digit3' })); const b = !!P.emoS;
+      return { n, a, gone, b, place: P.place }; });
+    ok(r.n === 4 && r.a && r.gone && r.b, JSON.stringify(r)); return '4 emotes, bulle affichée puis retirée, touche 3 ok'; });
   await test('Progression : niveaux, déblocages, coffre, onglet Progression', async () => { const r = await p.evaluate(() => { const K = window.__TK; K.show('garage'); const locked = [...document.querySelectorAll('#g-body button')].filter((b) => /🔒/.test(b.textContent)).length;
       const D = K.progData(); D.coins = 250; D.xp = 40 * 41 * 42; K.store(); K.show('title'); K.show('garage'); const locked2 = [...document.querySelectorAll('#g-body button')].filter((b) => /🔒/.test(b.textContent)).length;
       K.progOpen('niveau'); const coins0 = K.progData().coins; document.querySelector('#pg-chest').click(); for (const t of ['defis', 'succes', 'stats']) document.querySelector('[data-pt="' + t + '"]').click(); document.querySelector('#pg-x').click(); return { locked, locked2, coins0, coins1: K.progData().coins, lvl: K.progLevel(D.xp) }; });
@@ -128,7 +133,7 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
 
   // ---------- en ligne : deux joueurs, une vraie partie, des emojis ----------
   const errsSolo = p.errs.slice(); await p.goto('about:blank');   // la 1re page s'arrête : le processeur sert aux 2 bots en ligne
-  if (API) await test('En ligne : 2 bots créent et jouent une partie, emojis', async () => {
+  if (API) await test('En ligne : 2 bots créent et jouent une partie, emojis, emotes', async () => {
     const A = await page(browser, 'hote'), B = await page(browser, 'invite');
     // comme un vrai joueur : écran « En ligne », puis créer / rejoindre
     await A.evaluate(() => { window.__TK.show('online'); window.__TK.netCreate(); }); await A.waitForFunction(() => window.__TK.Net.pid, null, { timeout: 60000 }); const code = await A.evaluate(() => window.__TK.Net.code);
@@ -139,7 +144,9 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
     const sees = await B.evaluate(() => window.__TK.G.karts.filter((k) => k.isRemote).length); ok(sees >= 1, 'l\'invité ne voit pas l\'hôte');
     await A.evaluate(() => window.__TK.netEmit({ e: 'emo', n: 'Hôte', x: '🔥' }));   // comme le bouton 🔥 des résultats
     const got = await B.waitForFunction(() => [...document.querySelectorAll('div')].some((d) => d.textContent === 'Hôte 🔥'), null, { timeout: 8000 }).then(() => true, () => false);
-    ok(got, 'emoji pas reçu'); const errs = A.errs.concat(B.errs); ok(!errs.length, errs.join(' | ')); await A.context().close(); await B.context().close(); return 'partie ' + code + ', emoji reçu'; });
+    ok(got, 'emoji pas reçu');
+    await A.evaluate(() => window.__TK.playerEmote('😜')); const emo = await B.waitForFunction(() => window.__TK.G.karts.some((k) => k.isRemote && k.emoS), null, { timeout: 8000 }).then(() => true, () => false); ok(emo, 'emote au-dessus du kart pas reçue');
+    const errs = A.errs.concat(B.errs); ok(!errs.length, errs.join(' | ')); await A.context().close(); await B.context().close(); return 'partie ' + code + ', emoji et emote reçus'; });
 
   await test('Aucune erreur JavaScript pendant les tests', async () => { ok(!errsSolo.length, errsSolo.slice(0, 3).join(' | ')); return 'ok'; });
   await browser.close(); srv.close();

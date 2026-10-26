@@ -4798,7 +4798,7 @@ function hitKart(k, src) {
   if (k.spin > 0 || k.star > 0 || k.ghost > 0) return;
   if (k.shield > 0) { k.shield = 0; if (k.isPlayer || (src && src.isPlayer)) AudioSys.sfx('shield'); return; }
   if (G.race && G.race.bombMode) bombHitPass(k, src);
-  k.spin = 1.15; k.speed *= .3; k.boost = 0; if (k.drift) endDrift(k, false); if (src && src.isPlayer && k !== src) recEvent(3, 'Touché : ' + k.name);
+  k.spin = 1.15; k.speed *= .3; k.boost = 0; if (k.drift) endDrift(k, false); if (src && src.isPlayer && k !== src) recEvent(3, 'Touché : ' + k.name, k);
   for (let n = 0; n < 14; n++) G.W.parts.emit(k.x, k.y + 1.2, k.z, rand(-6, 6), rand(3, 8), rand(-6, 6), pick(['#ffc531', '#fffdf7', '#ff4f3a']), .7);
   if (k.isPlayer) { AudioSys.sfx('hit'); vibrate([60, 40, 80]); }
   else if (src && src.isPlayer) AudioSys.sfx('hit');
@@ -5691,7 +5691,7 @@ function simStep(dt) {
     if (W.def.arena && arenaLeft(R) <= 0) for (const k of G.karts) if (!k.finished && !k.isRemote) finishKart(k);
     if (R.pt) { if (P.wrongT > 2 && !R.pt.wf) { R.pt.wf = true; if (R.pt.wrong < 2) { R.pt.wrong++; banner('Mauvais sens : +1', 1.6, true); } } if (P.wrongT === 0) R.pt.wf = false; }
   }
-  if (R.state === 'finished') { R.timer2 = (R.timer2 || 0) + dt; if (R.timer2 > 3.5 && !R.resultsShown) showResults(); }
+  if (R.state === 'finished') { R.timer2 = (R.timer2 || 0) + dt; if (R.timer2 > 3.5 && !R.resultsShown) { if (REC.best && !R.autoRep && !REC.on) { R.autoRep = true; replayStart(); } else if (!REPLAY.on && (!REC.on || R.timer2 > 6)) showResults(); } }
   if (R.spec) specTick(dt);
 }
 // départ turbo : DRIFT pressé dans la dernière seconde du compte à rebours
@@ -5870,22 +5870,24 @@ const REC = { on: false, t: 0, acc: 0, fr: [], base: null, ev: [], best: null, p
 function recReset() { Object.assign(REC, { on: false, t: 0, acc: 0, fr: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, fin: false }); }
 function recNodes() { const L = []; for (const k of G.karts) { const M = k.mesh; M.g.userData.recK = k; L.push(M.g, M.tilt); if (M.shield) L.push(M.shield); if (M.bub) L.push(M.bub); }
   for (const o of G.W.scene.children) if (!REC.base.has(o)) L.push(o); return L; }
-function recEvent(pts, label) { if (!REC.on) return; REC.ev.push({ t: REC.t, pts, label }); REC.ev = REC.ev.filter((e) => REC.t - e.t < 5);
+// focus : le kart à montrer (celui qu'on touche, qu'on double…) en plus du tien
+function recEvent(pts, label, focus) { if (!REC.on) return; REC.ev.push({ t: REC.t, pts, label, f: focus && focus.mesh ? focus.mesh.g : null }); REC.ev = REC.ev.filter((e) => REC.t - e.t < 5);
   const sc = REC.ev.reduce((n, e) => n + e.pts, 0); if (sc > ((REC.pend && REC.pend.sc) || (REC.best && REC.best.sc) || 0)) REC.pend = { sc, at: REC.t, ev: REC.ev.slice() }; }
-function recCut() { const P = REC.pend; if (!P) return; REC.pend = null; const fr = REC.fr.filter((f) => f.t >= P.at - 5 && f.t <= P.at + 1.5); if (fr.length < 20) return;
+// le clip commence 2 s avant la 1re action du moment fort et finit 1,5 s après la dernière
+function recCut() { const P = REC.pend; if (!P) return; REC.pend = null; const t0 = Math.min(...P.ev.map((e) => e.t)) - 2, fr = REC.fr.filter((f) => f.t >= t0 && f.t <= P.at + 1.5); if (fr.length < 20) return;
   const cnt = new Map(); for (const e of P.ev) cnt.set(e.label, (cnt.get(e.label) || 0) + 1);
-  REC.best = { sc: P.sc, at: P.at, fr, label: [...cnt].map(([l, n]) => l + (n > 1 ? ' ×' + n : '')).join(' · ') }; }
+  REC.best = { sc: P.sc, at: P.at, fr, ev: P.ev, label: [...cnt].map(([l, n]) => l + (n > 1 ? ' ×' + n : '')).join(' · ') }; }
 function recTick(dt) { const R = G.race, P = R && R.player; if (!P || P.spect || R.state === 'attract' || REPLAY.on) return;
   if (R.state === 'race' && !P.finished) REC.on = true; if (!REC.on) return;
   REC.t += dt; REC.acc += dt; if (REC.acc >= 1 / 30) { REC.acc = 0;
     if (!REC.base) REC.base = new Set(G.W.scene.children); const ns = recNodes(), d = new Float32Array(ns.length * 11);
     ns.forEach((o, i) => { d.set([o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z, (o.userData.recK ? !o.userData.recK.spect : o.visible) ? 1 : 0], i * 11); });
     REC.fr.push({ t: REC.t, ns, d }); while (REC.fr.length && REC.t - REC.fr[0].t > 8) REC.fr.shift(); }
-  if (REC.place && P.place < REC.place && R.t > 4) recEvent(2 * (REC.place - P.place), P.place === 1 ? 'Prise de la 1re place' : 'Dépassement');
+  if (REC.place && P.place < REC.place && R.t > 4) recEvent(2 * (REC.place - P.place), P.place === 1 ? 'Prise de la 1re place' : 'Dépassement', G.karts.find((k) => k.place === P.place + 1));
   REC.place = P.place;
   if (P.air) REC.airT += dt; else { if (REC.airT > 1.1) recEvent(Math.min(5, REC.airT * 1.5), 'Envol de ' + REC.airT.toFixed(1).replace('.', ',') + ' s'); REC.airT = 0; }
   if (P.finished) { if (!REC.fin) { REC.fin = true; const near = G.karts.some((k) => k !== P && !k.spect && (k.finished ? Math.abs(k.finishTime - P.finishTime) < 1 : Math.abs(k.prog - P.prog) < 8));
-      recEvent((P.place === 1 ? 3 : 0) + (near ? 4 : 0), near ? 'Photo-finish' : P.place === 1 ? 'Victoire' : 'Arrivée'); }
+      recEvent((P.place === 1 ? 3 : 1) + (near ? 4 : 0), near ? 'Photo-finish' : P.place === 1 ? 'Victoire' : 'Arrivée'); }   // toujours au moins l'arrivée
     if (REC.t - (REC.pend ? REC.pend.at : 0) > 1.5) { recCut(); REC.on = false; } return; }
   if (REC.pend && REC.t - REC.pend.at >= 1.5) recCut(); }
 // lecture : la course est mise en pause, la caméra tourne autour de ton kart, ralenti au moment fort
@@ -5893,15 +5895,19 @@ const REPLAY = { on: false, t: 0, clip: null, ang: 0, race: null, back: null, li
 const repQa = new T.Quaternion(), repQb = new T.Quaternion();
 // remet la scène comme avant le ralenti (objets d'avant enlevés, objets d'aujourd'hui réaffichés)
 function replayRestore() { const sc = G.W && G.W.scene; if (sc) { for (const o of REPLAY.added) sc.remove(o); if (REPLAY.live) for (const [o, v] of REPLAY.live) o.visible = v; } REPLAY.added = new Set(); REPLAY.live = null; }
-function replayStart(back) { const c = REC.best; if (!c) return; Object.assign(REPLAY, { on: true, t: c.fr[0].t, clip: c, ang: 0, race: G.race, back, live: new Map(G.W.scene.children.filter((o) => REC.base && !REC.base.has(o)).map((o) => [o, o.visible])), added: new Set() }); camSnap = true; show(null);
+function replayStart(back) { const c = REC.best; if (!c) return; Object.assign(REPLAY, { on: true, t: c.fr[0].t, clip: c, ang: 0, h: null, race: G.race, back, live: new Map(G.W.scene.children.filter((o) => REC.base && !REC.base.has(o)).map((o) => [o, o.visible])), added: new Set() }); camSnap = true; show(null);
   let el = $('#replay'); if (!el) { el = document.createElement('div'); el.id = 'replay'; el.style.cssText = 'position:fixed;left:0;right:0;top:calc(10px + env(safe-area-inset-top));z-index:60;text-align:center;pointer-events:none;color:#fff;text-shadow:0 2px 6px #000;font:800 18px system-ui';
     el.innerHTML = '<div>🎬 Meilleure action</div><small style="font-weight:600;font-size:14px" id="replay-l"></small><div style="margin-top:8px"><button class="btn sm ghost" id="replay-x" style="pointer-events:auto"><span>Passer</span></button></div>'; document.body.appendChild(el);
     $('#replay-x').onclick = () => { AudioSys.sfx('click'); replayEnd(); }; }
   $('#replay-l').textContent = c.label; el.hidden = false; $('#hud').hidden = true; }
 function replayEnd() { if (!REPLAY.on) return; REPLAY.on = false; replayRestore(); const el = $('#replay'); if (el) el.hidden = true; if (G.race === REPLAY.race && G.race.player) { $('#hud').hidden = false; (REPLAY.back || showResults)(); } }
-function replayFrame(dt) { const c = REPLAY.clip, fr = c.fr, near = Math.abs(REPLAY.t - c.at) < 1.1; REPLAY.t += dt * (near ? .35 : 1);
+function replayFrame(dt) { const c = REPLAY.clip, fr = c.fr, evs = c.ev || [{ t: c.at }];
+  // l'action la plus proche : ralenti autour d'elle et son nom affiché
+  let cur = evs[0]; for (const e of evs) if (Math.abs(e.t - REPLAY.t) < Math.abs(cur.t - REPLAY.t)) cur = e;
+  const near = Math.abs(REPLAY.t - cur.t) < .9; REPLAY.t += dt * (near ? .35 : 1);
   if (G.race !== REPLAY.race) { REPLAY.on = false; REPLAY.added = new Set(); REPLAY.live = null; const el = $('#replay'); if (el) el.hidden = true; return; }
   if (REPLAY.t >= fr[fr.length - 1].t) { replayEnd(); return; }
+  { const l = $('#replay-l'), txt = cur.label || c.label; if (l && l.textContent !== txt) l.textContent = txt; }
   let i = 0; while (i < fr.length - 2 && fr[i + 1].t < REPLAY.t) i++; const a = fr[i], b = fr[i + 1], u = clamp((REPLAY.t - a.t) / (b.t - a.t), 0, 1);
   const sc = G.W.scene, seen = new Set(), bi = new Map(); b.ns.forEach((o, j) => bi.set(o, j));
   a.ns.forEach((o, j) => { const p = j * 11, jb = bi.get(o), q = jb == null ? p : jb * 11, db = jb == null ? a.d : b.d, L = (n) => a.d[p + n] + (db[q + n] - a.d[p + n]) * u; seen.add(o);
@@ -5910,11 +5916,16 @@ function replayFrame(dt) { const c = REPLAY.clip, fr = c.fr, near = Math.abs(REP
   for (const o of sc.children) if (!REC.base.has(o) && !seen.has(o)) o.visible = false;   // pas encore là à ce moment de la course
   const pk = REPLAY.race.player && REPLAY.race.player.mesh.g;
   if (!pk) { replayEnd(); return; }
-  REPLAY.ang += dt * (near ? .25 : .5); const h = pk.rotation.y + Math.PI * .15 + REPLAY.ang, dist = near ? 7 : 9.5;
-  tmpV.set(pk.position.x - Math.sin(h) * dist, pk.position.y + (near ? 2.4 : 3.6), pk.position.z - Math.cos(h) * dist);
-  if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * 5)); camSnap = false;
-  camera.fov = lerp(camera.fov, near ? 58 : 70, 1 - Math.exp(-dt * 3)); camera.updateProjectionMatrix();
-  lookV.set(pk.position.x, pk.position.y + 1.2, pk.position.z); camera.lookAt(lookV); G.W.sky.position.copy(camera.position); }
+  // caméra derrière le kart (comme en course) ; pendant une action avec un autre kart, on montre les deux
+  const fk = Math.abs(REPLAY.t - cur.t) < 1.6 && cur.f && cur.f.parent ? cur.f : null, far = fk && fk.position.distanceTo(pk.position) > 40, tg = far ? fk : pk;
+  const fwd = tmpV.set(0, 0, 1).applyQuaternion(tg.quaternion); fwd.y = 0; fwd.normalize(); const hd = Math.atan2(fwd.x, fwd.z);
+  if (REPLAY.h == null || camSnap) REPLAY.h = hd; REPLAY.h += angDiff(REPLAY.h, hd) * (1 - Math.exp(-dt * 4));
+  const mid = lookV.copy(tg.position); let dist = near ? 7.5 : 9, hgt = near ? 3 : 3.6, side = near ? .5 : .25;
+  if (fk && !far) { mid.add(fk.position).multiplyScalar(.5); const sep = fk.position.distanceTo(pk.position); dist += sep * .6; hgt += sep * .2; side = .7; }
+  const h = REPLAY.h + side, cx = mid.x - Math.sin(h) * dist, cy = mid.y + hgt, cz = mid.z - Math.cos(h) * dist;
+  if (camSnap) camera.position.set(cx, cy, cz); else camera.position.lerp(tmpV.set(cx, cy, cz), 1 - Math.exp(-dt * 6)); camSnap = false;
+  camera.fov = lerp(camera.fov, near ? 60 : 70, 1 - Math.exp(-dt * 3)); camera.updateProjectionMatrix();
+  mid.y += 1.2; camera.lookAt(mid); G.W.sky.position.copy(camera.position); }
 function showResults() {
   $('#r-big').hidden = true; $('#r-table').className = '';
   if (G.race && G.race.online) return onlineResults();

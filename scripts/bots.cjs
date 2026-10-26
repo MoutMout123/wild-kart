@@ -107,8 +107,9 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
   const errsSolo = p.errs.slice(); await p.goto('about:blank');   // la 1re page s'arrête : le processeur sert aux 2 bots en ligne
   if (API) await test('En ligne : 2 bots créent et jouent une partie, emojis', async () => {
     const A = await page(browser, 'hote'), B = await page(browser, 'invite');
-    await A.evaluate(() => window.__TK.netCreate()); await A.waitForFunction(() => window.__TK.Net.pid, null, { timeout: 30000 }); const code = await A.evaluate(() => window.__TK.Net.code);
-    await B.evaluate((c) => window.__TK.netJoin(c), code); await A.waitForFunction(() => window.__TK.Net.players.length >= 2, null, { timeout: 45000 });
+    // comme un vrai joueur : écran « En ligne », puis créer / rejoindre
+    await A.evaluate(() => { window.__TK.show('online'); window.__TK.netCreate(); }); await A.waitForFunction(() => window.__TK.Net.pid, null, { timeout: 60000 }); const code = await A.evaluate(() => window.__TK.Net.code);
+    await B.evaluate((c) => { window.__TK.show('online'); window.__TK.netJoin(c); }, code); await A.waitForFunction(() => window.__TK.Net.players.length >= 2, null, { timeout: 60000 });
     await A.evaluate(() => window.__TK.hostStart()); await B.waitForFunction(() => window.__TK.G.race && window.__TK.G.race.online, null, { timeout: 30000 });
     await A.evaluate(() => { window.__TK.setAutopilot(true); window.__TK.G.testSpeed = 3; }); await B.evaluate(() => { window.__TK.setAutopilot(true); window.__TK.G.testSpeed = 3; });
     await A.waitForTimeout(15000); await A.shot('course'); await B.shot('course');

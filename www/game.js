@@ -1480,12 +1480,12 @@ function jgGeo(name) {
     const tall = name === 'kapok' ? 17 : 13, tw = name === 'kapok' ? 1 : .8;
     const tk = new T.CylinderGeometry(.5 * tw, 1.05 * tw, tall, 7, 3); wobble(tk, .1, 1.3, 3, true); tk.translate(0, tall / 2, 0); L.push([tk, '#6b5038', [.7, 1]]);
     for (let k = 0; k < 4; k++) { const s = new T.Shape(); s.moveTo(0, 0); s.lineTo(2.8 * tw, 0); s.quadraticCurveTo(.6, .7, 0, 4.2 * tw); s.lineTo(0, 0); const f = new T.ExtrudeGeometry(s, { depth: .32, bevelEnabled: false, curveSegments: 3 }); f.translate(0, 0, -.16); f.rotateY(k / 4 * TAU + .4); L.push([f, '#5e4632', [.65, .95]]); }
-    const cs = name === 'kapok' ? [[0, tall + 1.2, 0, 5.4], [3.4, tall - .4, 1.2, 3.8], [-2.8, tall - .1, -2, 3.6], [.6, tall + .4, 3, 3.4]] : [[0, tall + 1, 0, 4.4], [2.4, tall - .3, -1.4, 3.2], [-2.2, tall, 1.6, 3]];
-    cs.forEach(([x, y, z, r], k) => { const b = jgBlob(r, 1, .22, k * 3 + 2, .42); b.translate(x, y, z); L.push([b, '#2f7a34', [.6, 1.12]]); });
+    const cs = name === 'kapok' ? [[0, tall + 1.6, 0, 5.4], [3.6, tall - .2, 1.2, 4], [-3, tall + .2, -2, 3.8], [.6, tall + .6, 3.2, 3.6], [-1.4, tall - 1.6, 1, 3.4], [1.8, tall + 2.6, -1.6, 3]] : [[0, tall + 1.4, 0, 4.6], [2.6, tall, -1.4, 3.4], [-2.4, tall + .2, 1.6, 3.2], [.4, tall - 1.4, -.6, 3]];
+    cs.forEach(([x, y, z, r], k) => { const b = jgBlob(r, k ? 0 : 1, .24, k * 3 + 2, .62); b.translate(x, y, z); L.push([b, k % 2 ? '#2a6e30' : '#327e36', [.55, 1.12]]); });
     for (const [x, z, h] of [[3.6, 1.6, 9], [-3.2, -1.8, 7], [1, 3.4, 10.5]]) { const v = new T.CylinderGeometry(.07, .07, h, 3); v.translate(x, tall - h / 2 + .4, z); L.push([v, '#3f5a2a', [.8, 1]]); }
   } else if (name === 'slim') { // arbre élancé à houppiers étagés
     const tk = new T.CylinderGeometry(.26, .45, 12, 6, 2); tk.translate(0, 6, 0); L.push([tk, '#7a6248', [.75, 1]]);
-    [[0, 12.6, 0, 2.6], [1.2, 10.4, .6, 1.9], [-1, 9, -.5, 1.6]].forEach(([x, y, z, r], k) => { const b = jgBlob(r, 1, .2, k + 11, .6); b.translate(x, y, z); L.push([b, '#3d8a3a', [.62, 1.1]]); });
+    [[0, 12.6, 0, 2.6], [1.2, 10.4, .6, 1.9], [-1, 9, -.5, 1.6]].forEach(([x, y, z, r], k) => { const b = jgBlob(r, k ? 0 : 1, .2, k + 11, .6); b.translate(x, y, z); L.push([b, '#3d8a3a', [.62, 1.1]]); });
   } else if (name === 'palm') { // palmier léger (6 palmes simples)
     const tk = new T.CylinderGeometry(.22, .34, 9, 6, 3); tk.translate(0, 4.5, 0); const p = tk.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) + y * y * .012); } L.push([tk, '#8a6a4a', [.75, 1]]);
     for (let f = 0; f < 6; f++) { const fr = new T.PlaneGeometry(4.2, .9, 3, 1); fr.translate(2.1, 0, 0); const q = fr.attributes.position; for (let i = 0; i < q.count; i++) { const x = q.getX(i); q.setY(i, -x * x * .06); } fr.rotateY(f / 6 * TAU); fr.translate(.97, 9, 0); L.push([fr, '#3f9a42', [.8, 1.05]]); }
@@ -1547,9 +1547,9 @@ function buildJungle(W, ext, cx, cz, scatter, ring, q) {
   const put = (k, x, z, s, extra) => P[k].push(Object.assign({ x, z, y: -.25, s, r: rand(0, TAU), g: 1 }, extra || {}));
   // 1) lisière (2 à 16 m du mur) : touffes de fougères, grandes feuilles, broméliacées, rochers moussus
   for (let i = 0; i < N; i += 4) for (const sd of [-1, 1]) { const dn = dens(i); if (Math.random() > (.35 + .55 * dn) * q) continue;
-    const c = at(i, sd, rand(3, 14)); if (!ok(c.x, c.z, 2.5, 18)) continue; const n = 2 + Math.floor(Math.random() * 3);
-    for (let m = 0; m < n; m++) { const x = c.x + rand(-3.5, 3.5), z = c.z + rand(-3.5, 3.5); if (!ok(x, z, 2.5)) continue; const r = Math.random();
-      if (r < .5) put('fern', x, z, rand(.8, 1.5)); else if (r < .8) put('leaf', x, z, rand(.9, 1.6)); else if (r < .93) put('brom', x, z, rand(.8, 1.3)); else put('mrock', x, z, rand(.6, 1.4)); } }
+    const c = at(i, sd, rand(9, 16)); if (!ok(c.x, c.z, 8, 20)) continue; const n = 2 + Math.floor(Math.random() * 3);
+    for (let m = 0; m < n; m++) { const x = c.x + rand(-3.5, 3.5), z = c.z + rand(-3.5, 3.5); if (!ok(x, z, 7.5)) continue; const r = Math.random();
+      if (r < .5) put('fern', x, z, rand(1.6, 2.6)); else if (r < .8) put('leaf', x, z, rand(1.8, 2.8)); else if (r < .93) put('brom', x, z, rand(1.4, 2)); else put('mrock', x, z, rand(1, 2)); } }
   // 2) murs de forêt (12 à 85 m) : bosquets de fromagers, arbres élancés, quelques palmiers ; clairières là où la densité baisse
   for (let i = 0; i < N; i += 7) for (const sd of [-1, 1]) { const dn = dens(i); if (Math.random() > (.15 + .85 * dn) * q) continue;
     const c = at(i, sd, rand(14, 70)); if (!ok(c.x, c.z, 11)) continue; const n = 2 + Math.floor(dn * 4 + Math.random() * 2);
@@ -1563,8 +1563,8 @@ function buildJungle(W, ext, cx, cz, scatter, ring, q) {
   // 5) cité perdue (zone « ruines ») : colonnes, pans de murs, têtes de pierre au bord de la route
   for (let i = 0; i < N; i += 9) { if (zoneOf(i) !== 'ruines') continue; for (const sd of [-1, 1]) { if (Math.random() > .55) continue; const c = at(i, sd, rand(3, 22)); if (!ok(c.x, c.z, 2.5, 30)) continue; const r = Math.random();
     if (r < .45) put('column', c.x, c.z, 1, { sx: 1, sy: rand(2.5, 8), sz: 1 }); else if (r < .8) put('wallbit', c.x, c.z, rand(.8, 1.3), { r: S.hd[i] + Math.PI / 2 + rand(-.3, .3) }); else put('head', c.x, c.z, rand(1, 1.5), { r: Math.atan2(S.px[i] - c.x, S.pz[i] - c.z) }); } }
-  for (const k in P) if (P[k].length) jgPlace(scene, jgGeo(k), mat, P[k], k === 'canopy' || k === 'karst' ? 700 : 420);
-  W.jgCount = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, v.length]));
+  for (const k in P) if (P[k].length) jgPlace(scene, jgGeo(k), mat, P[k], k === 'canopy' || k === 'karst' ? 900 : 600);
+  W.jgMarks = { arches: [], pyramid: null, falls: [] }; W.jgCount = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, v.length]));
   // arches de la cité perdue au-dessus de la route (2), sur des portions droites hors saut / embranchement / virage relevé
   { const stone = stdMat('#8f927c', .9, 0), dark = stdMat('#6e715e', .9, 0), moss = stdMat('#3f7a34', .95, 0); const used = [];
     for (let i = 0; i < N && used.length < 2; i += 5) { if (zoneOf(i) !== 'ruines' || S.glide[i] || (S.wz && S.wz[i]) || nearBranchWin(W, i, 14) || used.some((u) => Math.abs(u - i) < N * .07)) continue;
@@ -1574,28 +1574,27 @@ function buildJungle(W, ext, cx, cz, scatter, ring, q) {
       const top = new T.Mesh(rbox(span * 2 + 6, 3, 4, .3), stone); top.position.y = 14.4; g.add(top); const top2 = new T.Mesh(new T.BoxGeometry(span * 2 + 2, 1.2, 4.4), dark); top2.position.y = 12.6; g.add(top2);
       for (let k = 0; k < 7; k++) { const m = new T.Mesh(jgBlob(rand(.9, 1.6), 1, .3, k, .5), moss); m.position.set(rand(-span, span), 15.9, rand(-1.5, 1.5)); g.add(m); }
       for (let k = 0; k < 6; k++) { const h = rand(3, 7), v = new T.Mesh(new T.CylinderGeometry(.06, .06, h, 3), moss); v.position.set(rand(-span + 2, span - 2), 12 - h / 2, rand(-1.8, 1.8)); g.add(v); }
-      scene.add(g); } }
+      scene.add(g); } W.jgMarks.arches = used; }
   // grande pyramide de la cité perdue, bien visible depuis une ligne droite
   { let best = null; for (let i = 0; i < N; i += 6) { if (zoneOf(i) !== 'ruines') continue; for (const sd of [-1, 1]) { const c = at(i, sd, 95); if (!ok(c.x, c.z, 70, 140)) continue; if (!best || Math.random() < .25) best = c; } }
     if (best) { const g = new T.Group(), st = stdMat('#8f927c', .9, 0), st2 = stdMat('#7e816c', .9, 0), moss = stdMat('#3f7a34', .95, 0);
       for (let l = 0; l < 7; l++) { const w = 46 - l * 6; const b = new T.Mesh(new T.BoxGeometry(w, 5, w), l % 2 ? st2 : st); b.position.y = 2.5 + l * 5; g.add(b); for (let k = 0; k < 3; k++) { const m = new T.Mesh(jgBlob(rand(1.5, 3), 1, .3, l * 3 + k, .45), moss); const a = rand(0, TAU); m.position.set(Math.cos(a) * w / 2, 5 + l * 5, Math.sin(a) * w / 2); g.add(m); } }
       const temple = new T.Mesh(new T.BoxGeometry(8, 7, 8), st); temple.position.y = 38.5; g.add(temple); const door = new T.Mesh(new T.BoxGeometry(2.6, 4, .4), stdMat('#2a2a22', 1, 0)); door.position.set(0, 37, 4.05); g.add(door);
       const stair = new T.Mesh(new T.BoxGeometry(7, 1, 30), st2); stair.position.set(0, 17, 17); stair.rotation.x = .96; g.add(stair);
-      g.position.set(best.x, hy(W, best.x, best.z, -1), best.z); g.rotation.y = Math.atan2(cx - best.x, cz - best.z); scene.add(g); } }
+      g.position.set(best.x, hy(W, best.x, best.z, -1), best.z); g.rotation.y = Math.atan2(cx - best.x, cz - best.z); scene.add(g); W.jgMarks.pyramid = best; } }
   // cascade au-dessus du ravin du planeur : falaise, rideau d'eau animé, bassin, brume
   const wt = waterTex(); W.waterTex = wt; const wm = new T.MeshStandardMaterial({ map: wt, roughness: .12, metalness: .15, transparent: true, opacity: .92 });
   for (const i of gaps) { const drop = (W.th.terrain && W.th.terrain.drop) || 22, base = S.py[i] - drop;
     const river = new T.Mesh(new T.PlaneGeometry(46, 300), wm); river.rotation.x = -Math.PI / 2; river.rotation.z = -S.hd[i] + Math.PI / 2; river.position.set(S.px[i], base + 2.2, S.pz[i]); scene.add(river);
     // côté de la cascade : celui qui est le plus loin des autres routes
     let sd = -1, bestD = -1; for (const s of [-1, 1]) { const c = at(i, s, 48); const d = near(c.x, c.z, 120).d; if (d > bestD) { bestD = d; sd = s; } }
-    const d = wallD + 52, fx = S.px[i] + S.rx[i] * sd * d, fz = S.pz[i] + S.rz[i] * sd * d, top = S.py[i] + 26, h = top - base;
-    const cliff = new T.Mesh(smooth(wobble(new T.BoxGeometry(70, h + 14, 26, 8, 6, 3), .07, .08, 4), 50), stdMat('#7c816c', .95, 0)); cliff.position.set(S.px[i] + S.rx[i] * sd * (d + 14), base + (h + 14) / 2 - 6, S.pz[i] + S.rz[i] * sd * (d + 14)); cliff.rotation.y = S.hd[i]; scene.add(cliff);
-    const cap = new T.Mesh(jgBlob(1, 1, .25, 3, .4), stdMat('#2f6e34', .95, 0)); cap.scale.set(40, 10, 16); cap.position.set(cliff.position.x, top + 4, cliff.position.z); cap.rotation.y = S.hd[i]; scene.add(cap);
+    W.jgMarks.falls.push({ i, sd }); const d = wallD + 52, fx = S.px[i] + S.rx[i] * sd * d, fz = S.pz[i] + S.rz[i] * sd * d, top = S.py[i] + 26, h = top - base;
+    const cliff = new T.Mesh(smooth(wobble(new T.BoxGeometry(26, h + 14, 74, 3, 6, 8), .12, .09, 4), 50), stdMat('#5f6656', .95, 0)); cliff.position.set(S.px[i] + S.rx[i] * sd * (d + 14), base + (h + 14) / 2 - 6, S.pz[i] + S.rz[i] * sd * (d + 14)); cliff.rotation.y = S.hd[i]; scene.add(cliff);
+    const cap = new T.Mesh(jgBlob(1, 1, .25, 3, .4), stdMat('#2f6e34', .95, 0)); cap.scale.set(16, 10, 42); cap.position.set(cliff.position.x, top + 4, cliff.position.z); cap.rotation.y = S.hd[i]; scene.add(cap);
     const fallTex = wt.clone(); fallTex.needsUpdate = true; fallTex.repeat.set(1.2, 2.5); const fm = new T.MeshBasicMaterial({ map: fallTex, transparent: true, opacity: .9, side: T.DoubleSide, color: '#e8fbff' });
-    const fall = new T.Mesh(new T.PlaneGeometry(22, h + 2), fm); fall.position.set(fx, base + h / 2 + 1, fz); fall.rotation.y = S.hd[i]; scene.add(fall);
-    const fall2 = new T.Mesh(new T.PlaneGeometry(9, h * .8), fm); fall2.position.set(fx + S.fx[i] * 24 - S.rx[i] * sd * 1, base + h * .4, fz + S.fz[i] * 24 - S.rz[i] * sd * 1); fall2.rotation.y = S.hd[i]; scene.add(fall2);
+    const fall = new T.Mesh(new T.PlaneGeometry(22, h + 2), fm); fall.position.set(fx, base + h / 2 + 1, fz); fall.rotation.y = S.hd[i] + Math.PI / 2; scene.add(fall);
+    const fall2 = new T.Mesh(new T.PlaneGeometry(9, h * .8), fm); fall2.position.set(fx + S.fx[i] * 24 - S.rx[i] * sd * 1, base + h * .4, fz + S.fz[i] * 24 - S.rz[i] * sd * 1); fall2.rotation.y = S.hd[i] + Math.PI / 2; scene.add(fall2);
     const pool = new T.Mesh(new T.CircleGeometry(26, 28), wm); pool.rotation.x = -Math.PI / 2; pool.position.set(fx - S.rx[i] * sd * 6, base + 2.3, fz - S.rz[i] * sd * 6); scene.add(pool);
-    const lip = new T.Mesh(new T.PlaneGeometry(22, 14), wm); lip.rotation.x = -Math.PI / 2; lip.rotation.z = -S.hd[i]; lip.position.set(fx + S.rx[i] * sd * 7, top + .3, fz + S.rz[i] * sd * 7); scene.add(lip);
     addTick(W, (dt) => { fallTex.offset.y += dt * 1.4; if (W.parts && Math.random() < .7) W.parts.emit(fx + S.fx[i] * rand(-10, 10) - S.rx[i] * sd * rand(2, 8), base + 3, fz + S.fz[i] * rand(-10, 10) - S.rz[i] * sd * rand(2, 8), rand(-2, 2), rand(3, 7), rand(-2, 2), '#eefcff', 1.2, .9); }); }
   addClouds(W, ext, cx, cz, 10);
 }

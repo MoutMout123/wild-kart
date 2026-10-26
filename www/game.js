@@ -3633,7 +3633,7 @@ function startDrift(k, dir) {
 function endDrift(k, give) {
   const tier = k.driftTier || 0; k.drift = 0; k.driftT = 0; k.driftTier = 0;
   if (!give || k.spin > 0 || !tier) return;
-  k.boost = Math.max(k.boost, DRIFT_BOOST[tier]); k.boostTier = tier; k.driftCd = 1;
+  k.boost = Math.max(k.boost, DRIFT_BOOST[tier]); k.boostTier = tier; k.driftCd = 1; if (k.isPlayer) styleAdd([0, 40, 100, 220][tier] || 0, tier >= 3 ? 'Super dérapage' : tier === 2 ? 'Beau dérapage' : '');
   if (k.isPlayer) { AudioSys.sfx(tier >= 2 ? 'boost' : 'mini'); vibrate(tier >= 3 ? [20, 30, 40] : 25); }
 }
 // compatibilité avec l'ancien code
@@ -4749,7 +4749,10 @@ function buildGates(W) {
 }
 // météo changeante (pluie, neige, brouillard) : modifie l'adhérence, annoncée avant
 const WEATHERS = [{ id: 'sun', name: 'Grand soleil', grip: 1, fog: 1 }, { id: 'rain', name: 'Averse', grip: .82, fog: .6 }, { id: 'snow', name: 'Neige', grip: .7, fog: .55 }, { id: 'fog', name: 'Brouillard', grip: .95, fog: .3 }];
-function planWeather(W) { if (!W.def.weather) return; const rng = seeded(seedHash(W.def.id + ':wx', RACE_OPTS.seed || 1)); const seq = []; for (let k = 0; k < 12; k++) seq.push(k === 0 ? 0 : 1 + Math.floor(rng() * 3)); W.wx = { seq, period: W.def.weather.period || 35, cur: -1, fogN: W.scene.fog.near, fogF: W.scene.fog.far, grip: 1 };
+// circuits en plein air : la météo peut changer (une course sur deux environ). 1 = pluie, 2 = neige, 3 = brouillard
+const WX_TRACKS = { piquenique: [1, 3], coupsoleil: [1], sieste: [1, 3], safaribouchon: [1, 3], glissade: [2, 3], grandsaut: [1, 3], festival: [1, 3], cameleon: [1, 3], cascade: [1, 3], deuxroutes: [1, 2, 3], neonafter: [1, 3], bellemere: [3, 1], trainfou: [1, 3] };
+function planWeather(W) { const kinds = W.def.weather ? [1, 2, 3] : WX_TRACKS[W.def.id]; if (!kinds || W.def.arena) return; const rng = seeded(seedHash(W.def.id + ':wx', RACE_OPTS.seed || 1)); if (!W.def.weather && rng() < .45) return;
+  const seq = []; for (let k = 0; k < 12; k++) seq.push(k === 0 ? 0 : k % 2 ? kinds[Math.floor(rng() * kinds.length)] : rng() < .5 ? 0 : kinds[Math.floor(rng() * kinds.length)]); W.wx = { seq, period: (W.def.weather && W.def.weather.period) || 32, cur: -1, fogN: W.scene.fog.near, fogF: W.scene.fog.far, grip: 1 };
   const n = 900, pos = new Float32Array(n * 3); for (let i = 0; i < n; i++) { pos[i * 3] = rand(-50, 50); pos[i * 3 + 1] = rand(0, 40); pos[i * 3 + 2] = rand(-50, 50); }
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.BufferAttribute(pos, 3)); const p = new T.Points(g, new T.PointsMaterial({ color: '#cfe8ff', size: .25, transparent: true, opacity: 0, depthWrite: false })); p.frustumCulled = false; W.scene.add(p); W.wx.pts = p; W.wx.pos = pos; }
 function updateWeather(W, t, dt) { const X = W.wx; if (!X) return; const k = Math.floor(t / X.period), wi = X.seq[((k % X.seq.length) + X.seq.length) % X.seq.length], w = WEATHERS[wi], nxt = WEATHERS[X.seq[((k + 1) % X.seq.length + X.seq.length) % X.seq.length]];
@@ -5843,6 +5846,36 @@ function drawMap() {
 let bannerTimer = 0, countTimer = 0, hudTick = 0; const hudCache = {};
 function banner(txt, dur, warn) { hud.banner.textContent = txt; hud.banner.className = 'on' + (warn ? ' warn' : ''); bannerTimer = dur; }
 function countdown(txt, go) { hud.count.textContent = txt; hud.count.className = (go ? 'go ' : '') + 'pulse'; void hud.count.offsetWidth; countTimer = go ? .9 : 1.2; }
+/* ---------- 1re place : écart, série en tête, points de style ; alerte d'objet qui arrive ---------- */
+function leadEl() { let el = $('#h-lead'); if (!el) { el = document.createElement('div'); el.id = 'h-lead'; el.style.cssText = 'position:absolute;top:calc(max(10px,env(safe-area-inset-top,0px)) + 70px);left:max(16px,env(safe-area-inset-left,0px));font:800 15px system-ui;color:#fffdf7;text-shadow:0 2px 3px #17143a,0 0 2px #17143a;line-height:1.35;pointer-events:none';
+  el.innerHTML = '<div id="h-gap"></div><div id="h-streak"></div><div id="h-style"></div><div id="h-pop" style="font-size:13px;color:#ffc531;opacity:0;transition:opacity .3s"></div>'; $('#hud').appendChild(el); } return el; }
+function styleAdd(n, label) { const R = G.race, P = R && R.player; if (!P || !n || R.state !== 'race' || P.finished) return; const x2 = P.place === 1, v = Math.round(n * (x2 ? 2 : 1)); R.style = (R.style || 0) + v;
+  const pop = $('#h-pop'); if (pop) { pop.textContent = '+' + v + (x2 ? ' (×2 en tête)' : '') + (label ? ' · ' + label : ''); pop.style.opacity = 1; clearTimeout(styleAdd.t); styleAdd.t = setTimeout(() => { pop.style.opacity = 0; }, 1300); } }
+function leadHud(dt, P, R) { leadEl(); const L = R.lead || (R.lead = { t: 0, pts: 0, best: 0, gap: 0, gapT: 0, trend: 0, air: 0, trick: false }), racing = R.state === 'race' && !P.finished, solo = G.karts.filter((k) => !k.spect).length < 2;
+  // série en tête : ×1 puis ×2 après 20 s, ×3 après 45 s ; perdue si on se fait doubler
+  if (racing && P.place === 1 && !solo) { L.t += dt; const m = L.t > 45 ? 3 : L.t > 20 ? 2 : 1; L.pts += dt * m; L.best = Math.max(L.best, L.t); }
+  else if (racing && L.t > 0) { if (L.t > 8) { const pop = $('#h-pop'); if (pop) { pop.textContent = 'Série en tête perdue (' + Math.round(L.t) + ' s)'; pop.style.opacity = 1; clearTimeout(styleAdd.t); styleAdd.t = setTimeout(() => { pop.style.opacity = 0; }, 1600); } } L.t = 0; }
+  // points de style : sauts (et figures)
+  if (racing) { if (P.air) { L.air += dt; if (P.trickT > 0) L.trick = true; } else { if (L.air > .7) styleAdd(Math.round(L.air * 60 + (L.trick ? 120 : 0)), L.trick ? 'Figure' : 'Saut'); L.air = 0; L.trick = false; } }
+  L.gapT -= dt; if (L.gapT > 0) return; L.gapT = .25;
+  { const hi = $('.hud-info'), el = $('#h-lead'); if (hi && hi.offsetHeight) { const t = hi.offsetTop + hi.offsetHeight + 6 + 'px'; if (el.style.top !== t) el.style.top = t; } }   // sous « tour » et le chrono
+  // écart avec le 2e (en secondes), vert s'il grandit, rouge s'il fond
+  const g = $('#h-gap'), sec = G.karts.find((k) => k.place === 2 && !k.spect); let txt = '', col = '#fffdf7';
+  if (racing && P.place === 1 && sec) { const d = (P.prog - sec.prog) * G.W.S.seg, v = Math.max(12, sec.maxSpeed * .85), gs = d / v; L.trend = lerp(L.trend, gs - L.gap, .5); L.gap = gs; txt = '+' + gs.toFixed(1).replace('.', ',') + ' s'; col = L.trend > .002 ? '#3ee08f' : L.trend < -.002 ? '#ff6a5a' : '#fffdf7'; }
+  if (g.textContent !== txt) g.textContent = txt; g.style.color = col;
+  const st = $('#h-streak'), m = L.t > 45 ? 3 : L.t > 20 ? 2 : 1, stx = racing && L.t > 2 ? '🔥 Série ' + Math.floor(L.t / 60) + ':' + String(Math.floor(L.t % 60)).padStart(2, '0') + (m > 1 ? ' ×' + m : '') : ''; if (st.textContent !== stx) st.textContent = stx;
+  const sy = $('#h-style'), syx = (R.style || 0) > 0 && racing ? '✨ Style ' + R.style.toLocaleString('fr-FR') : ''; if (sy.textContent !== syx) sy.textContent = syx; }
+const leadSummary = (R) => { const L = R && R.lead, a = []; if (R && R.style) a.push('Style ' + R.style.toLocaleString('fr-FR')); if (L && L.best > 5) a.push('Série en tête ' + Math.round(L.best) + ' s'); return a.join(' · '); };
+// objet qui fonce sur toi (comme dans Mario Kart) : petite icône en bas, du côté d'où il arrive ; rien pour les pièges posés
+function warnHud(P, R) { let el = $('#h-warn'); if (!el) { el = document.createElement('div'); el.id = 'h-warn'; el.style.cssText = 'position:absolute;bottom:calc(max(14px,env(safe-area-inset-bottom,0px)) + 26px);left:50%;width:46px;height:46px;margin-left:-23px;border-radius:50%;background:rgba(23,20,58,.55);border:3px solid #ff4f3a;padding:5px;box-sizing:border-box;pointer-events:none;opacity:0;transition:opacity .15s'; $('#hud').appendChild(el); }
+  let best = null, bd = 1e9; if (R.state === 'race' && !P.finished && !(P.ghost > 0) && !(P.star > 0)) for (const r of G.rockets) { if (r.owner === P || r.kind === 'comete' || r.stuck || r.armed || r.kind === 'meteore' || r.kind === 'tourbillon') continue;
+    const dx = P.x - r.x, dz = P.z - r.z, d = Math.hypot(dx, dz); if (d > 70 || d < 1) continue; const aimed = r.target === P || r.aimTg === P, toward = (Math.sin(r.h) * dx + Math.cos(r.h) * dz) / d > .85;
+    if (!(aimed || (toward && d < 40))) continue; if (d < bd) { bd = d; best = r; } }
+  if (!best) { if (el.style.opacity !== '0') el.style.opacity = '0'; el.dataset.k = ''; return; }
+  if (el.dataset.k !== best.kind) { el.dataset.k = best.kind; el.innerHTML = ICONS[best.kind] || ICONS.rocket || ''; const sv = el.firstChild; if (sv && sv.style) { sv.style.width = '100%'; sv.style.height = '100%'; } }
+  // gauche / droite vu de la caméra (que l'objet soit derrière ou sur le côté)
+  const me = camera.matrixWorld.elements, rx = me[0], rz = me[2], dx = best.x - camera.position.x, dz = best.z - camera.position.z, x = clamp((rx * dx + rz * dz) / Math.max(1, Math.hypot(dx, dz)) * 1.4, -1, 1) * 38;
+  el.style.transform = 'translateX(' + x.toFixed(0) + 'vw) scale(' + (bd < 18 ? 1 + .12 * Math.sin(performance.now() / 70) : 1) + ')'; el.style.opacity = bd < 18 ? '1' : '.8'; }
 function updateHud(dt) {
   const R = G.race, P = R.player; if (!P) return;
   hudTick += dt; const slow = hudTick >= 1 / 15; if (slow) hudTick = 0;
@@ -5860,6 +5893,7 @@ function updateHud(dt) {
   if (countTimer > 0) { countTimer -= dt; if (countTimer <= 0) hud.count.textContent = ''; }
   if (R.state === 'race' && P.wrongT > 1.2 && bannerTimer <= 0) { banner('Mauvais sens !', .8, true); }
   if (slow) drawMap();
+  leadHud(dt, P, R); warnHud(P, R);
   AudioSys.engine(clamp(Math.abs(P.speed) / P.maxSpeed, 0, 1.4), !G.paused && R.state !== 'intro', P.boost > 0, !!P.drift);
 }
 
@@ -5981,7 +6015,7 @@ function showResults() {
   const place = order.indexOf(P) + 1;
   $('#r-title').textContent = place === 1 ? 'Victoire !' : place + (place === 1 ? 'er' : 'e') + ' place';
   const rec = SAVE.records[TRACKS[R.ti].id] || {};
-  $('#r-sub').textContent = TRACKS[R.ti].name + ' · ' + CC[R.cc].name + ' · Meilleur tour ' + fmtTime(P.bestLap) + ' (record ' + fmtTime(rec.lap) + ')' + (R.bombMode ? ' · ' + bombSummary() : '');
+  $('#r-sub').textContent = TRACKS[R.ti].name + ' · ' + CC[R.cc].name + ' · Meilleur tour ' + fmtTime(P.bestLap) + ' (record ' + fmtTime(rec.lap) + ')' + (R.bombMode ? ' · ' + bombSummary() : '') + (leadSummary(R) ? ' · ' + leadSummary(R) : '');
   const btns = $('#r-buttons'); btns.innerHTML = '';
   const mk = (label, cls, fn) => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.innerHTML = '<span></span>'; b.firstChild.textContent = label; b.onclick = () => { AudioSys.sfx('click'); fn(); }; btns.appendChild(b); };
   if (UI.mode === 'gp' && UI.gp) {

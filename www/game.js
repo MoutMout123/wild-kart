@@ -3211,7 +3211,7 @@ function applyBotLevel(lv) {
     ai.skill *= L.skill; k.maxSpeed *= L.spd; ai.drifty = Math.random() < L.drift; ai.avoid = L.avoid; ai.itemRate = L.item; ai.err = L.err; ai.rubA = L.rubA; ai.rubB = L.rubB; ai.seed = Math.floor(Math.random() * 100); }
 }
 function startRace(ti, ccIdx, who, roster) {
-  G.police = null; Secret.last = -99; if (REPLAY.on) { REPLAY.on = false; REPLAY.added = new Set(); REPLAY.live = null; const el = $('#replay'); if (el) el.hidden = true; } recReset();
+  G.police = null; Secret.last = -99; setTimeout(ghostStart, 0); if (REPLAY.on) { REPLAY.on = false; REPLAY.added = new Set(); REPLAY.live = null; const el = $('#replay'); if (el) el.hidden = true; } recReset();
   if (!roster) { RACE_OPTS.laps = SAVE.laps || 0; RACE_OPTS.obst = SAVE.obst !== false; RACE_OPTS.seed = (Math.random() * 4294967295) >>> 0; RACE_OPTS.music = SAVE.musicPick || 'auto'; }
   setWorld(ti); G.netKarts = new Map();
   if (roster) {
@@ -3622,11 +3622,28 @@ function buildHaunted(W, ext, cx, cz, scatter, ring, q) {
 }
 
 
+/* ---------- fantôme de ton meilleur tour (courses solo) : un kart transparent refait ton record ---------- */
+const GH = { rec: null, play: null, mesh: null };
+const ghostKey = () => 'wk-ghost-' + TRACKS[G.race.ti].id + '-' + (G.race.cc || 0);
+function ghostOk() { const R = G.race; return !!(R && R.player && !R.online && !R.bombMode && !G.W.def.arena && UI.mode !== 'party'); }
+function ghostStart() { GH.rec = null; GH.play = null; if (GH.mesh) { G.W.scene.remove(GH.mesh.g); GH.mesh = null; } if (!ghostOk()) return;
+  try { const j = JSON.parse(localStorage.getItem(ghostKey()) || 'null'); if (j && j.d && j.d.length > 40) GH.play = j; } catch (e) { /* rien */ }
+  if (!GH.play) return; const m = kartMesh(myCfg()); m.g.traverse((o) => { if (o.material) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = .32; o.material.depthWrite = false; } }); m.g.visible = false; G.W.scene.add(m.g); GH.mesh = m; }
+function ghostLap(lt) { const g = GH.rec; GH.rec = null; if (!g || !ghostOk() || g.d.length < 40 || lt < 5) return;   // tour complet enregistré depuis son début
+  let best = null; try { best = JSON.parse(localStorage.getItem(ghostKey()) || 'null'); } catch (e) { best = null; }
+  if (best && best.t <= lt) return; try { localStorage.setItem(ghostKey(), JSON.stringify({ t: +lt.toFixed(2), d: g.d })); if (best) banner('Nouveau record du tour !', 1.6); } catch (e) { /* plus de place : tant pis */ } }
+function ghostTick() { const R = G.race, P = R && R.player; if (!P || !ghostOk() || REPLAY.on) return; if (R.state !== 'race' || P.finished) { if (GH.mesh) GH.mesh.g.visible = false; return; }
+  const lt = R.t - (P.lapStart || 0);
+  // enregistrement : 10 positions par seconde, depuis le début du tour
+  if (!GH.rec || GH.rec.lap !== P.lap) GH.rec = { lap: P.lap, d: [], n: 0 }; if (lt >= GH.rec.n * .1 && lt < 600) { GH.rec.n = Math.floor(lt / .1) + 1; GH.rec.d.push(+P.x.toFixed(1), +P.y.toFixed(1), +P.z.toFixed(1), +P.h.toFixed(2)); }
+  // lecture du fantôme
+  const M = GH.mesh, d = GH.play && GH.play.d; if (!M || !d) return; const f = lt / .1, i = Math.floor(f), u = f - i, n = d.length / 4; if (i >= n - 1) { M.g.visible = false; return; }
+  const a = i * 4, b = a + 4; M.g.visible = true; M.g.position.set(d[a] + (d[b] - d[a]) * u, d[a + 1] + (d[b + 1] - d[a + 1]) * u + .1, d[a + 2] + (d[b + 2] - d[a + 2]) * u); M.g.rotation.set(0, d[a + 3] + angDiff(d[a + 3], d[b + 3]) * u, 0); }
 function onLap(k) {
   const R = G.race; if (!R || R.state === 'attract') return;
   if (k.lap === 1) { k.lapStart = 0; return; }
   if (k.lap > LAPS + 1 || k.finished || G.W.def.arena) return;
-  const lt = R.t - k.lapStart; k.lapTimes.push(lt); k.bestLap = Math.min(k.bestLap, lt); k.lapStart = R.t;
+  const lt = R.t - k.lapStart; k.lapTimes.push(lt); k.bestLap = Math.min(k.bestLap, lt); if (k.isPlayer) ghostLap(lt); k.lapStart = R.t;
   if (k.lap === LAPS + 1) finishKart(k);
   else if (k.isPlayer) {
     if (k.lap === LAPS) { banner('Dernier tour !', 2.2); AudioSys.sfx('final'); } else { banner('Tour ' + k.lap + '/' + LAPS, 1.6); AudioSys.sfx('lap'); }
@@ -5835,16 +5852,37 @@ function progRender() { const box = $('#g-prog'); if (!box) return; const D = pr
   const titles = ACHS.filter((x) => x[4][0] === 'title' && D.ach[x[0]]).map((x) => x[4][1]);
   if (titles.length) h += '<div class="g-row"><label>Titre</label><div class="chips">' + ['(aucun)'].concat(titles).map((t) => '<button data-title="' + t + '" aria-pressed="' + ((SAVE.title || '(aucun)') === t) + '">' + t + '</button>').join('') + '</div></div>';
   h += '<h4>Statistiques</h4><div class="prog-st">' + [['Courses', S.races], ['Victoires', S.wins], ['Podiums', S.podiums], ['Karts touchés', S.hits], ['Fois touché', S.taken], ['Dépassements', S.passes], ['Figures', S.tricks], ['En ligne', S.online + ' (' + S.onlineWins + ' victoires)'], ['Meilleure série en tête', S.streakBest + ' s'], ['Meilleur style', S.styleBest], ['Plus long saut', S.airBest.toFixed(1).replace('.', ',') + ' s'], ['Pièces gagnées', S.coinsTotal]].map(([k, v]) => '<span>' + k + '</span><b>' + v + '</b>').join('') + '</div>';
+  const top = Array.isArray(SAVE.topActs) ? SAVE.topActs : []; h += '<h4>Tes 10 meilleures actions</h4>' + (top.length ? top.map((x, i) => '<div class="prog-ach ok"><b>' + (i + 1) + '. ' + String(x.l).replace(/[<>&"]/g, '') + '</b><small>' + x.s + ' pts · ' + String(x.tr).replace(/[<>&"]/g, '') + ' · ' + new Date(x.t).toLocaleDateString('fr-FR') + '</small></div>').join('') : '<p class="hint">Fais une belle action en course : elle apparaîtra ici.</p>');
   const nA = ACHS.filter((x) => D.ach[x[0]]).length; h += '<h4>Succès (' + nA + '/' + ACHS.length + ')</h4>';
   h += ACHS.map((x) => '<div class="prog-ach' + (D.ach[x[0]] ? ' ok' : '') + '"><b>' + (D.ach[x[0]] ? '🏆 ' : '🔒 ') + x[1] + '</b><small>' + x[2] + ' → ' + itemName(x[4][0], x[4][1]) + '</small></div>').join('');
   box.innerHTML = h;
   const ch = $('#g-chest'); if (ch) ch.onclick = () => { const D2 = progData(); if (D2.coins < 150) return; D2.coins -= 150; const r = progChest(); store(); AudioSys.sfx('star'); toast('🎁 ' + r, 3000); progRender(); enterGarage(); };
   box.querySelectorAll('[data-title]').forEach((x) => (x.onclick = () => { AudioSys.sfx('click'); SAVE.title = x.dataset.title === '(aucun)' ? '' : x.dataset.title; store(); progRender(); })); }
+/* ---------- défi du jour : même circuit et même objectif pour tout le monde, classement au temps ---------- */
+const DAILY_OBJ = [['win', 'Gagner la course'], ['clean3', 'Finir dans les 3 premiers sans être touché'], ['hits', 'Toucher 3 karts'], ['style', 'Faire 800 points de style'], ['passes', 'Doubler 6 karts'], ['lead', 'Rester 1er 30 secondes d\'affilée']];
+const dailyDay = () => new Date().toISOString().slice(0, 10);
+function dailyDef(day) { const h = wkStrHash('defi:' + day), L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena && TRACKS[i].id !== 'rondpoint'); return { day, ti: L[h % L.length], obj: DAILY_OBJ[(h >>> 8) % DAILY_OBJ.length] }; }
+function dailyCheck(R, P) { const ps = R.ps || {}, L = R.lead || {}; switch (R.daily.obj[0]) {
+  case 'win': return P.place === 1; case 'clean3': return P.place <= 3 && !(ps.taken > 0); case 'hits': return (ps.hits || 0) >= 3;
+  case 'style': return (R.style || 0) >= 800; case 'passes': return (ps.passes || 0) >= 6; case 'lead': return (L.best || 0) >= 30; } return false; }
+function dailyPlay() { const D = dailyDef(dailyDay()); UI.mode = 'daily'; dailyClose(); AudioSys.init(); startRace(D.ti, 1); G.race.daily = D; banner('Défi : ' + D.obj[1], 3); }
+function dailyClose() { const el = $('#daily'); if (el) el.style.display = 'none'; }
+async function dailyOpen() { const D = dailyDef(dailyDay()); let el = $('#daily'); if (!el) { el = document.createElement('div'); el.id = 'daily'; el.style.cssText = 'position:fixed;inset:0;z-index:110;background:rgba(15,12,44,.92);display:flex;align-items:center;justify-content:center;padding:16px;overflow:auto'; document.body.appendChild(el); }
+  const esc = (x) => String(x).replace(/[&<>"]/g, ''), mine = (SAVE.daily && SAVE.daily.day === D.day) ? SAVE.daily : null;
+  const draw = (list, err) => { el.innerHTML = '<div class="gate-box"><h2>Défi du jour</h2><p><b>' + esc(TRACKS[D.ti].name) + '</b> · 100cc<br>🎯 ' + esc(D.obj[1]) + '</p><p class="hint">Réussis l\'objectif : ton temps entre au classement (+60 pièces). Nouveau défi chaque jour.' + (mine && mine.ok ? '<br>Ton meilleur temps aujourd\'hui : <b>' + fmtTime(mine.t) + '</b>' : '') + (SAVE.acct ? '' : '<br>Connecte-toi à ton compte pour entrer au classement.') + '</p>'
+      + '<div class="prog-st" style="max-height:38vh;overflow:auto;text-align:left">' + (list ? (list.length ? list.map((x, i) => '<span>' + (i + 1) + '. ' + esc(x.u) + '</span><b>' + fmtTime(x.t) + '</b>').join('') : '<span>Personne encore : sois le premier !</span><b></b>') : '<span>' + (err || 'Chargement…') + '</span><b></b>') + '</div>'
+      + '<div class="row" style="justify-content:center;margin-top:12px"><button class="btn ghost" id="dl-x"><span>Fermer</span></button><button class="btn red" id="dl-go"><span>Jouer</span></button></div></div>';
+    $('#dl-x').onclick = () => { AudioSys.sfx('click'); dailyClose(); }; $('#dl-go').onclick = () => { AudioSys.sfx('click'); dailyPlay(); }; };
+  el.style.display = 'flex'; draw(null); const r = await acctCall('dget', { day: D.day }); if (el.style.display !== 'none') draw(r && r.ok ? r.list : null, r && r.e); }
+function dailyFinish(R, P) { if (!R.daily || R.dailyDone) return; R.dailyDone = true; R.dailyOk = dailyCheck(R, P);
+  if (!R.dailyOk) { setTimeout(() => banner('Défi raté : ' + R.daily.obj[1], 2.6, true), 1200); return; }
+  const t = P.finishTime, cur = SAVE.daily && SAVE.daily.day === R.daily.day ? SAVE.daily : null; SAVE.daily = { day: R.daily.day, ok: true, t: cur && cur.t < t ? cur.t : t }; store(); setTimeout(() => banner('Défi réussi ! ' + fmtTime(t), 2.6), 1200);
+  if (SAVE.acct) acctCall('dput', { day: R.daily.day, pseudo: SAVE.acct.u, tok: SAVE.acct.tok, time: +t.toFixed(3) }); }
 function playerFinished() {
   const R = G.race; R.state = 'finished'; R.timer2 = 0; const P = R.player;
   banner(G.W.def.arena ? 'Temps écoulé !' : P.place === 1 ? 'Victoire !' : 'Arrivée : ' + P.place + (P.place === 1 ? 'er' : 'e'), 3.4); AudioSys.sfx('finish'); vibrate([40, 60, 40]);
   const rec = SAVE.records[TRACKS[R.ti].id] || {}; rec.lap = Math.min(rec.lap || Infinity, P.bestLap); rec.race = Math.min(rec.race || Infinity, P.finishTime);
-  SAVE.records[TRACKS[R.ti].id] = rec; store(); progAward(R, P);
+  SAVE.records[TRACKS[R.ti].id] = rec; store(); dailyFinish(R, P); progAward(R, P);
 }
 
 /* ---- visuel par image ---- */
@@ -6038,8 +6076,8 @@ $('#spec-res').onclick = () => { AudioSys.sfx('click'); specEnd(); };
 // pendant la course on garde les 8 dernières secondes (position de chaque kart) ; chaque action rapporte des points
 // (dépassement, objet qui touche, envol, photo-finish) ; on garde les 6,5 s autour des 5 secondes les plus fortes
 // on enregistre tout ce qui bouge : karts (et bouclier, bulle…) + tout objet ajouté à la scène pendant la course (objets, pièges, projectiles…)
-const REC = { on: false, t: 0, acc: 0, fr: [], pe: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, pl: new Map(), passes: new Map() };
-function recReset() { Object.assign(REC, { on: false, t: 0, acc: 0, fr: [], pe: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, fin: false, pl: new Map(), passes: new Map(), trick: false }); }
+const REC = { on: false, t: 0, acc: 0, fr: [], full: [], pe: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, pl: new Map(), passes: new Map() };
+function recReset() { Object.assign(REC, { on: false, t: 0, acc: 0, fr: [], full: [], pe: [], base: null, ev: [], best: null, pend: null, place: 0, airT: 0, fin: false, pl: new Map(), passes: new Map(), trick: false }); }
 function recNodes() { const L = []; for (const k of G.karts) { const M = k.mesh; M.g.userData.recK = k; L.push(M.g, M.tilt); if (M.shield) L.push(M.shield); if (M.bub) L.push(M.bub); }
   for (const o of G.W.scene.children) if (!REC.base.has(o)) L.push(o); return L; }
 // focus : le kart à montrer (celui qu'on touche, qu'on double…) en plus du tien
@@ -6058,7 +6096,8 @@ function recTick(dt) { const R = G.race, P = R && R.player; if (!P || P.spect ||
   REC.t += dt; REC.acc += dt; if (REC.acc >= 1 / 30) { REC.acc = 0;
     if (!REC.base) REC.base = new Set(G.W.scene.children); const ns = recNodes(), d = new Float32Array(ns.length * 11);
     ns.forEach((o, i) => { d.set([o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z, (o.userData.recK ? !o.userData.recK.spect : o.visible) ? 1 : 0], i * 11); });
-    REC.fr.push({ t: REC.t, ns, d }); while (REC.fr.length && REC.t - REC.fr[0].t > 8) REC.fr.shift();
+    const F = { t: REC.t, ns, d }; REC.fr.push(F); while (REC.fr.length && REC.t - REC.fr[0].t > 8) REC.fr.shift();
+    if (!REC.full.length || REC.t - REC.full[REC.full.length - 1].t >= .1) REC.full.push(F);   // toute la course, pour « Revoir la course »
     let c = 0; while (c < REC.pe.length && REC.t - REC.pe[c][0] > 8) c++; if (c) REC.pe.splice(0, c); }
   // dépassements (de tout le monde) : seulement un vrai (le kart doublé est tout près), et compté s'il tient 1,5 s (pas repris tout de suite)
   if (R.t > 6) for (const k of G.karts) { if (k.spect || k.finished) continue; const was = REC.pl.get(k); REC.pl.set(k, k.place); if (!was || k.place >= was) { const q = REC.passes.get(k); if (q && k.place > q.place) REC.passes.delete(k); continue; }
@@ -6080,31 +6119,37 @@ const REPLAY = { on: false, t: 0, clip: null, ang: 0, race: null, back: null, li
 const repQa = new T.Quaternion(), repQb = new T.Quaternion();
 // remet la scène comme avant le ralenti (objets d'avant enlevés, objets d'aujourd'hui réaffichés)
 function replayRestore() { const sc = G.W && G.W.scene; if (sc) { for (const o of REPLAY.added) sc.remove(o); if (REPLAY.live) for (const [o, v] of REPLAY.live) o.visible = v; } REPLAY.added = new Set(); REPLAY.live = null; }
-function replayStart(back) { const c = REC.best; if (!c) return; const W0 = G.W; for (const ps of [W0.parts, W0.dust]) ps && ps.clear();
+function replayStart(back, clip) { const c = clip || REC.best; if (!c) return; REPLAY.follow = null; REPLAY.speed = 1; if (GH.mesh) GH.mesh.g.visible = false; const W0 = G.W; for (const ps of [W0.parts, W0.dust]) ps && ps.clear();
   Object.assign(REPLAY, { on: true, pi: 0, t: c.fr[0].t, clip: c, ang: 0, h: null, race: G.race, back, live: new Map(G.W.scene.children.filter((o) => REC.base && !REC.base.has(o)).map((o) => [o, o.visible])), added: new Set() }); camSnap = true; show(null);
   { const pe = c.pe || []; for (let t = c.fr[0].t - 1; t < c.fr[0].t; t += 1 / 30) { while (REPLAY.pi < pe.length && pe[REPLAY.pi][0] <= t) { const e = pe[REPLAY.pi++]; e[1].emit(e[2], e[3], e[4], e[5], e[6], e[7], e[8], e[9], e[10]); } for (const ps of [W0.parts, W0.dust]) ps && ps.update(1 / 30); } }   // particules déjà en l'air au début
   let el = $('#replay'); if (!el) { el = document.createElement('div'); el.id = 'replay'; el.style.cssText = 'position:fixed;left:0;right:0;top:calc(10px + env(safe-area-inset-top));z-index:60;text-align:center;pointer-events:none;color:#fff;text-shadow:0 2px 6px #000;font:800 18px system-ui';
-    el.innerHTML = '<div>🎬 Meilleure action</div><small style="font-weight:600;font-size:14px" id="replay-l"></small><button class="btn sm ghost" id="replay-x" style="pointer-events:auto;position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(14px + env(safe-area-inset-bottom))"><span>Passer</span></button>'; document.body.appendChild(el);
+    el.innerHTML = '<div id="replay-h">🎬 Meilleure action</div><small style="font-weight:600;font-size:14px" id="replay-l"></small><button class="btn sm ghost" id="replay-x" style="pointer-events:auto;position:fixed;right:calc(14px + env(safe-area-inset-right));bottom:calc(14px + env(safe-area-inset-bottom))"><span>Passer</span></button>'; document.body.appendChild(el);
     $('#replay-x').onclick = () => { AudioSys.sfx('click'); replayEnd(); }; }
-  $('#replay-l').textContent = c.label; el.hidden = false; $('#hud').hidden = true; }
-function replayEnd() { if (!REPLAY.on) return; REPLAY.on = false; replayRestore(); if (G.W) for (const ps of [G.W.parts, G.W.dust]) ps && ps.clear(); const el = $('#replay'); if (el) el.hidden = true; if (G.race === REPLAY.race && G.race.player) { $('#hud').hidden = false; (REPLAY.back || showResults)(); } }
+  $('#replay-l').textContent = c.label; $('#replay-h').textContent = c.full ? '🎥 Revoir la course' : '🎬 Meilleure action'; el.hidden = false; $('#hud').hidden = true;
+  let fb = $('#replay-full'); if (!fb) { fb = document.createElement('div'); fb.id = 'replay-full'; fb.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(14px + env(safe-area-inset-bottom));z-index:61;display:flex;gap:8px';
+    fb.innerHTML = '<button class="btn sm ghost" id="rf-prev"><span>◀</span></button><button class="btn sm ghost" id="rf-next"><span>▶</span></button><button class="btn sm ghost" id="rf-sp"><span>×1</span></button>'; document.body.appendChild(fb);
+    const shift = (d) => { const L = REPLAY.clip.fr[0].ns.filter((o) => o.userData.recK && !o.userData.recK.spect); if (!L.length) return; const cur = REPLAY.follow || (REPLAY.race.player && REPLAY.race.player.mesh.g); let i = L.indexOf(cur); i = ((i < 0 ? 0 : i + d) % L.length + L.length) % L.length; REPLAY.follow = L[i]; camSnap = true; };
+    $('#rf-prev').onclick = () => shift(-1); $('#rf-next').onclick = () => shift(1); $('#rf-sp').onclick = () => { REPLAY.speed = REPLAY.speed >= 4 ? 1 : REPLAY.speed * 2; $('#rf-sp span').textContent = '×' + REPLAY.speed; }; }
+  fb.style.display = c.full ? 'flex' : 'none'; $('#rf-sp span').textContent = '×1'; }
+function replayEnd() { if (!REPLAY.on) return; REPLAY.on = false; { const fb = $('#replay-full'); if (fb) fb.style.display = 'none'; } replayRestore(); if (G.W) for (const ps of [G.W.parts, G.W.dust]) ps && ps.clear(); const el = $('#replay'); if (el) el.hidden = true; if (G.race === REPLAY.race && G.race.player) { $('#hud').hidden = false; (REPLAY.back || showResults)(); } }
 function replayFrame(dt) { const c = REPLAY.clip, fr = c.fr, evs = c.ev || [{ t: c.at }];
   // l'action la plus proche : ralenti autour d'elle et son nom affiché
   let cur = evs[0]; for (const e of evs) if (Math.abs(e.t - REPLAY.t) < Math.abs(cur.t - REPLAY.t)) cur = e;
-  const near = Math.abs(REPLAY.t - cur.t) < .9, sp = near ? .35 : 1; REPLAY.t += dt * sp;
+  const near = !c.full && Math.abs(REPLAY.t - cur.t) < .9, sp = c.full ? REPLAY.speed || 1 : near ? .35 : 1; REPLAY.t += dt * sp;
   // étincelles, explosions, fumée… rejouées au même moment, au même rythme
   { const pe = c.pe || []; while (REPLAY.pi < pe.length && pe[REPLAY.pi][0] <= REPLAY.t) { const e = pe[REPLAY.pi++]; e[1].emit(e[2], e[3], e[4], e[5], e[6], e[7], e[8], e[9], e[10]); }
     for (const ps of [G.W.parts, G.W.dust]) ps && ps.update(dt * sp); }
   if (G.race !== REPLAY.race) { REPLAY.on = false; REPLAY.added = new Set(); REPLAY.live = null; const el = $('#replay'); if (el) el.hidden = true; return; }
   if (REPLAY.t >= fr[fr.length - 1].t) { replayEnd(); return; }
-  { const l = $('#replay-l'), txt = cur.label || c.label; if (l && l.textContent !== txt) l.textContent = txt; }
+  if (!c.full) { const l = $('#replay-l'), txt = cur.label || c.label; if (l && l.textContent !== txt) l.textContent = txt; }
   let i = 0; while (i < fr.length - 2 && fr[i + 1].t < REPLAY.t) i++; const a = fr[i], b = fr[i + 1], u = clamp((REPLAY.t - a.t) / (b.t - a.t), 0, 1);
   const sc = G.W.scene, seen = new Set(), bi = new Map(); b.ns.forEach((o, j) => bi.set(o, j));
   a.ns.forEach((o, j) => { const p = j * 11, jb = bi.get(o), q = jb == null ? p : jb * 11, db = jb == null ? a.d : b.d, L = (n) => a.d[p + n] + (db[q + n] - a.d[p + n]) * u; seen.add(o);
     o.position.set(L(0), L(1), L(2)); repQa.set(a.d[p + 3], a.d[p + 4], a.d[p + 5], a.d[p + 6]); repQb.set(db[q + 3], db[q + 4], db[q + 5], db[q + 6]); o.quaternion.copy(repQa).slerp(repQb, u); o.scale.set(L(7), L(8), L(9)); o.visible = a.d[p + 10] > 0;
     if (!o.parent) { sc.add(o); REPLAY.added.add(o); } });
   for (const o of sc.children) if (!REC.base.has(o) && !seen.has(o)) o.visible = false;   // pas encore là à ce moment de la course
-  const pk = (cur.a && cur.a.parent ? cur.a : null) || (REPLAY.race.player && REPLAY.race.player.mesh.g);
+  const pk = (REPLAY.follow && REPLAY.follow.parent ? REPLAY.follow : null) || (cur.a && cur.a.parent ? cur.a : null) || (REPLAY.race.player && REPLAY.race.player.mesh.g);
+  if (c.full) { const k = pk.userData.recK, l = $('#replay-l'), txt = (k ? (k.isPlayer ? 'Toi' : k.name) : '') + ' · ' + fmtTime(Math.max(0, REPLAY.t - fr[0].t)); if (l && l.textContent !== txt) l.textContent = txt; }
   if (!pk) { replayEnd(); return; }
   // caméra derrière le kart (comme en course) ; pendant une action avec un autre kart, on montre les deux
   const fk = Math.abs(REPLAY.t - cur.t) < 1.6 && cur.f && cur.f.parent ? cur.f : null, far = fk && fk.position.distanceTo(pk.position) > 40, tg = far ? fk : pk;
@@ -6116,11 +6161,27 @@ function replayFrame(dt) { const c = REPLAY.clip, fr = c.fr, evs = c.ev || [{ t:
   if (camSnap) camera.position.set(cx, cy, cz); else camera.position.lerp(tmpV.set(cx, cy, cz), 1 - Math.exp(-dt * 6)); camSnap = false;
   camera.fov = lerp(camera.fov, near ? 60 : 70, 1 - Math.exp(-dt * 3)); camera.updateProjectionMatrix();
   mid.y += 1.2; camera.lookAt(mid); G.W.sky.position.copy(camera.position); }
+// Top 10 de TES meilleures actions (sauvegardé avec le compte)
+const fullClip = () => REC.full.length > 30 ? { full: true, fr: REC.full, ev: [{ t: -99 }], pe: [], at: -99, label: 'Course entière' } : null;
+const fullReplay = () => { const c = fullClip(); if (c) replayStart(() => show('results'), c); };
+function topAdd(R) { const c = REC.best; if (!R || R.topDone || !c || !R.player) return; R.topDone = true; const e = c.ev && c.ev[0]; if (!e || e.a !== R.player.mesh.g) return;
+  const L = Array.isArray(SAVE.topActs) ? SAVE.topActs : []; L.push({ l: c.label.replace(/^Tu /, ''), s: Math.round(c.sc * 10) / 10, tr: TRACKS[R.ti].name, t: Date.now() }); L.sort((a, b) => b.s - a.s); SAVE.topActs = L.slice(0, 10); store(); }
+// partager la meilleure action en vidéo : le ralenti est filmé puis envoyé (ou enregistré)
+const canRecord = () => typeof MediaRecorder !== 'undefined' && !!(renderer.domElement.captureStream);
+function replayShare() { if (!REC.best || !canRecord()) return; let st; try { st = renderer.domElement.captureStream(30); } catch (e) { toast('Vidéo impossible sur ce téléphone.', 2500); return; }
+  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']; const type = types.find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
+  let rec; try { rec = new MediaRecorder(st, type ? { mimeType: type, videoBitsPerSecond: 4e6 } : undefined); } catch (e) { toast('Vidéo impossible sur ce téléphone.', 2500); return; }
+  const chunks = []; rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  rec.onstop = async () => { st.getTracks().forEach((t) => t.stop()); const mt = rec.mimeType || type || 'video/webm', ext = /mp4/.test(mt) ? 'mp4' : 'webm', blob = new Blob(chunks, { type: mt }); if (!blob.size) { toast('Vidéo vide.', 2000); return; }
+    const file = new File([blob], 'wild-kart-meilleure-action.' + ext, { type: mt }), txt = 'Ma meilleure action sur Wild Kart : ' + REC.best.label;
+    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: txt }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); toast('Vidéo enregistrée.', 2500); };
+  rec.start(250); toast('🎬 On filme la meilleure action…', 1800); replayStart(() => { try { rec.stop(); } catch (e) { /* rien */ } show('results'); }); }
 function showResults() {
   $('#r-big').hidden = true; $('#r-table').className = '';
   if (G.race && G.race.online) return onlineResults();
   if (UI.mode === 'party' && UI.party) return partyResults();
-  const R = G.race; R.resultsShown = true; const order = estimateFinish(); const P = R.player;
+  const R = G.race; R.resultsShown = true; const order = estimateFinish(); const P = R.player; topAdd(R);
   const tb = $('#r-table'); tb.innerHTML = '';
   let gpLine = '';
   if (UI.mode === 'gp' && UI.gp) { order.forEach((k, i) => { UI.gp.points[k.name] = (UI.gp.points[k.name] || 0) + POINTS[i]; }); }
@@ -6132,15 +6193,15 @@ function showResults() {
   const place = order.indexOf(P) + 1;
   $('#r-title').textContent = place === 1 ? 'Victoire !' : place + (place === 1 ? 'er' : 'e') + ' place';
   const rec = SAVE.records[TRACKS[R.ti].id] || {};
-  $('#r-sub').textContent = TRACKS[R.ti].name + ' · ' + CC[R.cc].name + ' · Meilleur tour ' + fmtTime(P.bestLap) + ' (record ' + fmtTime(rec.lap) + ')' + (R.bombMode ? ' · ' + bombSummary() : '') + (leadSummary(R) ? ' · ' + leadSummary(R) : ''); progShow(R);
+  $('#r-sub').textContent = TRACKS[R.ti].name + ' · ' + CC[R.cc].name + ' · Meilleur tour ' + fmtTime(P.bestLap) + ' (record ' + fmtTime(rec.lap) + ')' + (R.daily ? ' · Défi ' + (R.dailyOk ? 'réussi ✅' : 'raté ❌') : '') + (R.bombMode ? ' · ' + bombSummary() : '') + (leadSummary(R) ? ' · ' + leadSummary(R) : ''); progShow(R);
   const btns = $('#r-buttons'); btns.innerHTML = '';
   const mk = (label, cls, fn) => { const b = document.createElement('button'); b.className = 'btn ' + cls; b.innerHTML = '<span></span>'; b.firstChild.textContent = label; b.onclick = () => { AudioSys.sfx('click'); fn(); }; btns.appendChild(b); };
   if (UI.mode === 'gp' && UI.gp) {
     UI.gp.i++;
-    if (REC.best) mk('Meilleure action 🎬', 'ghost', () => replayStart(() => show('results')));
+    if (REC.best) { mk('Meilleure action 🎬', 'ghost', () => replayStart(() => show('results'))); if (canRecord()) mk('Partager la vidéo', 'ghost', replayShare); }
     if (UI.gp.i < TRACKS.length) { mk('Classement', 'ghost', showStandings); mk('Course suivante', 'red', () => launch()); }
     else mk('Classement final', 'red', showStandings);
-  } else { mk('Menu', 'ghost', toMenu); if (canSpectate()) mk('Regarder la course', 'ghost', specStart); if (REC.best) mk('Meilleure action 🎬', 'ghost', () => replayStart()); mk('Rejouer', 'red', () => launch()); }
+  } else { mk('Menu', 'ghost', toMenu); if (canSpectate()) mk('Regarder la course', 'ghost', specStart); if (REC.best) { mk('Meilleure action 🎬', 'ghost', () => replayStart(() => show('results'))); if (canRecord()) mk('Partager la vidéo', 'ghost', replayShare); } if (REC.full.length > 30) mk('Revoir la course', 'ghost', fullReplay); mk('Rejouer', 'red', () => launch()); }
   show('results');
 }
 function showStandings() {
@@ -6906,6 +6967,7 @@ function netSendStates() {
 function onNetEvent(d) {
   const R = G.race; if (!R || !R.online || !G.netKarts) return; const K = (id) => G.netKarts.get(id) || null;
   if (d.e === 'bomb') { bombNet(d); return; }
+  if (d.e === 'emo') { emoShow(String(d.n || '').slice(0, 12), String(d.x || '')); return; }
   if (d.e === 'reflect' || d.e === 'swap') { net13(d, K); return; }
   if (d.e === 'hit' && R.bombMode && Net.host) bombHitPass(K(d.v), K(d.src));
   if (d.e === 'oil') spawnOil(+d.x, +d.z, +d.y, K(d.o), d.id, d.kind || 'oil');
@@ -6931,7 +6993,7 @@ function onNetLeft(id) {
   G.W.scene.remove(k.mesh.g); G.karts.splice(G.karts.indexOf(k), 1); G.netKarts.delete(id); const o = G.race.order.indexOf(k); if (o >= 0) G.race.order.splice(o, 1);
   if (G.race.resultsShown) renderOnlineResults();
 }
-function onlineResults() { G.race.resultsShown = true; renderOnlineResults(); show('results'); }
+function onlineResults() { G.race.resultsShown = true; topAdd(G.race); renderOnlineResults(); show('results'); }
 function renderOnlineResults() {
   const R = G.race; if (!R) return; $('#r-big').hidden = true;
   const fin = G.karts.filter((k) => k.finished && !k.spect).sort((a, b) => a.finishTime - b.finishTime), live = G.karts.filter((k) => !k.finished).sort((a, b) => b.prog - a.prog);
@@ -6947,12 +7009,20 @@ function renderOnlineResults() {
   $('#r-sub').textContent = TRACKS[R.ti].name + ' · ' + CC[R.cc].name + ' · ' + (allDone ? 'Résultats définitifs' : 'En attente des autres pilotes…');
   if (party && allDone && humans.length > 1) bigLine(humans[0].name + ' distribue ' + Math.ceil(3 * dose) + ' ' + gw(Math.ceil(3 * dose)) + ' · ' + humans[humans.length - 1].name + ' boit le plus.');
   if (R.bombMode) bigLine(bombSummary());
-  const spec = canSpectate() ? [['Regarder la course', 'ghost', specStart]] : []; if (REC.best && !R.watching) spec.push(['Meilleure action 🎬', 'ghost', () => replayStart()]);
+  const spec = canSpectate() ? [['Regarder la course', 'ghost', specStart]] : []; if (REC.best && !R.watching) { spec.push(['Meilleure action 🎬', 'ghost', () => replayStart(() => show('results'))]); if (canRecord()) spec.push(['Partager la vidéo', 'ghost', replayShare]); } if (REC.full.length > 30 && !R.watching) spec.push(['Revoir la course', 'ghost', fullReplay]);
   if (Net.host && Net.cup && Net.cup.racing) { if (allDone && !R.cupDone) { R.cupDone = true; setTimeout(() => { if (G.race === R && Net.cup && Net.cup.racing) hostCupVerdict(); }, 4000); } spec.push(['Verdict', 'red', hostCupVerdict]); }
   if (Net.cup && Net.cup.racing || R.cupRound) $('#r-sub').textContent = 'Manche ' + (R.cupRound || (Net.cup && Net.cup.round)) + ' · ' + (allDone ? 'verdict dans un instant…' : 'en attente des autres pilotes…');
   setButtons(Net.host ? [['Quitter', 'ghost', () => { netReset(); toMenu(); }]].concat(spec, [['Retour au salon', 'red', () => { hostBroadcast({ t: 'lobbyback' }); goLobby(); }]]) : [['Quitter', 'ghost', () => { netReset(); toMenu(); }]].concat(spec));
   if (!Net.host) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = 'L\'hôte relance la prochaine course.'; $('#r-buttons').prepend(p); }
+  emoRow();
 }
+// après une course en ligne : emojis et « GG » rapides, vus par tous
+const EMOS = ['👍', '😂', '🔥', '😮', '😡', 'GG'];
+function emoRow() { const btns = $('#r-buttons'); if (!btns || $('#emo-row')) return; const row = document.createElement('div'); row.id = 'emo-row'; row.className = 'chips'; row.style.cssText = 'width:100%;justify-content:center';
+  for (const x of EMOS) { const b = document.createElement('button'); b.type = 'button'; b.textContent = x; b.onclick = () => { if (Date.now() - (emoRow.t || 0) < 900) return; emoRow.t = Date.now(); const n = SAVE.acct ? SAVE.acct.u : SAVE.name || 'Toi'; netEmit({ e: 'emo', n, x }); emoShow('Toi', x); }; row.appendChild(b); }
+  btns.appendChild(row); }
+function emoShow(n, x) { if (!EMOS.includes(x)) return; const el = document.createElement('div'); el.textContent = n + ' ' + x; el.style.cssText = 'position:fixed;z-index:80;left:' + (10 + Math.random() * 70) + '%;bottom:18%;font:800 20px system-ui;color:#fffdf7;text-shadow:0 2px 4px #000;pointer-events:none;transition:transform 2.4s ease-out,opacity 2.4s';
+  document.body.appendChild(el); requestAnimationFrame(() => { el.style.transform = 'translateY(-38vh)'; el.style.opacity = '0'; }); setTimeout(() => el.remove(), 2600); AudioSys.sfx('click'); }
 function goLobby() {
   if (G.race) G.race.spec = null; $('#spec').hidden = true; $('#b-pause').hidden = false;
   Net.inRace = false; G.paused = false; showHud(false); AudioSys.engine(0, false); AudioSys.stopMusic();
@@ -7399,13 +7469,14 @@ function begin() {
     go();
   });
 }
-function launch() { if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? UI.gp.i % TRACKS.length : UI.track; startRace(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc); if (UI.mode === 'quick' && SAVE.soloBomb) soloBomb(); }
+function launch() { if (UI.mode === 'daily') { dailyPlay(); return; } if (UI.mode === 'party' && UI.party) { const P = UI.party; startRace(P.roundTrack, SAVE.cc, P.players[P.turn]); return; } const ti = UI.mode === 'gp' && UI.gp ? UI.gp.i % TRACKS.length : UI.track; startRace(ti, UI.mode === 'gp' && UI.gp ? UI.gp.cc : SAVE.cc); if (UI.mode === 'quick' && SAVE.soloBomb) soloBomb(); }
 function soloBomb() { const R = G.race; if (!R || R.online) return; R.bombMode = true; R.bombType = 'sips'; G.netKarts = new Map(); G.karts.forEach((k, i) => { k.netId = k.isPlayer ? 'moi' : 'bot' + i; G.netKarts.set(k.netId, k); }); }
 $('#b-start').onclick = begin;
 
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-go]'); if (!b) return; AudioSys.init(); AudioSys.sfx('click'); trapBack(); const go = b.dataset.go;
   if (go === 'quick' || go === 'gp' || go === 'practice') { UI.mode = go === 'gp' ? 'gp' : 'quick'; show('tracks'); }
+  else if (go === 'daily') dailyOpen();
   else if (go === 'rejoin') { show('online'); if (SAVE.lastCode) { $('#on-code').value = SAVE.lastCode; netJoin(SAVE.lastCode); } }
   else if (go === 'chef') { if (!isChef()) return; if (UI.screen !== 'chef') CHU.back = UI.screen; show('chef'); }
   else if (go === 'chefback') show(CHU.back && CHU.back !== 'chef' ? CHU.back : 'title');
@@ -7627,7 +7698,7 @@ function frame(now) {
   if (REPLAY.on) { replayFrame(dt); renderer.render(G.W.scene, camera); return; }
   if (!G.paused) {
     acc += dt; let n = 0; while (acc >= STEP && n < 6) { simStep(STEP); acc -= STEP; n++; } if (n === 6) acc = 0;
-    updateVisuals(overlay ? dt * 3 : dt); recTick(overlay ? dt * 3 : dt);
+    updateVisuals(overlay ? dt * 3 : dt); recTick(overlay ? dt * 3 : dt); ghostTick();
     if (G.race.player) updateHud(dt);
     if (Net.inRace && G.race.online) { Net.sendT += dt; if (Net.sendT >= 1 / 15) { Net.sendT = 0; netSendStates(); } }
   }
@@ -7655,5 +7726,5 @@ $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH };
 })();

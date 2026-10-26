@@ -5034,7 +5034,7 @@ function useItem(k) {
   } else if (it === 'rocket' || it === 'boule') {
     let target = null; let bestGap = Infinity;
     if (it === 'rocket') for (const o of G.karts) { if (o === k || o.finished) continue; const gap = o.prog - k.prog; if (gap > 0 && gap < bestGap) { bestGap = gap; target = o; } }
-    const sp = it === 'boule' ? Math.max(86, k.speed + 34) : Math.max(80, k.speed + 32), A = it === 'boule' ? aim13(k, sp) : null, h = A ? A.h : k.h, x = k.x + Math.sin(h) * 2.6, z = k.z + Math.cos(h) * 2.6; const id = online ? netNewId() : null;
+    const rear = it === 'boule' && throwBack(k), sp = rear ? 60 : it === 'boule' ? Math.max(86, k.speed + 34) : Math.max(80, k.speed + 32), A = it === 'boule' && !rear ? aim13(k, sp) : null, h = rear ? k.h + Math.PI : A ? A.h : k.h, x = k.x + Math.sin(h) * (rear ? 3 : 2.6), z = k.z + Math.cos(h) * (rear ? 3 : 2.6); const id = online ? netNewId() : null;
     spawnRocket(x, z, k.y, h, sp, k, target, id, it); if (A && A.tg) G.rockets[G.rockets.length - 1].aimTg = A.tg; if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(h), sp: r2(sp), o: k.netId, tg: target ? target.netId : null });
     if (k.isPlayer || (target && target.isPlayer)) AudioSys.sfx('rocket');
   } else if (it === 'eclair') { zap(k, k.prog); if (online) netEmit({ e: 'zap', o: k.netId, p: r2(k.prog) }); }
@@ -5193,8 +5193,8 @@ function useItem13(k, it, online) {
     const x = k.x, z = k.z, id = online ? netNewId() : null, sp = 105; spawnRocket(x, z, k.y + 2, k.h, sp, k, tg, id, 'comete');
     if (id) netEmit({ e: 'rocket', kind: 'comete', id, x: r2(x), z: r2(z), y: r2(k.y + 2), h: r3(k.h), sp, o: k.netId, tg: tg ? tg.netId : null });
     if (k.isPlayer) { AudioSys.sfx('rocket'); banner(tg ? 'Comète lancée sur ' + tg.name + ' !' : 'Comète !', 1.4); } return true; }
-  if (it === 'boomerang' || it === 'tourbillon') { const back = it === 'tourbillon', d = back ? -4 : 2.6, sp = back ? 34 : Math.max(92, k.speed + 42), x = k.x + Math.sin(k.h) * d, z = k.z + Math.cos(k.h) * d, id = online ? netNewId() : null;
-    const hh = back ? k.h + Math.PI : aim13(k, sp).h; spawnRocket(x, z, k.y, hh, sp, k, null, id, it); if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(hh), sp: r2(sp), o: k.netId, tg: null });
+  if (it === 'boomerang' || it === 'tourbillon') { const back = it === 'tourbillon', rear = !back && throwBack(k), d = back ? -4 : rear ? -3 : 2.6, sp = back ? 34 : rear ? 78 : Math.max(92, k.speed + 42), x = k.x + Math.sin(k.h) * d, z = k.z + Math.cos(k.h) * d, id = online ? netNewId() : null;
+    const hh = back || rear ? k.h + Math.PI : aim13(k, sp).h; spawnRocket(x, z, k.y, hh, sp, k, null, id, it); if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(hh), sp: r2(sp), o: k.netId, tg: null });
     if (k.isPlayer) AudioSys.sfx(back ? 'confetti' : 'rocket'); return true; }
   return false;
 }
@@ -5207,7 +5207,7 @@ function aiUse13(k, ahead, behind, ai) {
   switch (k.item) {
     case 'comete': return ai.itemT < -.3;
     case 'nitro': return ai.itemT < -.5;
-    case 'boomerang': return ahead(45) || ai.itemT < -5;
+    case 'boomerang': { const a = ahead(45), b = !a && behind(25); k.aiBack = b; return a || b || ai.itemT < -5; }
     case 'leurre': return !k.air && (behind(25) || ai.itemT < -4);
     case 'tourbillon': return behind(80) || ai.itemT < -5;
   }
@@ -5313,10 +5313,13 @@ function spawnLeurre(x, z, y, owner, id) {
 // la première fois qu'on obtient un objet : une phrase pour dire à quoi il sert
 const ITEM_DESC = { turbo: 'Turbo : un coup d\'accélération', triple: 'Triple turbo : 3 accélérations', nitro: 'Nitro : 4 s de très grosse accélération', boule: 'Boule : lancée vers le kart devant, rebondit sur les murs',
   shield: 'Bouclier : bloque un coup', oil: 'Flaque : posée derrière toi, fait glisser', leurre: 'Leurre : fausse boîte posée derrière toi', mine: 'Mine : explose quand on roule dessus', colle: 'Pot de colle : ralentit celui qui passe',
-  boomerang: 'Boomerang : part devant et revient, touche jusqu\'à 3 karts', tourbillon: 'Tourbillon : redescend la piste vers ceux qui te suivent', rocket: 'Fusée : file sur le kart devant toi', bulle: 'Bulle : emprisonne le kart devant toi',
+  boomerang: 'Boomerang : part devant (ou derrière : vers le bas en lançant) et revient, touche jusqu\'à 3 karts', tourbillon: 'Tourbillon : redescend la piste vers ceux qui te suivent', rocket: 'Fusée : file sur le kart devant toi', bulle: 'Bulle : emprisonne le kart devant toi',
   aimant: 'Aimant : te colle au kart devant', fantome: 'Fantôme : tu deviens intouchable un moment', ressort: 'Ressort : grand saut par-dessus les pièges', aspirateur: 'Aspirateur : vole l\'objet du kart devant', ventilo: 'Ventilo : souffle les karts autour',
   grappin: 'Grappin : te tire vers le kart devant', confettis: 'Confettis : aveugle ceux devant toi', disco: 'Boule disco : onde qui renverse les karts proches', etoile: 'Étoile : invincible et plus rapide', eclair: 'Éclair : rapetisse tous ceux devant toi', comete: 'Comète : vole jusqu\'au 1er et explose sur lui' };
-function itemHint(it) { if (!ITEM_DESC[it]) return; SAVE.itemSeen = Array.isArray(SAVE.itemSeen) ? SAVE.itemSeen : []; if (SAVE.itemSeen.includes(it)) return; SAVE.itemSeen.push(it); store(); setTimeout(() => banner(ITEM_DESC[it], 2.6), 350); }
+// lancer en arrière (comme dans Mario Kart) : joystick tiré vers le bas, flèche bas / S, ou bouton frein, au moment de lancer
+const BACK_ITEMS = new Set(['boomerang', 'boule', 'chewing', 'petard']);
+function throwBack(k) { if (k.isPlayer && !G.autopilot) { const kk = Input.keys, p = Input.pad || {}, st = Input.stick; return !!(kk.ArrowDown || kk.KeyS || p.brake || (st && st.active && st.y > .45)); } return !!k.aiBack; }
+function itemHint(it) { if (BACK_ITEMS.has(it) && !(SAVE.backTip >= 2) && SAVE.itemSeen && SAVE.itemSeen.includes(it)) { SAVE.backTip = (SAVE.backTip || 0) + 1; store(); setTimeout(() => banner('Astuce : vers le bas en lançant = derrière toi', 2.4), 350); } if (!ITEM_DESC[it]) return; SAVE.itemSeen = Array.isArray(SAVE.itemSeen) ? SAVE.itemSeen : []; if (SAVE.itemSeen.includes(it)) return; SAVE.itemSeen.push(it); store(); setTimeout(() => banner(ITEM_DESC[it], 2.6), 350); }
 // les bots n'esquivent plus parfaitement les pièges posés (flaque, mine, colle, leurre) : chance selon leur niveau, tirée une fois par piège
 function aiDodge13(k, h) { if (h.owner === k) return false; const lv = G.race && G.race.botLvl != null ? G.race.botLvl : 1, p = [.08, .22, .38, .5][clamp(lv | 0, 0, 3)] * (h.kind === 'leurre' ? .35 : 1);
   h.dodge = h.dodge || new Map(); if (!h.dodge.has(k)) h.dodge.set(k, Math.random() < p); return h.dodge.get(k); }
@@ -5457,7 +5460,7 @@ function useItem13x(k, it, online) {
   const behindPt = (d) => [k.x - Math.sin(k.h) * d, k.z - Math.cos(k.h) * d];
   if (it === 'verglas' || it === 'trampoline' || it === 'fumigene') { const kind = it === 'fumigene' ? 'fumee' : it, [x, z] = behindPt(it === 'fumigene' ? 5 : 3.8), id = online ? netNewId() : null;
     spawnOil(x, z, k.groundY, k, id, kind); if (id) netEmit({ e: 'oil', kind, id, x: r2(x), z: r2(z), y: r2(k.groundY), o: k.netId }); if (k.isPlayer) AudioSys.sfx(it === 'fumigene' ? 'confetti' : 'oil'); return true; }
-  if (it === 'petard' || it === 'chewing') { let sp = it === 'petard' ? Math.max(58, k.speed + 22) : Math.max(84, k.speed + 32); const A = it === 'petard' ? aim13(k, 50, 90, .85) : aim13(k, sp), h = A.h, x = k.x + Math.sin(h) * 2.6, z = k.z + Math.cos(h) * 2.6, id = online ? netNewId() : null;
+  if (it === 'petard' || it === 'chewing') { const rear = throwBack(k); let sp = rear ? (it === 'petard' ? 26 : 55) : it === 'petard' ? Math.max(58, k.speed + 22) : Math.max(84, k.speed + 32); const A = rear ? { h: k.h + Math.PI, tg: null } : it === 'petard' ? aim13(k, 50, 90, .85) : aim13(k, sp), h = A.h, x = k.x + Math.sin(h) * 2.6, z = k.z + Math.cos(h) * 2.6, id = online ? netNewId() : null;
     if (it === 'petard' && A.tg) sp = clamp((A.d - 2.6) / .85, 20, 90);   // vol de 0,85 s : il retombe sur la cible
     spawnRocket(x, z, k.y, h, sp, k, null, id, it); if (A.tg) G.rockets[G.rockets.length - 1].aimTg = A.tg; if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(h), sp: r2(sp), o: k.netId, tg: null }); if (k.isPlayer) AudioSys.sfx('rocket'); return true; }
   if (it === 'miroir') { k.mirror = 8; if (k.isPlayer) { AudioSys.sfx('shield'); banner('Miroir : le prochain tir repart à l\'envoyeur', 1.6); } return true; }
@@ -5492,7 +5495,7 @@ function sacOpen(k) { const got = []; let rare = 0;
 function itemStatus13x(k, inp, dt) {
   if (k.ice > 0) { k.ice -= dt; inp.steer *= .12; inp.drift = false; k.speed *= Math.pow(.8, dt); k.spinAng += dt * 2.5; }
   if (k.iceCd > 0) k.iceCd -= dt;
-  if (k.gum > 0) { k.gum -= dt; const cap = k.maxSpeed * .55; if (k.speed > cap) k.speed = lerp(k.speed, cap, 1 - Math.exp(-dt * 6)); inp.steer *= .55; inp.drift = false; }
+  if (k.gum > 0) { k.gum -= dt; const cap = k.maxSpeed * .45; if (k.speed > cap) k.speed = lerp(k.speed, cap, 1 - Math.exp(-dt * 6)); inp.steer *= .55; inp.drift = false; }
   if (k.ram > 0) { k.ram -= dt; if (G.W.parts && Math.random() < .6) G.W.parts.emit(k.x + Math.sin(k.h) * 2, k.y + .7, k.z + Math.cos(k.h) * 2, rand(-2, 2), rand(0, 2), rand(-2, 2), pick(['#ff8a1e', '#ffc531']), .3, 0); }
   if (k.mirror > 0) k.mirror -= dt;
   if (k.smokeT > 0) k.smokeT -= dt;
@@ -5503,8 +5506,8 @@ function smoke13() { let el = $('#smoke13'); if (!el) { el = document.createElem
 function aiUse13x(k, ahead, behind, ai) {
   switch (k.item) {
     case 'verglas': case 'trampoline': case 'fumigene': return !k.air && (behind(25) || ai.itemT < -4);
-    case 'petard': return ahead(35) || ai.itemT < -5;
-    case 'chewing': return ahead(40) || ai.itemT < -5;
+    case 'petard': { const a = ahead(35), b = !a && behind(20); k.aiBack = b; return a || b || ai.itemT < -5; }
+    case 'chewing': { const a = ahead(40), b = !a && behind(20); k.aiBack = b; return a || b || ai.itemT < -5; }
     case 'miroir': return G.rockets.some((r) => r.target === k) || ai.itemT < -2;
     case 'parebuffle': return G.karts.some((o) => o !== k && !o.finished && (o.x - k.x) ** 2 + (o.z - k.z) ** 2 < 400) || ai.itemT < -3;
     case 'bouquet': case 'meteores': return ahead(150) || ai.itemT < -2;
@@ -5579,7 +5582,7 @@ const R13X = {
     if (!r.stuck && ((Math.abs(r.lat) > W.lim && !openSide(S, i)) || r.life <= 0)) { r.stuck = true; r.speed = 0; r.aimTg = null; r.life = 10; if (Math.abs(r.lat) > W.lim) { const sg = Math.sign(r.lat); r.x -= S.rx[i] * sg * (Math.abs(r.lat) - W.lim + .5); r.z -= S.rz[i] * sg * (Math.abs(r.lat) - W.lim + .5); } }
     r.mesh.userData.spin.rotation.y += dt * 8; r.mesh.position.set(r.x, r.y + .8, r.z);
     for (const k of G.karts) { if (k === r.owner && r.age < .8) continue; if (!hit13(r, k, 3.1)) continue; if (k.mirror > 0) { mirror13(r, k); return; }
-      if (!(k.star > 0) && !(k.ghost > 0)) { if (k.shield > 0) k.shield = 0; else { k.gum = 2.4; psHit(r.owner, k); if (r.owner && k !== r.owner && !r.stuck) recEvent(3 * (r.owner.isPlayer ? 1.2 : 1), (r.owner.isPlayer ? 'Ton chewing-gum sur ' : 'Chewing-gum de ' + r.owner.name + ' sur ') + k.name, k, null, r.owner); if (k.drift) endDrift(k, false); if (k.isPlayer) { banner('Chewing-gum !', 1.1, true); vibrate(40); AudioSys.sfx('bubble'); } } }
+      if (!(k.star > 0) && !(k.ghost > 0)) { if (k.shield > 0) k.shield = 0; else { k.gum = 2.8; psHit(r.owner, k); if (r.owner && r.owner.isPlayer && k !== r.owner) banner('Chewing-gum sur ' + k.name + ' !', 1.1); if (r.owner && k !== r.owner && !r.stuck) recEvent(3 * (r.owner.isPlayer ? 1.2 : 1), (r.owner.isPlayer ? 'Ton chewing-gum sur ' : 'Chewing-gum de ' + r.owner.name + ' sur ') + k.name, k, null, r.owner); if (k.drift) endDrift(k, false); if (k.isPlayer) { banner('Chewing-gum !', 1.1, true); vibrate(40); AudioSys.sfx('bubble'); } } }
       netHitReport(k, r.owner, r.id); end13(r, n); return; }
     if (r.life <= 0) end13(r, n); },
   bouquet(r, n, dt) { r.life -= dt; r.age += dt; const tg = r.target, alive = tg && !tg.finished && !tg.spect;
@@ -5601,10 +5604,14 @@ const R13X = {
 };
 // visuels : pare-buffle et miroir sur tous les karts (y compris ceux des autres joueurs)
 function vis13(dt) { for (const k of G.karts || []) { const g = k.mesh && k.mesh.g; if (!g) continue; let u = g.userData.v13;
-    if (!u && (k.ram > 0 || k.mirror > 0)) { u = g.userData.v13 = {};
+    if (!u && (k.ram > 0 || k.mirror > 0 || k.gum > 0)) { u = g.userData.v13 = {};
       u.ram = new T.Mesh(new T.TorusGeometry(1.25, .16, 8, 20, Math.PI), new T.MeshBasicMaterial({ color: '#ff8a1e' })); u.ram.rotation.set(Math.PI / 2, 0, Math.PI); u.ram.position.set(0, .7, 1.1); g.add(u.ram);
       u.mir = new T.Mesh(new T.SphereGeometry(2.3, 18, 12), new T.MeshStandardMaterial({ color: '#e9f6ff', metalness: .9, roughness: .05, transparent: true, opacity: .28, depthWrite: false })); u.mir.position.y = 1; g.add(u.mir); }
-    if (!u) continue; u.ram.visible = k.ram > 0; u.mir.visible = k.mirror > 0; if (u.mir.visible) u.mir.rotation.y += dt * 2; } }
+    if (!u) continue; u.ram.visible = k.ram > 0; u.mir.visible = k.mirror > 0; if (u.mir.visible) u.mir.rotation.y += dt * 2;
+    // chewing-gum : grosse bulle rose collée sur le kart + fils qui s'étirent
+    if (k.gum > 0 && !u.gum) { u.gum = new T.Group(); const pk = stdMat('#ff8fc8', .35, 0); const blob = new T.Mesh(new T.SphereGeometry(.7, 14, 10), pk); blob.scale.set(1.3, .6, 1.1); blob.position.set(0, 1.05, .2); u.gum.add(blob);
+      for (const s of [-1, 1]) { const st = new T.Mesh(new T.CylinderGeometry(.06, .1, 1, 6), pk); st.position.set(s * .7, .55, -.4); st.rotation.z = s * .5; u.gum.add(st); } g.add(u.gum); }
+    if (u.gum) { u.gum.visible = k.gum > 0; if (u.gum.visible) { const w = 1 + Math.sin(performance.now() / 90) * .06; u.gum.scale.set(w, 2 - w, w); if (G.W.parts && Math.random() < .3) G.W.parts.emit(k.x, k.y + 1, k.z, rand(-1, 1), rand(0, 1), rand(-1, 1), '#ff8fc8', .4, .5); } } } }
 
 /* ================= v7 : tirage d'objets équitable ================= */
 // r = 0 : en tête, r = 1 : loin derrière (mélange place + écart réel avec le premier)
@@ -5695,7 +5702,7 @@ function aiControl(k, dt) {
         case 'shield': case 'etoile': use = true; break;
         case 'oil': case 'mine': use = !k.air && (behind(16) || ai.itemT < -6); break;
         case 'rocket': use = ahead(110); break;
-        case 'boule': use = ahead(40) || ai.itemT < -5; break;
+        case 'boule': { const a = ahead(40), b = !a && behind(20); k.aiBack = b; use = a || b || ai.itemT < -5; break; }
         case 'eclair': use = k.place > 3 || ai.itemT < -4; break;
         case 'aimant': use = ahead(45) || ai.itemT < -4; break;
         case 'fantome': use = G.rockets.some((r) => r.target === k) || ai.itemT < -8; break;
@@ -5900,7 +5907,9 @@ function updateVisuals(dt) {
     animateGlider(k, M, dt, now);
     { const ast = !k.air ? 0 : k.isPlayer && !G.autopilot ? clamp(Input.tiltSteer + Input.digSteer + (Input.stickSteer || 0), -1, 1) : clamp(angDiff(k.vh, k.h) * 3, -1, 1), gw = k.air === 'glide' ? 1 : .5, f = 1 - Math.exp(-dt * 5);
       k.bankV = lerp(k.bankV || 0, -ast * .32 * gw, f); k.pitchV = lerp(k.pitchV || 0, k.air ? clamp((k.vy || 0) * .03, -.28, .22) * gw : 0, f);
-      M.tilt.rotation.z += k.bankV; M.tilt.rotation.x -= k.pitchV; }
+      // près du sol, le kart se remet à plat (sinon le nez ou un côté passe sous la piste à l'atterrissage)
+      const nearG = k.air ? clamp(((k.airH || 0) - .1) / 1.6, 0, 1) : 0, bk = k.bankV * (k.air ? nearG : 1), pt = k.pitchV * nearG;
+      M.tilt.rotation.z += bk; M.tilt.rotation.x -= pt; k.liftV = 1.35 * Math.abs(Math.sin(pt)) + .95 * Math.abs(Math.sin(bk)); }
     { const q = k.squash > 0 ? Math.sin(k.squash / .3 * Math.PI) : 0; const b = M.sc || [1, 1, 1]; M.tilt.scale.set(b[0] * (1 + q * .1), b[1] * (1 - q * .16), b[2] * (1 + q * .1)); }
     M.tilt.visible = !(k.ghost > 0 && Math.floor(now * 12) % 2 === 0);
     if (k.droneT > 0 || M.drone) { if (!M.drone) { M.drone = droneMesh(); G.W.scene.add(M.drone); } k.droneT = Math.max(0, (k.droneT || 0) - dt); M.drone.visible = k.droneT > 0; M.drone.position.set(M.g.position.x, M.g.position.y + 3.4 + (k.droneT < .4 ? (.4 - k.droneT) * 20 : 0), M.g.position.z); M.drone.rotation.y += dt * 2; }
@@ -5909,7 +5918,8 @@ function updateVisuals(dt) {
     { const tsc = k.shrink > 0 ? .62 : 1; const cur = M.g.scale.x; M.g.scale.setScalar(lerp(cur, tsc, 1 - Math.exp(-dt * 8))); }
     if (k.star > 0 && Math.random() < .9) W.parts.emit(k.x + rand(-1.5, 1.5), k.y + rand(.3, 2), k.z + rand(-1.5, 1.5), rand(-1, 1), rand(1, 3), rand(-1, 1), pick(['#ff4f3a', '#ffc531', '#3ee08f', '#38b6ff', '#a87dff']), .45);
     if (k.magnet > 0 && Math.random() < .6) W.parts.emit(k.x + Math.sin(k.h) * 3, k.y + 1, k.z + Math.cos(k.h) * 3, Math.sin(k.h) * 8, 0, Math.cos(k.h) * 8, '#6fd8ff', .3, 0);
-    M.tilt.position.y = k.hop > 0 ? Math.sin((k.hop / .22) * Math.PI) * .45 : (k.off && k.speed > 5 ? Math.sin(now * 40 + k.x) * .04 : 0);
+    M.tilt.position.y = (k.hop > 0 ? Math.sin((k.hop / .22) * Math.PI) * .45 : (k.off && k.speed > 5 ? Math.sin(now * 40 + k.x) * .04 : 0)) + (k.liftV || 0);
+    if (k.trickT > 0) M.g.position.y += .95 * Math.abs(Math.sin((1 - k.trickT / .45) * TAU));   // pendant une figure (tonneau), le kart ne rentre pas dans le sol
     for (const w of M.wheels) w.m.rotation.x += k.speed / w.r * dt;
     const st = k.isPlayer && !G.autopilot ? Input.tiltSteer + Input.digSteer + Input.stickSteer : (k.drift ? k.drift * .6 : 0);
     for (const f of M.fronts) f.rotation.y = lerp(f.rotation.y, -clamp(st, -1, 1) * .45, 1 - Math.exp(-dt * 12));
@@ -5998,7 +6008,8 @@ function drawMap() {
   for (const k of sorted) { const [u, v] = mapXf(k.x, k.z); x.beginPath(); x.arc(u, v, k.isPlayer ? 7 : 5, 0, TAU); x.fillStyle = k.cfg.color; x.fill(); x.lineWidth = 2.5; x.strokeStyle = k.isPlayer ? '#ffc531' : '#17143a'; x.stroke(); }
 }
 let bannerTimer = 0, countTimer = 0, hudTick = 0; const hudCache = {};
-function banner(txt, dur, warn) { hud.banner.textContent = txt; hud.banner.className = 'on' + (warn ? ' warn' : ''); bannerTimer = dur; }
+// texte de bandeau : la taille s'adapte à la longueur pour ne jamais sortir de l'écran (et passe à la ligne si besoin)
+function banner(txt, dur, warn) { const w = Math.min(innerWidth, 1400) * .9, fs = clamp(w / (String(txt).length * .58 + 1), 17, 46); hud.banner.style.fontSize = Math.round(Math.min(fs, innerWidth * .06 + 20)) + 'px'; hud.banner.textContent = txt; hud.banner.className = 'on' + (warn ? ' warn' : ''); bannerTimer = dur; }
 function countdown(txt, go) { hud.count.textContent = txt; hud.count.className = (go ? 'go ' : '') + 'pulse'; void hud.count.offsetWidth; countTimer = go ? .9 : 1.2; }
 /* ---------- 1re place : écart, série en tête, points de style ; alerte d'objet qui arrive ---------- */
 function leadEl() { let el = $('#h-lead'); if (!el) { el = document.createElement('div'); el.id = 'h-lead'; el.style.cssText = 'position:absolute;top:calc(max(10px,env(safe-area-inset-top,0px)) + 70px);left:max(16px,env(safe-area-inset-left,0px));font:800 15px system-ui;color:#fffdf7;text-shadow:0 2px 3px #17143a,0 0 2px #17143a;line-height:1.35;pointer-events:none';
@@ -7759,5 +7770,5 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner };
 })();

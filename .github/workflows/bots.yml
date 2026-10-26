@@ -1,0 +1,40 @@
+name: Bots de test
+# Des bots jouent tout seuls au jeu (avec le serveur de test) et vérifient les fonctions.
+# Lancés après chaque envoi du serveur, après chaque modif du jeu, ou à la main (Actions > Bots de test > Run workflow).
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['www/**', 'scripts/bots.cjs', '.github/workflows/bots.yml']
+  workflow_run:
+    workflows: ['Serveur Cloudflare']
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: bots
+  cancel-in-progress: true
+jobs:
+  bots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Installer le navigateur des bots
+        run: |
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Les bots jouent
+        run: node scripts/bots.cjs
+      - name: Captures d'écran et rapport
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bots-resultats
+          path: test-results/

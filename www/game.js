@@ -549,7 +549,7 @@ function pickTrack13(bomb) { const L = TRACKS.map((t, i) => i).filter((i) => !TR
 
 /* ================= Rendu ================= */
 const canvas = $('#gl');
-const renderer = new T.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+const renderer = new T.WebGLRenderer({ canvas, antialias: (window.devicePixelRatio || 1) < 2, powerPreference: 'high-performance' });
 renderer.outputColorSpace = T.SRGBColorSpace; renderer.toneMapping = T.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.25;
 const camera = new T.PerspectiveCamera(70, 1, .3, 1900);
 const QUALITY = { high: { pr: 2, decor: 1.15, shadows: true }, medium: { pr: 1.5, decor: .8, shadows: false }, low: { pr: 1, decor: .45, shadows: false } };
@@ -3068,7 +3068,7 @@ const UPD = { remote: '', forced: false, el: null };
 try { if (/[?&]maj=/.test(location.search)) history.replaceState(null, '', location.pathname + (window.TK_APP ? '?app=1' : '')); } catch (e) { /* rien */ }
 const racingNow = () => !!(G.race && ['race', 'countdown', 'intro'].includes(G.race.state) && !G.race.resultsShown);
 async function updCheck(quietIfSame) { if (BUILD !== 'pwa' || !window.TK_VER || location.hostname === 'localhost' && window.TK_APP) return;
-  try { const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return; const j = await r.json(); UPD.remote = String(j.v || ''); } catch (e) { return; }
+  try { const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return; const j = await r.json(); UPD.remote = String(j.v || ''); if (j.force) UPD.forced = true; } catch (e) { return; }
   if (UI.screen === 'chef') chefRender(); updVerText();
   if (UPD.remote && UPD.remote !== window.TK_VER) { if (UPD.forced) updWhenFree(); else updBanner(); } }
 function updBanner() { if (UPD.el) { UPD.el.hidden = false; return; } const b = document.createElement('button'); b.id = 'upd-btn'; b.className = 'btn red sm'; b.innerHTML = '<span>Nouvelle version : mettre à jour</span>';
@@ -8122,6 +8122,7 @@ function adaptPerf(dt) {
     PERF.slowT = 0;
     if (PERF.scale > .62) { PERF.scale = Math.max(.6, PERF.scale - .12); renderer.setPixelRatio(Math.max(.75, base * PERF.scale)); }
     else if (SAVE.quality === 'high') { SAVE.quality = 'medium'; store(); applyQuality(); if (G.W.sun) G.W.sun.castShadow = false; G.W.scene.traverse((o) => { if (o.material && !Array.isArray(o.material)) o.material.needsUpdate = true; }); for (const k of G.karts) if (k.mesh.g.children[2]) k.mesh.g.children.forEach((c) => { if (c.material && c.material.map === SHADOW_TEX) c.visible = true; }); if (!PERF.warned) { PERF.warned = true; toast('Graphismes passés en Moyen pour plus de fluidité.'); } }
+    else if (SAVE.quality === 'medium') { SAVE.quality = 'low'; PERF.scale = 1; store(); applyQuality(); toast('Graphismes passés en Bas pour plus de fluidité.'); }
   } else if (PERF.fastT > 4 && PERF.scale < 1) { PERF.fastT = 0; PERF.scale = Math.min(1, PERF.scale + .1); renderer.setPixelRatio(Math.max(.75, base * PERF.scale)); }
 }
 

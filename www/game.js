@@ -3812,7 +3812,7 @@ function airPhysics(k, P, overGap, inp, pressed, dt) {
   }
   if (k.airH <= 0 && !overGap) {
     // atterrissage
-    const hard = k.vy < -9; k.air = false; k.airH = 0; k.vy = 0; k.airT = 0; k.squash = hard ? .3 : .2; k.hop = .12;
+    const hard = k.vy < -9; if (k.isPlayer) camKick = Math.min(.55, Math.max(.12, -k.vy * .025)); k.air = false; k.airH = 0; k.vy = 0; k.airT = 0; k.squash = hard ? .3 : .2; k.hop = .12;
     if (k.trick) { k.boost = Math.max(k.boost, .85); if (k.isPlayer) { AudioSys.sfx('mini'); banner('Figure réussie !', .9); } }
     k.trick = false; k.trickOK = false;
     if (k.isPlayer) { AudioSys.sfx('land'); vibrate(hard ? 35 : 20); }
@@ -6005,6 +6005,7 @@ function updateVisuals(dt) {
   const tgt = R.player || (R.state === 'attract' ? G.karts[R.camK] : null);
   for (const k of G.karts) { if (k === tgt) { k.mesh.g.visible = true; continue; } const d2 = (k.x - camera.position.x) ** 2 + (k.z - camera.position.z) ** 2 + (k.y + 1 - camera.position.y) ** 2; k.mesh.g.visible = d2 > 12; }
 }
+let camKick = 0;
 function updateCamera(dt) {
   const R = G.race; const S = G.W.S;
   let k = R.spec || R.player, mode = 'chase';
@@ -6027,6 +6028,7 @@ function updateCamera(dt) {
   else { const dist = (portrait ? 10.5 : 8.6) + (k.air === 'glide' ? 1.2 : 0), hgt = (portrait ? 4.4 : 3.5) + (k.air === 'glide' ? 1.5 : k.air ? 1.0 : 0); tmpV.set(k.x - fx * dist, k.y + hgt, k.z - fz * dist); lookV.set(k.x + fx * 6, k.y + 1.5, k.z + fz * 6); }
   if (camSnap) camera.position.copy(tmpV); else camera.position.lerp(tmpV, 1 - Math.exp(-dt * (mode === 'chase' ? 9 : 4)));
   camera.position.y = Math.max(camera.position.y, k.y + 1.2);
+  if (camKick > 0) { camera.position.y -= camKick * Math.sin(camKick * 18); camKick = Math.max(0, camKick - dt * 1.6); }   // atterrissage : la caméra encaisse
   camera.lookAt(lookV); camSnap = false;
   const sun = G.W.sun; if (sun && sun.castShadow) { sun.target.position.set(k.x, k.y, k.z); sun.position.set(k.x + 110, k.y + 160, k.z + 60); }
 }
@@ -6088,6 +6090,12 @@ function warnHud(P, R) { let el = $('#h-warn'); if (!el) { el = document.createE
   // gauche / droite vu de la caméra (que l'objet soit derrière ou sur le côté)
   const me = camera.matrixWorld.elements, rx = me[0], rz = me[2], dx = best.x - camera.position.x, dz = best.z - camera.position.z, x = clamp((rx * dx + rz * dz) / Math.max(1, Math.hypot(dx, dz)) * 1.4, -1, 1) * 38;
   el.style.transform = 'translateX(' + x.toFixed(0) + 'vw) scale(' + (bd < 18 ? 1 + .12 * Math.sin(performance.now() / 70) : 1) + ')'; el.style.opacity = bd < 18 ? '1' : '.8'; }
+// un adversaire juste derrière : lueur au bas de l'écran, côté où il arrive, et son moteur qui se rapproche
+function chaseHud(dt, P, R) { let el = $('#h-chase'); if (!el) { el = document.createElement('div'); el.id = 'h-chase'; el.style.cssText = 'position:absolute;left:0;right:0;bottom:0;height:22vh;pointer-events:none;opacity:0;transition:opacity .25s'; $('#hud').appendChild(el); }
+  let best = null, bd = 1e9; if (R.state === 'race' && !P.finished) { const fx = Math.sin(P.h), fz = Math.cos(P.h); for (const k of G.karts) { if (k === P || k.spect || k.finished) continue; const dx = k.x - P.x, dz = k.z - P.z, ahead = dx * fx + dz * fz; if (ahead > -1 || ahead < -26 || Math.abs(dx * fz - dz * fx) > 14 || Math.abs(k.y - P.y) > 5) continue; const d = Math.hypot(dx, dz); if (d < bd && k.speed >= P.speed - 6) { bd = d; best = k; } } }
+  const o = best ? clamp(1 - bd / 26, 0, 1) * .8 : 0; if (Math.abs((+el.style.opacity || 0) - o) > .05) el.style.opacity = o.toFixed(2);
+  if (best) { const me = camera.matrixWorld.elements, side = clamp((me[0] * (best.x - P.x) + me[2] * (best.z - P.z)) / 10, -1, 1), cx = Math.round(50 + side * 30); el.style.background = 'radial-gradient(ellipse 45% 100% at ' + cx + '% 100%, rgba(255,79,58,.55), rgba(255,79,58,0) 70%)';
+    R.chaseT = (R.chaseT || 0) - dt; if (R.chaseT <= 0 && bd < 14) { R.chaseT = .55; AudioSys.tone(70 + (14 - bd) * 4, .22, 'sawtooth', .025 + (14 - bd) * .002, 8); } } }
 function updateHud(dt) {
   const R = G.race, P = R.player; if (!P) return;
   hudTick += dt; const slow = hudTick >= 1 / 15; if (slow) hudTick = 0;
@@ -6105,7 +6113,7 @@ function updateHud(dt) {
   if (countTimer > 0) { countTimer -= dt; if (countTimer <= 0) hud.count.textContent = ''; }
   if (R.state === 'race' && P.wrongT > 1.2 && bannerTimer <= 0) { banner('Mauvais sens !', .8, true); }
   if (slow) drawMap();
-  leadHud(dt, P, R); warnHud(P, R);
+  leadHud(dt, P, R); warnHud(P, R); chaseHud(dt, P, R);
   AudioSys.engine(clamp(Math.abs(P.speed) / P.maxSpeed, 0, 1.4), !G.paused && R.state !== 'intro', P.boost > 0, !!P.drift);
 }
 

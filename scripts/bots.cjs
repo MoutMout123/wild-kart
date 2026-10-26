@@ -8,7 +8,7 @@ fs.mkdirSync(OUT, { recursive: true });
 let API = process.env.API || '';
 if (!API) { try { API = fs.readFileSync(path.join(__dirname, '..', 'worker', 'url-test.txt'), 'utf8').trim() + '/api/compte'; } catch (e) { API = ''; } }
 const RES = []; const log = (...a) => console.log(...a);
-async function test(nom, fn) { if (process.env.ONLY && !nom.includes(process.env.ONLY) && !/démarrage/.test(nom)) return; const t0 = Date.now(); try { const d = await fn(); RES.push([nom, true, d || '']); log('✅', nom, d || ''); } catch (e) { RES.push([nom, false, String(e && e.message || e).slice(0, 300)]); log('❌', nom, e && e.message || e); } finally { log('   (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)'); } }
+async function test(nom, fn) { if (process.env.ONLY && !new RegExp(process.env.ONLY).test(nom) && !/démarrage/.test(nom)) return; const t0 = Date.now(); try { const d = await fn(); RES.push([nom, true, d || '']); log('✅', nom, d || ''); } catch (e) { RES.push([nom, false, String(e && e.message || e).slice(0, 300)]); log('❌', nom, e && e.message || e); } finally { log('   (' + ((Date.now() - t0) / 1000).toFixed(1) + ' s)'); } }
 const ok = (c, msg) => { if (!c) throw new Error(msg); };
 const api = async (a, b) => { const r = await fetch(API, { method: 'POST', body: JSON.stringify(Object.assign({ a }, b || {})) }); return r.json(); };
 const rnd = () => Math.random().toString(36).slice(2, 8);
@@ -75,10 +75,15 @@ const sim = (p, n, extra) => p.evaluate(([n, extra]) => { const K = window.__TK,
   await test('Revoir la course (kart au choix, vitesse)', async () => { const r = await p.evaluate(async () => { const K = window.__TK; K.fullReplay(); await new Promise((x) => setTimeout(x, 600)); const a = document.querySelector('#replay-l').textContent;
       document.querySelector('#rf-next').click(); document.querySelector('#rf-sp').click(); await new Promise((x) => setTimeout(x, 800)); const b = document.querySelector('#replay-l').textContent, sp = K.REPLAY.speed; return { a, b, sp, on: K.REPLAY.on }; });
     await p.shot('revoir'); await p.evaluate(() => document.querySelector('#replay-x').click()); ok(r.on && r.sp === 2 && r.a.split(' · ')[0] !== r.b.split(' · ')[0], JSON.stringify(r)); return r.a + ' → ' + r.b; });
-  await test('Fantôme du meilleur tour', async () => { await p.evaluate(() => { const K = window.__TK; K.UI.mode = 'quick'; K.startRace(0, 0); K.setAutopilot(true); }); await p.waitForTimeout(100); await sim(p, 60 * 25);
+  await test('Fantôme du meilleur tour', async () => { await p.evaluate(() => { const K = window.__TK; K.show(null); K.UI.mode = 'quick'; K.startRace(0, 0); K.setAutopilot(true); }); await p.waitForTimeout(100);
+    // un premier tour complet (il devient le record), puis une nouvelle course : le fantôme doit rouler
+    await p.evaluate(() => { const K = window.__TK, G = K.G; for (let i = 0; i < 60 * 200 && !(G.race.player.lap >= 2 && G.race.state === 'race'); i++) { K.simStep(1 / 60); K.updateVisuals(1 / 60); K.recTick(1 / 60); K.ghostTick(); } });
+    await sim(p, 60); await p.evaluate(() => { const K = window.__TK; K.startRace(0, 0); K.setAutopilot(true); }); await p.waitForTimeout(100); await sim(p, 60 * 12);
     const r = await p.evaluate(() => ({ ghost: !!window.__TK.GH.mesh, vis: window.__TK.GH.mesh && window.__TK.GH.mesh.g.visible, keys: Object.keys(localStorage).filter((k) => k.startsWith('wk-ghost')).length })); ok(r.keys > 0, 'aucun tour enregistré'); ok(r.ghost && r.vis, 'fantôme invisible'); return r.keys + ' record(s) enregistré(s)'; });
   await test('En course : écart, série en tête, météo, alerte d\'objet', async () => {
+    await p.evaluate(() => { const K = window.__TK; K.show(null); K.UI.mode = 'quick'; K.startRace(0, 0); K.setAutopilot(true); }); await p.waitForTimeout(100); await sim(p, 60 * 6);
     await p.evaluate(() => { for (const k of window.__TK.G.karts) if (!k.isPlayer) k.maxSpeed *= .6; }); await sim(p, 60 * 30);
+    const dg = await p.evaluate(() => { const K = window.__TK; return { screen: K.UI.screen, state: K.G.race && K.G.race.state, player: !!(K.G.race && K.G.race.player), mode: K.UI.mode }; }); ok(dg.player, 'plus de course en cours : ' + JSON.stringify(dg));
     const a = await p.evaluate(() => ({ place: window.__TK.G.race.player.place, gap: document.querySelector('#h-gap').textContent, streak: document.querySelector('#h-streak').textContent }));
     ok(a.place === 1 && /^\+\d/.test(a.gap) && /Série/.test(a.streak), 'HUD en tête : ' + JSON.stringify(a));
     const st = await p.evaluate(() => { const R = window.__TK.G.race; document.querySelector('[title="Outils de test"]').click(); [...document.querySelectorAll('[data-ti]')].find((x) => x.textContent === 'Pluie').click(); return { state: R.state, fin: R.player.finished, toast: (document.querySelector('#toast') || {}).textContent }; });

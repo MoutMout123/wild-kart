@@ -504,7 +504,8 @@ const NEW_TRACKS = [
   ['cameleon', 'prairie', 'Circuit Caméléon', 5, 4, 2, 'XXL : le circuit change tout le temps. Toutes les 40 s, la piste devient banquise, désert ou lune, la météo tourne et deux routes s\'ouvrent et se ferment à tour de rôle. Tout est annoncé avant, et il y a toujours un chemin ouvert.', { cham: { period: 40 }, themeX: { decor: 'cameleon' }, musicStyle: 'pop', obst: { kinds: ['pillars', 'rollers', 'walkers', 'bumpers'] }, obstZones: 4 }],
   ['plongeon', 'lagon', 'Grand Plongeon', 6, 3, 3, 'Deux façons de traverser la baie : planer au-dessus de l\'eau ou plonger dans le tunnel sous-marin. Un tire-bouchon à la sortie !', { musicStyle: 'latin', obstZones: 3 }],
   ['tirebouchon', 'neon', 'Tire-Bouchon Express', 6, 4, 3, 'La ville la nuit avec deux tire-bouchons où l\'on roule la tête en bas, un envol et un raccourci risqué sans rebords.', { musicStyle: 'house', obst: { pillar: 'cones', crush: 'piston', car: 'car', kinds: ['traffic', 'crushers', 'pillars'] }, obstZones: 3 }],
-  ['cascade', 'jungle', 'Cascades du Vertige', 6, 3, 3, 'Planer du haut de la cascade ou passer derrière le rideau d\'eau, puis un virage relevé dans la jungle.', { musicStyle: 'latin', obstZones: 3 }],
+  ['cascade', 'jungle', 'Cascades du Vertige', 6, 3, 3, 'Planer au-dessus de la grande cascade ou passer derrière le rideau d\'eau, filer sous les fromagers géants puis traverser la cité perdue.', { musicStyle: 'latin', obstZones: 3,
+    zones: [[0.14, 0.36, 'jungle'], [0.56, 0.8, 'ruines']], themeX: { fog: '#a8d4b2', fogN: 150, fogF: 860, sun: '#fff2d0', terrain: { h: 85, drop: 26, seed: 23, blend: 42, ridges: true } } }],
   ['deuxroutes', 'automne', 'Carrefour des Copains', 6, 4, 2, 'Deux grandes routes qui s\'ouvrent et se ferment à tour de rôle (c\'est annoncé), un tire-bouchon, un envol et un raccourci risqué.', { musicStyle: 'pop', obstZones: 4 }],
 ];
 const MALL_THEME = { sky: ['#bfe2ff', '#fff4e6'], fog: '#f6efe6', fogN: 220, fogF: 1100, ground: 'mall', road: '#3a3a4a', curb: ['#ff4f7a', '#fffdf7'], barrier: ['#2ec4c0', '#fffdf7'], skirt: '#c8c0b8', hemi: ['#fffaf2', '#c8bcae', 1.9], sun: '#fff6e8', sunI: 2.4, decor: 'mall', night: false,
@@ -623,7 +624,7 @@ function pixelTex(w, h, fn, post, repeat = true) {
 function wrapDraw(w, h, px, py, m, fn) { for (const ox of [0, -w, w]) for (const oy of [0, -h, h]) { const X = px + ox, Y = py + oy; if (X < -m || X > w + m || Y < -m || Y > h + m) continue; fn(X, Y); } }
 
 function groundTex(kind) {
-  { const g8 = groundTex8(kind) || groundTex10(kind) || (kind === 'mall' ? groundTexMall() : kind === 'pinball' ? groundTexPinball() : kind === 'parquet' ? groundTexParquet() : null); if (g8) return g8; }
+  { const g8 = groundTexJ(kind) || groundTex8(kind) || groundTex10(kind) || (kind === 'mall' ? groundTexMall() : kind === 'pinball' ? groundTexPinball() : kind === 'parquet' ? groundTexParquet() : null); if (g8) return g8; }
   if (kind === 'grass') {
     const nL = fbm(3, 4, 11), nM = fbm(12, 3, 23), nF = tileNoise(128, 37); const d1 = rgb('#47923a'), d2 = rgb('#72bf50'), d3 = rgb('#3a7f30');
     return pixelTex(512, 512, (u, v) => { let c = mix3(d1, d2, clamp((nL(u, v) - .3) * 1.9, 0, 1)); c = mix3(c, d3, clamp((nM(u, v) - .55) * 2.6, 0, 1) * .55); return mulc(c, .93 + nF(u, v) * .14); },
@@ -1454,25 +1455,153 @@ function buildGlacier(W, ext, cx, cz, scatter, ring, q) {
     const ang = k * 2.1; a.position.set(Math.cos(ang) * 1000, 420 + k * 60, Math.sin(ang) * 1000); a.lookAt(0, 420, 0); W.sky.add(a); W.auroras.push(a); }
   addClouds(W, ext, cx, cz, 8);
 }
+/* ---------- Cascades du Vertige : jungle en couches (carte pilote de la refonte des décors) ---------- */
+// Composition : lisière de fougères, grandes feuilles et broméliacées au bord de la piste ; derrière, des bosquets de
+// fromagers à contreforts et à lianes (avec des clairières) ; au loin une canopée qui moutonne et des pitons calcaires
+// dans la brume ; une grande cascade au-dessus du ravin du planeur ; la cité perdue (arches au-dessus de la route,
+// colonnes, murs, têtes de pierre, grande pyramide) dans la 2e moitié du tour.
+// Performances : chaque modèle est UNE géométrie fusionnée (couleurs dans les sommets), instanciée par paquets
+// de ~400 m pour que la caméra ne dessine pas ce qui est derrière elle. Les quantités suivent le réglage graphique.
+const JG = {};
+// fusionne des morceaux [géométrie, couleur, ombrage bas→haut] en une géométrie avec couleurs par sommet
+function jgMerge(items) {
+  let n = 0; const gs = items.map(([g, col, sh]) => { const q = g.index ? g.toNonIndexed() : g; q.computeVertexNormals(); n += q.attributes.position.count; return [q, new T.Color(col), sh || [.85, 1.05]]; });
+  const P = new Float32Array(n * 3), Nn = new Float32Array(n * 3), C = new Float32Array(n * 3); let o = 0;
+  for (const [g, c, [lo, hi]] of gs) { const p = g.attributes.position, nm = g.attributes.normal; g.computeBoundingBox(); const y0 = g.boundingBox.min.y, y1 = g.boundingBox.max.y;
+    for (let i = 0; i < p.count; i++, o++) { P[o * 3] = p.getX(i); P[o * 3 + 1] = p.getY(i); P[o * 3 + 2] = p.getZ(i); Nn[o * 3] = nm.getX(i); Nn[o * 3 + 1] = nm.getY(i); Nn[o * 3 + 2] = nm.getZ(i);
+      const t = clamp((p.getY(i) - y0) / (y1 - y0 || 1), 0, 1), k = lo + (hi - lo) * t + Math.sin(p.getX(i) * 2.7 + p.getZ(i) * 1.9) * .04; C[o * 3] = c.r * k; C[o * 3 + 1] = c.g * k; C[o * 3 + 2] = c.b * k; }
+    g.dispose(); }
+  const m = new T.BufferGeometry(); m.setAttribute('position', new T.BufferAttribute(P, 3)); m.setAttribute('normal', new T.BufferAttribute(Nn, 3)); m.setAttribute('color', new T.BufferAttribute(C, 3)); m.userData.keep = true; return m;
+}
+const jgBlob = (r, det, amt, seed, sy = 1) => { const g = smooth(wobble(new T.IcosahedronGeometry(r, det), amt, 1.1, seed), 80); g.scale(1, sy, 1); return g; };
+function jgGeo(name) {
+  if (JG[name]) return JG[name]; const L = [];
+  if (name === 'kapok' || name === 'kapok2') { // grand fromager : contreforts, tronc, canopée en parasol, lianes
+    const tall = name === 'kapok' ? 17 : 13, tw = name === 'kapok' ? 1 : .8;
+    const tk = new T.CylinderGeometry(.5 * tw, 1.05 * tw, tall, 7, 3); wobble(tk, .1, 1.3, 3, true); tk.translate(0, tall / 2, 0); L.push([tk, '#6b5038', [.7, 1]]);
+    for (let k = 0; k < 4; k++) { const s = new T.Shape(); s.moveTo(0, 0); s.lineTo(2.8 * tw, 0); s.quadraticCurveTo(.6, .7, 0, 4.2 * tw); s.lineTo(0, 0); const f = new T.ExtrudeGeometry(s, { depth: .32, bevelEnabled: false, curveSegments: 3 }); f.translate(0, 0, -.16); f.rotateY(k / 4 * TAU + .4); L.push([f, '#5e4632', [.65, .95]]); }
+    const cs = name === 'kapok' ? [[0, tall + 1.6, 0, 5.4], [3.6, tall - .2, 1.2, 4], [-3, tall + .2, -2, 3.8], [.6, tall + .6, 3.2, 3.6], [-1.4, tall - 1.6, 1, 3.4], [1.8, tall + 2.6, -1.6, 3]] : [[0, tall + 1.4, 0, 4.6], [2.6, tall, -1.4, 3.4], [-2.4, tall + .2, 1.6, 3.2], [.4, tall - 1.4, -.6, 3]];
+    cs.forEach(([x, y, z, r], k) => { const b = jgBlob(r, k ? 0 : 1, .24, k * 3 + 2, .62); b.translate(x, y, z); L.push([b, k % 2 ? '#2a6e30' : '#327e36', [.55, 1.12]]); });
+    for (const [x, z, h] of [[3.6, 1.6, 9], [-3.2, -1.8, 7], [1, 3.4, 10.5]]) { const v = new T.CylinderGeometry(.07, .07, h, 3); v.translate(x, tall - h / 2 + .4, z); L.push([v, '#3f5a2a', [.8, 1]]); }
+  } else if (name === 'slim') { // arbre élancé à houppiers étagés
+    const tk = new T.CylinderGeometry(.26, .45, 12, 6, 2); tk.translate(0, 6, 0); L.push([tk, '#7a6248', [.75, 1]]);
+    [[0, 12.6, 0, 2.6], [1.2, 10.4, .6, 1.9], [-1, 9, -.5, 1.6]].forEach(([x, y, z, r], k) => { const b = jgBlob(r, k ? 0 : 1, .2, k + 11, .6); b.translate(x, y, z); L.push([b, '#3d8a3a', [.62, 1.1]]); });
+  } else if (name === 'palm') { // palmier léger (6 palmes simples)
+    const tk = new T.CylinderGeometry(.22, .34, 9, 6, 3); tk.translate(0, 4.5, 0); const p = tk.attributes.position; for (let i = 0; i < p.count; i++) { const y = p.getY(i); p.setX(i, p.getX(i) + y * y * .012); } L.push([tk, '#8a6a4a', [.75, 1]]);
+    for (let f = 0; f < 6; f++) { const fr = new T.PlaneGeometry(4.2, .9, 3, 1); fr.translate(2.1, 0, 0); const q = fr.attributes.position; for (let i = 0; i < q.count; i++) { const x = q.getX(i); q.setY(i, -x * x * .06); } fr.rotateY(f / 6 * TAU); fr.translate(.97, 9, 0); L.push([fr, '#3f9a42', [.8, 1.05]]); }
+  } else if (name === 'fern') { // fougère : 7 frondes qui retombent
+    for (let f = 0; f < 7; f++) { const fr = new T.PlaneGeometry(2.4, .55, 3, 1); fr.translate(1.2, 0, 0); const q = fr.attributes.position; for (let i = 0; i < q.count; i++) { const x = q.getX(i), y = q.getY(i); q.setY(i, y * (1 - x / 2.6)); q.setZ(i, x * .55 - x * x * .32); } fr.rotateX(-Math.PI / 2); fr.rotateY(f / 7 * TAU + (f % 2) * .2); fr.translate(0, .15, 0); L.push([fr, f % 2 ? '#3f9a3a' : '#4fae44', [.7, 1.1]]); }
+  } else if (name === 'leaf') { // plante à grandes feuilles (oreille d'éléphant)
+    for (let f = 0; f < 5; f++) { const s = new T.Shape(); s.moveTo(0, 0); s.quadraticCurveTo(.9, .6, .2, 2.2); s.quadraticCurveTo(-.6, .9, 0, 0); const lf = new T.ShapeGeometry(s, 3); lf.rotateX(-Math.PI / 2 + .55); lf.translate(0, .9 + (f % 2) * .4, 0); lf.rotateY(f / 5 * TAU); L.push([lf, f % 2 ? '#2e7f3a' : '#3c9446', [.75, 1.08]]);
+      const st = new T.CylinderGeometry(.04, .05, 1.1, 3); st.translate(0, .55, 0); st.rotateY(f / 5 * TAU); L.push([st, '#4a7a30', [.9, 1]]); }
+  } else if (name === 'brom') { // broméliacée : rosette + cœur rouge
+    for (let f = 0; f < 6; f++) { const b = new T.ConeGeometry(.16, 1.3, 3); b.translate(0, .65, 0); b.rotateZ(.55); b.rotateY(f / 6 * TAU); L.push([b, '#5aa83e', [.75, 1.05]]); }
+    const h = new T.ConeGeometry(.2, .9, 5); h.translate(0, .55, 0); L.push([h, '#e2342a', [.8, 1.1]]);
+  } else if (name === 'canopy') { L.push([jgBlob(1, 1, .25, 5, .55), '#2a6e33', [.62, 1.12]]); // canopée lointaine (une bosse)
+  } else if (name === 'karst') { // piton calcaire : flancs de roche, sommet couvert de végétation
+    const g = new T.CylinderGeometry(.42, 1, 1, 9, 7); g.translate(0, .5, 0); wobble(g, .3, 3.2, 8, true); const sm = smooth(g, 55); const p = sm.attributes.position, c = new Float32Array(p.count * 3), rock = new T.Color('#8c917e'), moss = new T.Color('#2f6e34'), tmp = new T.Color();
+    for (let i = 0; i < p.count; i++) { const y = p.getY(i), streak = Math.sin(p.getX(i) * 13 + p.getZ(i) * 7) * .5 + .5; tmp.copy(rock).multiplyScalar(.75 + .3 * y).lerp(moss, clamp((y - .78) * 6, 0, 1) + (y < .78 ? streak * .22 * (1 - y) : 0)); c[i * 3] = tmp.r; c[i * 3 + 1] = tmp.g; c[i * 3 + 2] = tmp.b; }
+    sm.setAttribute('color', new T.BufferAttribute(c, 3)); sm.userData.keep = true; JG[name] = sm; return sm;
+  } else if (name === 'mrock') { const r = smooth(wobble(new T.DodecahedronGeometry(1.4, 1), .22, 1.3, 9), 70); r.scale(1, .65, 1); L.push([r, '#7a806c', [.6, 1.15]]); // rocher moussu
+  } else if (name === 'column') { const c = new T.CylinderGeometry(.85, .95, 1, 10, 1); c.translate(0, .5, 0); L.push([c, '#9a9c86', [.7, 1.05]]); const cap = new T.BoxGeometry(2.3, .45, 2.3); cap.translate(0, 1.05, 0); L.push([cap, '#8a8c76', [.9, 1]]);
+  } else if (name === 'wallbit') { const w = new T.BoxGeometry(7, 3.2, 1.4, 4, 2, 1); wobble(w, .05, 2, 4); w.translate(0, 1.6, 0); const p = w.attributes.position; for (let i = 0; i < p.count; i++) if (p.getY(i) > 3 && p.getX(i) > 1) p.setY(i, p.getY(i) - 1.6 * (p.getX(i) - 1) / 2.5); L.push([w, '#8f927c', [.62, 1.08]]);
+  } else if (name === 'head') { // tête de pierre géante (tournée vers la piste)
+    const h = rbox(3.6, 4.2, 3.4, .7); h.translate(0, 2.1, 0); L.push([h, '#8a8e78', [.7, 1.08]]); const nose = new T.BoxGeometry(.9, 1.3, .8); nose.translate(0, 2.1, 1.85); L.push([nose, '#7e826c', [.85, 1]]);
+    for (const s of [-1, 1]) { const e = new T.BoxGeometry(.8, .45, .3); e.translate(s * .85, 2.95, 1.72); L.push([e, '#3a3c30', [1, 1]]); } const m = new T.BoxGeometry(1.4, .35, .3); m.translate(0, 1.2, 1.72); L.push([m, '#3a3c30', [1, 1]]);
+  }
+  const g = jgMerge(L); JG[name] = g; return g;
+}
+// instanciation par paquets spatiaux (le moteur saute les paquets hors champ)
+function jgPlace(scene, geo, mat, places, cell = 420) {
+  const groups = new Map(); for (const p of places) { const k = Math.floor(p.x / cell) + ',' + Math.floor(p.z / cell); let l = groups.get(k); if (!l) groups.set(k, (l = [])); l.push(p); }
+  for (const l of groups.values()) instanced(scene, [{ geo, mat, colors: ['#ffffff', '#eef6e6', '#f6fff0', '#e4eedc', '#fff8ec'] }], l);
+}
+function groundTexJ(kind) {
+  if (kind === 'jungle') { // terre humide, mousses, litière de feuilles
+    const nL = fbm(3, 4, 731), nM = fbm(9, 3, 741), nF = tileNoise(128, 751); const a = rgb('#2c6a2c'), b = rgb('#4b8a36'), dirt = rgb('#5a4a30');
+    return pixelTex(512, 512, (u, v) => { let c = mix3(a, b, clamp((nL(u, v) - .3) * 1.8, 0, 1)); c = mix3(c, dirt, clamp((nM(u, v) - .62) * 3, 0, 1) * .7); return mulc(c, .88 + nF(u, v) * .2); },
+      (x, w, h) => { for (let i = 0; i < 1600; i++) { const px = Math.random() * w, py = Math.random() * h, r = rand(1.2, 3.2), a2 = rand(0, TAU); x.fillStyle = pick(['rgba(110,90,40,.45)', 'rgba(150,120,50,.35)', 'rgba(40,90,30,.4)', 'rgba(120,170,70,.3)']);
+        wrapDraw(w, h, px, py, 6, (X, Y) => { x.beginPath(); x.ellipse(X, Y, r, r * .45, a2, 0, TAU); x.fill(); }); }
+        x.lineWidth = 1.2; for (let i = 0; i < 1500; i++) { const px = Math.random() * w, py = Math.random() * h, l = 3 + Math.random() * 5; x.strokeStyle = Math.random() < .5 ? 'rgba(30,80,28,.35)' : 'rgba(140,200,90,.25)'; wrapDraw(w, h, px, py, 8, (X, Y) => { x.beginPath(); x.moveTo(X, Y); x.lineTo(X + rand(-1.5, 1.5), Y - l); x.stroke(); }); } });
+  }
+  if (kind === 'ruins') { // dallage de pierre mangé par la mousse
+    const nL = fbm(4, 4, 761), nM = fbm(7, 3, 771), nF = tileNoise(128, 781); const st = rgb('#9a9a86'), st2 = rgb('#7e806c'), moss = rgb('#3f7a34');
+    return pixelTex(512, 512, (u, v) => { const row = Math.floor(v * 8), uu = u * 6 + (row % 2) * .5, tu = uu % 1, tv = (v * 8) % 1, joint = tu < .04 || tv < .06;
+      const cell = Math.floor(uu) * 13 + row * 7, c = mix3(st, st2, (Math.sin(cell * 12.9) * .5 + .5) * .7); const m = clamp((nM(u, v) - .45) * 2.4, 0, 1);
+      return mulc(mix3(joint ? mix3(c, moss, .75) : c, moss, m * .8), (.86 + nF(u, v) * .2) * (.95 + nL(u, v) * .1)); });
+  }
+  return null;
+}
 function buildJungle(W, ext, cx, cz, scatter, ring, q) {
-  const { scene, S, def } = W;
-  const gc = ['#1f7a3a', '#2a8a44', '#176a32', '#36a050'];
-  instanced(scene, [{ geo: new T.CylinderGeometry(.7, 1.1, 10, 9), mat: lam('#5a3d28'), off: tr(0, 5, 0) }, { geo: decorGeo('crown'), mat: lam('#ffffff'), off: trs(0, 11, 0, 0, 0, 0, 1.7), colors: gc }, { geo: decorGeo('crown2'), mat: lam('#ffffff'), off: trs(-2, 9, 1, 0, 0, 0, 1.5), colors: gc }], scatter(170 * q, 6, 260, .8, 1.4));
-  instanced(scene, palmParts('#7a5a3a', gc), scatter(70 * q, 5, 220, .8, 1.3));
-  const fern = new T.CapsuleGeometry(.4, 2.6, 4, 8); fern.scale(1, 1, .2); fern.rotateZ(-Math.PI / 2); fern.translate(1.4, 0, 0); fern.rotateZ(-.7);
-  const fparts = []; for (let f = 0; f < 6; f++) fparts.push({ geo: fern, mat: lam('#ffffff', { side: T.DoubleSide }), off: trs(0, .8, 0, 0, f / 6 * TAU, 0), colors: gc });
-  instanced(scene, fparts, scatter(150 * q, 2, 140, .6, 1.2));
-  // temples en escalier et colonnes en ruine
-  const stoneM = lam('#ffffff'), sc = ['#8a8f7a', '#7a806a', '#9aa08a'];
-  const temples = scatter(8, 26, 230, 1, 1).map((p) => Object.assign(p, { s: rand(1.4, 2.4), r: rand(0, TAU) }));
-  const tparts = []; for (let l = 0; l < 5; l++) { const g = new T.BoxGeometry(14 - l * 2.6, 2.6, 14 - l * 2.6); tparts.push({ geo: g, mat: stoneM, off: tr(0, 1.3 + l * 2.6, 0), colors: sc }); }
-  tparts.push({ geo: new T.BoxGeometry(2.2, 2.4, 2.2), mat: stoneM, off: tr(0, 14.2, 0), colors: sc });
-  instanced(scene, tparts, temples);
-  instanced(scene, [{ geo: new T.CylinderGeometry(.8, .9, 7, 10), mat: stoneM, off: tr(0, 3.5, 0), colors: sc }], scatter(40 * q, 5, 160, .6, 1.2).map((p) => Object.assign(p, { sy: rand(.4, 1.1) })));
-  const wt = waterTex(); const wm = new T.MeshStandardMaterial({ map: wt, roughness: .12, metalness: .15, transparent: true, opacity: .92 });
-  for (const [a, b] of def.glide || []) { const i = Math.floor((a + b) / 2 * S.N) % S.N; const river = new T.Mesh(new T.PlaneGeometry(60, W.hAt ? 220 : 700), wm); river.rotation.x = -Math.PI / 2; river.rotation.z = -S.hd[i] + Math.PI / 2; river.position.set(S.px[i], W.hAt ? W.hAt(S.px[i], S.pz[i]) + 1.2 : .05, S.pz[i]); scene.add(river); }
-  W.waterTex = wt;
-  instanced(scene, [{ geo: decorGeo('hill'), mat: lam('#ffffff'), colors: ['#1f6a34', '#2a7a40'] }], ring(26, 260, 430).map((p) => Object.assign(p, { sx: rand(90, 170), sy: rand(60, 130), sz: rand(90, 170) })));
+  const { scene, S, def } = W, N = S.N, near = W.nearAll, wallD = W.wallD;
+  const mat = lam('#ffffff', { vertexColors: true, side: T.DoubleSide });
+  const noDec = (x, z) => W.noDecor && W.noDecor.some((n) => (n.x - x) ** 2 + (n.z - z) ** 2 < n.r * n.r);
+  // distance au bord de route le plus proche (toutes routes, raccourcis compris) ; null si trop près ou zone interdite
+  const ok = (x, z, minD, maxD = 1e9) => { const r = near(x, z, Math.min(maxD, 200) + 30); return r.d >= wallD + minD && r.d <= wallD + maxD && !noDec(x, z); };
+  const zoneOf = (i) => { for (const [a, b, bio] of def.zones || []) { const i0 = Math.floor(a * N), i1 = Math.floor(b * N); if (i >= i0 && i <= i1) return bio; } return null; };
+  const gaps = gapCenters(W), nearGap = (i, r) => gaps.some((g) => Math.min(Math.abs(i - g), N - Math.abs(i - g)) < r);
+  // densité le long du tour : bosquets serrés, clairières, ouvertures sur les points de vue
+  const dens = (i) => { const u = i / N; let d = .55 + .3 * Math.sin(u * TAU * 7 + 1.3) + .2 * Math.sin(u * TAU * 17 + .4); if (zoneOf(i) === 'jungle') d += .3; if (zoneOf(i) === 'ruines') d -= .15; if (nearGap(i, 40)) d -= .5; return clamp(d, 0, 1); };
+  const at = (i, sd, d) => ({ x: S.px[i] + S.rx[i] * sd * (wallD + d), z: S.pz[i] + S.rz[i] * sd * (wallD + d) });
+  const P = { fern: [], leaf: [], brom: [], kapok: [], kapok2: [], slim: [], palm: [], canopy: [], mrock: [], karst: [], column: [], wallbit: [], head: [] };
+  const put = (k, x, z, s, extra) => P[k].push(Object.assign({ x, z, y: -.25, s, r: rand(0, TAU), g: 1 }, extra || {}));
+  // 1) lisière (2 à 16 m du mur) : touffes de fougères, grandes feuilles, broméliacées, rochers moussus
+  for (let i = 0; i < N; i += 4) for (const sd of [-1, 1]) { const dn = dens(i); if (Math.random() > (.35 + .55 * dn) * q) continue;
+    const c = at(i, sd, rand(9, 16)); if (!ok(c.x, c.z, 8, 20)) continue; const n = 2 + Math.floor(Math.random() * 3);
+    for (let m = 0; m < n; m++) { const x = c.x + rand(-3.5, 3.5), z = c.z + rand(-3.5, 3.5); if (!ok(x, z, 7.5)) continue; const r = Math.random();
+      if (r < .5) put('fern', x, z, rand(1.6, 2.6)); else if (r < .8) put('leaf', x, z, rand(1.8, 2.8)); else if (r < .93) put('brom', x, z, rand(1.4, 2)); else put('mrock', x, z, rand(1, 2)); } }
+  // 2) murs de forêt (12 à 85 m) : bosquets de fromagers, arbres élancés, quelques palmiers ; clairières là où la densité baisse
+  for (let i = 0; i < N; i += 7) for (const sd of [-1, 1]) { const dn = dens(i); if (Math.random() > (.15 + .85 * dn) * q) continue;
+    const c = at(i, sd, rand(14, 70)); if (!ok(c.x, c.z, 11)) continue; const n = 2 + Math.floor(dn * 4 + Math.random() * 2);
+    for (let m = 0; m < n; m++) { const x = c.x + rand(-11, 11), z = c.z + rand(-11, 11); if (!ok(x, z, 10)) continue; const r = Math.random();
+      if (r < .4) put('kapok', x, z, rand(.85, 1.3)); else if (r < .65) put('kapok2', x, z, rand(.8, 1.2)); else if (r < .9) put('slim', x, z, rand(.8, 1.25)); else put('palm', x, z, rand(.9, 1.2)); }
+    if (Math.random() < .5) { const f = at(i, sd, rand(9, 13)); if (ok(f.x, f.z, 7)) put('fern', f.x, f.z, rand(1.3, 2)); } }
+  // 3) canopée lointaine (90 à 320 m) : la jungle moutonne jusqu'à l'horizon
+  { let guard = 0; const want = Math.round(950 * q); while (P.canopy.length < want && guard++ < want * 6) { const x = cx + rand(-ext - 260, ext + 260), z = cz + rand(-ext - 260, ext + 260); if (!ok(x, z, 80, 330)) continue; const s = rand(7, 15); put('canopy', x, z, s, { sx: s, sy: s * rand(.7, 1.1), sz: s, y: rand(2, 8) }); } }
+  // 4) pitons calcaires dans la brume (repères au loin, jamais près de la route)
+  { let guard = 0; const want = Math.round(34 * Math.max(.6, q)); while (P.karst.length < want && guard++ < 900) { const x = cx + rand(-ext - 320, ext + 320), z = cz + rand(-ext - 320, ext + 320); if (!ok(x, z, 120, 460)) continue; const r = rand(16, 34); put('karst', x, z, r, { sx: r, sy: rand(55, 120), sz: r * rand(.8, 1.2), y: -6 }); } }
+  // 5) cité perdue (zone « ruines ») : colonnes, pans de murs, têtes de pierre au bord de la route
+  for (let i = 0; i < N; i += 9) { if (zoneOf(i) !== 'ruines') continue; for (const sd of [-1, 1]) { if (Math.random() > .55) continue; const c = at(i, sd, rand(3, 22)); if (!ok(c.x, c.z, 2.5, 30)) continue; const r = Math.random();
+    if (r < .45) put('column', c.x, c.z, 1, { sx: 1, sy: rand(2.5, 8), sz: 1 }); else if (r < .8) put('wallbit', c.x, c.z, rand(.8, 1.3), { r: S.hd[i] + Math.PI / 2 + rand(-.3, .3) }); else put('head', c.x, c.z, rand(1, 1.5), { r: Math.atan2(S.px[i] - c.x, S.pz[i] - c.z) }); } }
+  for (const k in P) if (P[k].length) jgPlace(scene, jgGeo(k), mat, P[k], k === 'canopy' || k === 'karst' ? 900 : 600);
+  W.jgMarks = { arches: [], pyramid: null, falls: [] }; W.jgCount = Object.fromEntries(Object.entries(P).map(([k, v]) => [k, v.length]));
+  // arches de la cité perdue au-dessus de la route (2), sur des portions droites hors saut / embranchement / virage relevé
+  { const stone = stdMat('#8f927c', .9, 0), dark = stdMat('#6e715e', .9, 0), moss = stdMat('#3f7a34', .95, 0); const used = [];
+    for (let i = 0; i < N && used.length < 2; i += 5) { if (zoneOf(i) !== 'ruines' || S.glide[i] || (S.wz && S.wz[i]) || nearBranchWin(W, i, 14) || used.some((u) => Math.abs(u - i) < N * .07)) continue;
+      let c = 0; for (let o = -10; o <= 10; o++) c += Math.abs(S.curv[(i + o + N) % N]); if (c > .25) continue; used.push(i);
+      const g = new T.Group(); g.position.set(S.px[i], S.py[i], S.pz[i]); g.rotation.y = S.hd[i]; const span = wallD + 2.2;
+      for (const s of [-1, 1]) { const p = new T.Mesh(rbox(3.4, 13, 3.4, .3), stone); p.position.set(s * span, 6.5, 0); g.add(p); const b = new T.Mesh(new T.BoxGeometry(4.2, 1.2, 4.2), dark); b.position.set(s * span, .6, 0); g.add(b); }
+      const top = new T.Mesh(rbox(span * 2 + 6, 3, 4, .3), stone); top.position.y = 14.4; g.add(top); const top2 = new T.Mesh(new T.BoxGeometry(span * 2 + 2, 1.2, 4.4), dark); top2.position.y = 12.6; g.add(top2);
+      for (let k = 0; k < 7; k++) { const m = new T.Mesh(jgBlob(rand(.9, 1.6), 1, .3, k, .5), moss); m.position.set(rand(-span, span), 15.9, rand(-1.5, 1.5)); g.add(m); }
+      for (let k = 0; k < 6; k++) { const h = rand(3, 7), v = new T.Mesh(new T.CylinderGeometry(.06, .06, h, 3), moss); v.position.set(rand(-span + 2, span - 2), 12 - h / 2, rand(-1.8, 1.8)); g.add(v); }
+      scene.add(g); } W.jgMarks.arches = used; }
+  // grande pyramide de la cité perdue, bien visible depuis une ligne droite
+  { let best = null; for (let i = 0; i < N; i += 6) { if (zoneOf(i) !== 'ruines') continue; for (const sd of [-1, 1]) { const c = at(i, sd, 95); if (!ok(c.x, c.z, 70, 140)) continue; if (!best || Math.random() < .25) best = c; } }
+    if (best) { const g = new T.Group(), st = stdMat('#8f927c', .9, 0), st2 = stdMat('#7e816c', .9, 0), moss = stdMat('#3f7a34', .95, 0);
+      for (let l = 0; l < 7; l++) { const w = 46 - l * 6; const b = new T.Mesh(new T.BoxGeometry(w, 5, w), l % 2 ? st2 : st); b.position.y = 2.5 + l * 5; g.add(b); for (let k = 0; k < 3; k++) { const m = new T.Mesh(jgBlob(rand(1.5, 3), 1, .3, l * 3 + k, .45), moss); const a = rand(0, TAU); m.position.set(Math.cos(a) * w / 2, 5 + l * 5, Math.sin(a) * w / 2); g.add(m); } }
+      const temple = new T.Mesh(new T.BoxGeometry(8, 7, 8), st); temple.position.y = 38.5; g.add(temple); const door = new T.Mesh(new T.BoxGeometry(2.6, 4, .4), stdMat('#2a2a22', 1, 0)); door.position.set(0, 37, 4.05); g.add(door);
+      const stair = new T.Mesh(new T.BoxGeometry(7, 1, 30), st2); stair.position.set(0, 17, 17); stair.rotation.x = .96; g.add(stair);
+      g.position.set(best.x, hy(W, best.x, best.z, -1), best.z); g.rotation.y = Math.atan2(cx - best.x, cz - best.z); scene.add(g); W.jgMarks.pyramid = best; } }
+  // cascade au-dessus du ravin du planeur : falaise, rideau d'eau animé, bassin, brume
+  const wt = waterTex(); W.waterTex = wt; const wm = new T.MeshStandardMaterial({ map: wt, roughness: .12, metalness: .15, transparent: true, opacity: .92 });
+  for (const i of gaps) { const drop = (W.th.terrain && W.th.terrain.drop) || 22, base = S.py[i] - drop;
+    const river = new T.Mesh(new T.PlaneGeometry(46, 300), wm); river.rotation.x = -Math.PI / 2; river.rotation.z = -S.hd[i] + Math.PI / 2; river.position.set(S.px[i], base + 2.2, S.pz[i]); scene.add(river);
+    // côté de la cascade : celui qui est le plus loin des autres routes
+    let sd = -1, bestD = -1; for (const s of [-1, 1]) { const c = at(i, s, 48); const d = near(c.x, c.z, 120).d; if (d > bestD) { bestD = d; sd = s; } }
+    W.jgMarks.falls.push({ i, sd }); const d = wallD + 52, fx = S.px[i] + S.rx[i] * sd * d, fz = S.pz[i] + S.rz[i] * sd * d, top = S.py[i] + 26, h = top - base;
+    const cliff = new T.Mesh(smooth(wobble(new T.BoxGeometry(26, h + 14, 74, 3, 6, 8), .12, .09, 4), 50), stdMat('#5f6656', .95, 0)); cliff.position.set(S.px[i] + S.rx[i] * sd * (d + 14), base + (h + 14) / 2 - 6, S.pz[i] + S.rz[i] * sd * (d + 14)); cliff.rotation.y = S.hd[i]; scene.add(cliff);
+    const cap = new T.Mesh(jgBlob(1, 1, .25, 3, .4), stdMat('#2f6e34', .95, 0)); cap.scale.set(16, 10, 42); cap.position.set(cliff.position.x, top + 4, cliff.position.z); cap.rotation.y = S.hd[i]; scene.add(cap);
+    // eau qui tombe : filets blancs verticaux sur fond bleu-vert, défilement vers le bas
+    const fallTex = canvasTex(128, 256, (x, w, h) => { const g = x.createLinearGradient(0, 0, w, 0); g.addColorStop(0, 'rgba(120,200,215,.75)'); g.addColorStop(.5, 'rgba(170,230,240,.9)'); g.addColorStop(1, 'rgba(120,200,215,.75)'); x.fillStyle = g; x.fillRect(0, 0, w, h);
+      for (let k = 0; k < 90; k++) { const px = Math.random() * w, l = rand(30, 140), py = Math.random() * h; x.strokeStyle = 'rgba(255,255,255,' + rand(.35, .85).toFixed(2) + ')'; x.lineWidth = rand(1, 4); for (const oy of [0, -h, h]) { x.beginPath(); x.moveTo(px, py + oy); x.lineTo(px + rand(-2, 2), py + oy + l); x.stroke(); } } });
+    fallTex.repeat.set(2, 1.6); const fm = new T.MeshBasicMaterial({ map: fallTex, transparent: true, opacity: .95, side: T.DoubleSide, depthWrite: false });
+    const fall = new T.Mesh(new T.PlaneGeometry(22, h + 2), fm); fall.position.set(fx, base + h / 2 + 1, fz); fall.rotation.y = S.hd[i] + Math.PI / 2; scene.add(fall);
+    const fall2 = new T.Mesh(new T.PlaneGeometry(9, h * .8), fm); fall2.position.set(fx + S.fx[i] * 24 - S.rx[i] * sd * 1, base + h * .4, fz + S.fz[i] * 24 - S.rz[i] * sd * 1); fall2.rotation.y = S.hd[i] + Math.PI / 2; scene.add(fall2);
+    { const rk = stdMat('#545a4a', .95, 0), mo = stdMat('#2f6e34', .95, 0); // rochers qui cassent la silhouette de la falaise
+      for (let k = 0; k < 14; k++) { const f = rand(-36, 36), lat = d + rand(-4, 18), top2 = k < 7, r = rand(4, 9), m = new T.Mesh(jgBlob(r, 1, .3, k + 40, rand(.6, 1)), top2 ? mo : rk);
+        m.position.set(S.px[i] + S.fx[i] * f + S.rx[i] * sd * lat, top2 ? top + rand(-2, 6) : base + rand(0, 6), S.pz[i] + S.fz[i] * f + S.rz[i] * sd * lat); m.rotation.y = rand(0, TAU); scene.add(m); } }
+    const pool = new T.Mesh(new T.CircleGeometry(26, 28), wm); pool.rotation.x = -Math.PI / 2; pool.position.set(fx - S.rx[i] * sd * 6, base + 2.3, fz - S.rz[i] * sd * 6); scene.add(pool);
+    addTick(W, (dt) => { fallTex.offset.y -= dt * .9; if (W.parts && Math.random() < .7) W.parts.emit(fx + S.fx[i] * rand(-10, 10) - S.rx[i] * sd * rand(2, 8), base + 3, fz + S.fz[i] * rand(-10, 10) - S.rz[i] * sd * rand(2, 8), rand(-2, 2), rand(3, 7), rand(-2, 2), '#eefcff', 1.2, .9); }); }
   addClouds(W, ext, cx, cz, 10);
 }
 
@@ -2349,6 +2478,9 @@ const BIOMES = {
   fleurs: { name: 'Champ de fleurs', ground: 'lavender', env: null, fog: '#f0e4ff', sky: ['#8ab8ff', '#ffe8f4'], decor: 'flowers' },
   plage: { name: 'Plage', ground: 'sand', env: 'sand', fog: '#d8f4ff', sky: ['#2aa8ff', '#c8f4ff'], decor: 'palms', hint: 'le sable freine' },
   ville: { name: 'Quartier néon', ground: 'concrete', env: null, fog: '#2a1a40', sky: ['#0a0820', '#3a1a5a'], decor: 'blocks' },
+  // Cascades du Vertige : le décor de ces zones est posé par buildJungle (decor: null)
+  jungle: { name: 'Jungle profonde', ground: 'jungle', env: null, fog: '#93c8a0', sky: ['#3a8a64', '#cdebc8'], decor: null },
+  ruines: { name: 'Cité perdue', ground: 'ruins', env: null, fog: '#c4d2ac', sky: ['#5a9a78', '#e6eecc'], decor: null },
 };
 function buildZones(W) {
   const def = W.def, S = W.S, N = S.N, th = W.th; W.zones = []; if (!def.zones || !def.zones.length) return; S.zoneOf = new Uint8Array(N);

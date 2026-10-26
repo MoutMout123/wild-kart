@@ -155,6 +155,14 @@ export default async (req) => {
     for (const x of blobs) { const c = await st.get(x.key, { type: 'json' }); if (!c) continue; if (c.exp < Date.now() - 3 * 86400e3) { await st.delete(x.key); continue; } codes.push(c); }
     codes.sort((a, b) => b.exp - a.exp); return out({ ok: true, codes });
   }
+  // défi du jour : classement (meilleur temps de chaque compte qui a réussi l'objectif)
+  if (b.a === 'dget' || b.a === 'dput') { const today = new Date().toISOString().slice(0, 10), day = String(b.day || today); if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || Math.abs(Date.parse(day) - Date.parse(today)) > 86400e3) return err('Jour invalide.');
+    const key = 'd/' + day, D = (await st.get(key, { type: 'json' })) || { list: [] };
+    if (b.a === 'dget') return out({ ok: true, day, list: D.list.slice(0, 30) });
+    if (!PSEUDO.test(pseudo)) return err('Connecte-toi à ton compte.'); const u = await getU(); if (!authOk(u, b.tok)) return err('Reconnecte-toi à ton compte.', 401);
+    const t = +b.time; if (!(t > 10 && t < 3600)) return err('Temps invalide.'); const me = D.list.find((x) => x.u.toLowerCase() === pseudo.toLowerCase());
+    if (me && me.t <= t) return out({ ok: true, best: me.t, list: D.list.slice(0, 30) }); if (me) { me.t = t; me.at = Date.now(); } else D.list.push({ u: u.p, t, at: Date.now() });
+    D.list.sort((x, y) => x.t - y.t); D.list = D.list.slice(0, 200); await st.setJSON(key, D); return out({ ok: true, best: t, list: D.list.slice(0, 30) }); }
   // identifiant ami libre ? (et réservation si connecté)
   if (b.a === 'fid') {
     const fid = String(b.fid || ''); if (!FID.test(fid)) return err('L\'identifiant ressemble à LEA-4821.');

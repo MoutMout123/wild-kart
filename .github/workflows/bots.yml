@@ -1,14 +1,8 @@
 name: Bots de test
 # Des bots jouent tout seuls au jeu (avec le serveur de test) et vérifient les fonctions.
-# Lancés après chaque envoi du serveur, après chaque modif du jeu, ou à la main (Actions > Bots de test > Run workflow).
+# Seulement à la demande (Actions > Bots de test > Run workflow) : jamais tout seuls.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['www/**', 'scripts/bots.cjs', '.github/workflows/bots.yml']
-  workflow_run:
-    workflows: ['Serveur Cloudflare']
-    types: [completed]
 permissions:
   contents: read
 concurrency:

@@ -175,7 +175,7 @@ export default async (req) => {
     // on l'enlève aussi de la liste des joueurs du chef
     const { blobs } = await st.list({ prefix: 'c/' }); for (const x of blobs) { const c = await st.get(x.key, { type: 'json' }); if (!c || !c.users) continue; let ch = false;
       for (const k of Object.keys(c.users)) if (String(c.users[k].p || '').toLowerCase() === pseudo.toLowerCase() || (u && k === u.fid)) { delete c.users[k]; ch = true; } if (ch) await st.setJSON(x.key, c); }
-    return out({ ok: true }); }
+    return out({ ok: true, gone: !u }); }   // gone : ce compte n'existait déjà plus
 
   if (b.a === 'create') {
     const pass = String(b.pass || ''); if (pass.length < 4) return err('Mot de passe : au moins 4 caractères.');

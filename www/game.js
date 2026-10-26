@@ -517,6 +517,27 @@ const MALL_THEME = { sky: ['#bfe2ff', '#fff4e6'], fog: '#f6efe6', fogN: 220, fog
   const classics = keep.map((id) => old.get(id)).filter(Boolean).map((t) => Object.assign(t, { cup: 9 }));
   TRACKS.length = 0; TRACKS.push(...made, ...classics.filter((t) => !made.some((m) => m.id === t.id)));
 })();
+/* ================= v13 : petit circuit pour la Patate chaude ================= */
+// Une boucle de 800 m et trois routes qui traversent le milieu et se croisent : on se retrouve sans arrêt nez à nez.
+(function installArena() {
+  if (TRACKS.some((t) => t.id === 'rondpoint')) return; const B = TRACKS.find((t) => t.id === 'barbapapa');
+  const t = { id: 'rondpoint', name: '💣 Rond-Point Explosif', desc: 'Petit circuit fait pour la Patate chaude : trois routes traversent le milieu et se croisent, on se rentre dedans sans arrêt.', cup: 0, level: 1, laps: 6, width: 24, glideH: 9, arena: true,
+    theme: Object.assign({}, B ? B.theme : MALL_THEME),
+    pts: [[0, 0, 0], [110, 0, 0], [170, 30, 0], [190, 100, 0], [170, 170, 0], [110, 200, 0], [0, 200, 0], [-60, 170, 0], [-80, 100, 0], [-60, 30, 0]],
+    boosts: [[0.2, 0], [0.56, 0.3], [0.9, -0.3]], items: [0.05, 0.37, 0.7],
+    branches: [
+      { from: 0.12, to: 0.62, mid: [[45, 95, 0]], width: 14, narrow: true, label: 'TOUT DROIT', ai: 0.5 },
+      { from: 0.30, to: 0.84, mid: [[70, 118, 0]], width: 14, narrow: true, label: 'TRAVERSÉE', ai: 0.5 },
+      { from: 0.44, to: 0.97, mid: [[78, 80, 0]], width: 14, narrow: true, label: 'DIAGONALE', ai: 0.5 }],
+    obst: { pillar: 'balloons', kinds: ['bumpers'] }, obstZones: 1, musicStyle: 'house' };
+  if (B) for (const k of ['grip', 'hop', 'hopLabel']) if (B[k] != null) t[k] = B[k];
+  TRACKS.push(t);
+})();
+const fmtClock = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+const arenaIdx = () => TRACKS.findIndex((t) => t.arena);
+// au hasard : le petit circuit seulement en Patate chaude (une fois sur deux), jamais sinon
+function pickTrack13(bomb) { const L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena); if (bomb && arenaIdx() >= 0 && Math.random() < .5) return arenaIdx(); return L[Math.floor(Math.random() * L.length)]; }
+
 
 
 /* ================= Rendu ================= */
@@ -901,7 +922,8 @@ function buildWorld(ti) {
     else scene.add(new T.Mesh(bandGeo(S, [th.skirtDepth ? { o: d, y: -th.skirtDepth } : { o: d, y: th.groundY != null ? th.groundY : -1, abs: true }, { o: d, y: .06 }], { vScale: 10, skip: sk }), skirtMat));
   }
 
-  // ligne de départ + arche
+  // ligne de départ + arche (pas sur le petit circuit : on tourne au chrono)
+  if (!def.arena) {
   scene.add(new T.Mesh(quadAt(S, 0, 0, hw, 1.6, .13), new T.MeshStandardMaterial({ map: CHECK_TEX, roughness: .6, envMapIntensity: .4 })));
   const arch = new T.Group(); arch.position.set(S.px[0], S.py[0], S.pz[0]); arch.rotation.y = S.hd[0];
   const pil = new T.CylinderGeometry(.7, .85, 9.6, 28); const pm = stdMat('#1b1840', .35, .3); const gold = stdMat('#ffc531', .25, .7);
@@ -912,6 +934,7 @@ function buildWorld(ti) {
   const bm = new T.MeshBasicMaterial({ map: BANNER_TEX }); const bg = new T.PlaneGeometry(def.width + 6, 2.6);
   for (const s of [1, -1]) { const p = new T.Mesh(bg, bm); p.position.set(0, 9, s * .42); if (s < 0) p.rotation.y = Math.PI; arch.add(p); }
   scene.add(arch);
+  }
 
   // plaques turbo
   const padMat = new T.MeshBasicMaterial({ map: BOOST_TEX, transparent: true, opacity: .97 }); W.padTex = BOOST_TEX;
@@ -948,6 +971,8 @@ function buildWorld(ti) {
   W.parts = new Particles(scene, 420, true); W.dust = new Particles(scene, 200, false);
   if (th.decor === 'snow') W.snow = makeSnow(scene);
   buildGlideBits(W);
+  buildMud(W);
+  buildSprings(W);
   buildTunnels(W);
   CUR_HAT = null;
   W.roles = new Map([[roadMat, 'road'], [curbMat, 'curb'], [shoulderMat, 'shoulder'], [padMat, 'road'], [bmats.dirt, 'road'], [skirtMat, 'skirt'], [wallMat, 'wall'], [W.bumpMat, 'road']]); if (W.terrain) W.roles.set(W.terrain.material, 'terrain');
@@ -1238,6 +1263,37 @@ function cliffQuad(S, i, th, wallD, facing) {
   const pos = [...P(-wallD, bottom), ...P(wallD, bottom), ...P(-wallD, y), ...P(wallD, y)];
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute([0, 0, 4, 0, 0, 1, 4, 1], 2)); g.setIndex(facing > 0 ? [0, 1, 2, 1, 3, 2] : [0, 2, 1, 1, 2, 3]); g.computeVertexNormals(); return g;
 }
+// flaques de boue sur les bas-côtés : sortir de la piste y coûte cher (même place pour tout le monde : tirées depuis le nom du circuit)
+function buildMud(W) {
+  const S = W.S, N = S.N, def = W.def; W.mud = []; if (def.arena || def.hop) return;
+  let h = 7; for (const c of def.id || '') h = (h * 31 + c.charCodeAt(0)) >>> 0; const rng = seeded(h), side0 = W.wallD - W.hw;
+  const ok = (i) => { for (let o = -12; o <= 12; o++) { const j = ((i + o) % N + N) % N; if ((S.glide && S.glide[j]) || (S.openPre && S.openPre[j]) || (S.wz && S.wz[j])) return false; }
+    if ((W.kickers || []).some((kk) => Math.abs(((kk.i - i) % N + N + N / 2) % N - N / 2) < 20)) return false; return !W.branches.some((B) => inWin(i, [B.winA[0] - 10, B.winA[1] + 10]) || inWin(i, [B.winB[0] - 10, B.winB[1] + 10])); };
+  const mat = new T.MeshBasicMaterial({ color: '#5e3b1c', polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }), geo = new T.CircleGeometry(1, 22); geo.rotateX(-Math.PI / 2); geo.userData.keep = true;
+  for (let n = 0, tries = 0; n < 6 && tries < 60; tries++) { const i = Math.floor(rng() * N); if (!ok(i) || W.mud.some((m) => Math.abs(((m.i - i) % N + N + N / 2) % N - N / 2) < 30)) continue;
+    const sd = rng() < .5 ? -1 : 1, lat = sd * (W.hw + W.curbW + Math.min(2.6, side0 * .45)), hl = rng() * 4 + 6, hw2 = Math.min(2.4, side0 * .45);
+    const m = new T.Mesh(geo, mat); m.scale.set(hw2, 1, hl); m.rotation.y = S.hd[i]; m.position.set(S.px[i] + S.rx[i] * lat, S.py[i] + .07, S.pz[i] + S.rz[i] * lat); W.scene.add(m);
+    for (let q = 0; q < 3; q++) { const b = new T.Mesh(geo, mat); const sc = rand(.5, .9); b.scale.set(sc, 1, sc * 1.4); b.rotation.y = S.hd[i]; const o = rand(-hl, hl) * .8; b.position.set(m.position.x + S.fx[i] * o + S.rx[i] * sd * rand(-.5, 1.5), m.position.y + .005, m.position.z + S.fz[i] * o + S.rz[i] * sd * rand(-.5, 1.5)); W.scene.add(b); }
+    W.mud.push({ i, lat, hl: hl / S.seg, hw: hw2 + .6 }); n++; } }
+// super-tremplins : grosse plaque bleue sur une ligne droite, elle envoie très haut (DRIFT en l'air = figure + turbo à l'atterrissage)
+function buildSprings(W) {
+  const S = W.S, N = S.N, def = W.def; W.springs = []; if (def.arena || def.hop || def.sections) return;
+  let h = 11; for (const c of def.id || '') h = (h * 37 + c.charCodeAt(0)) >>> 0; const rng = seeded(h), n0 = N > 650 ? 2 : 1;
+  const clear = (i) => { for (let o = -10; o <= 50; o++) { const j = ((i + o) % N + N) % N; if ((S.glide && S.glide[j]) || (S.openPre && S.openPre[j]) || (S.wz && S.wz[j]) || Math.abs(S.curv[j]) > .012) return false; }
+    if ((W.kickers || []).some((kk) => Math.abs(((kk.i - i) % N + N + N / 2) % N - N / 2) < 60) || W.pads.some((p) => !p.P && Math.abs(((p.i - i) % N + N + N / 2) % N - N / 2) < 15)) return false;
+    if (i < 40 || i > N - 30) return false; return !W.branches.some((B) => inWin(i, [B.winA[0] - 15, B.winA[1] + 50]) || inWin(i, [B.winB[0] - 15, B.winB[1] + 50])); };
+  const top = stdMat('#38b6ff', .35, .2), rim = stdMat('#ffc531', .4, .3), dark = stdMat('#17143a', .6, .1);
+  for (let n = 0, tries = 0; n < n0 && tries < 200; tries++) { const i = Math.floor(rng() * N); if (!clear(i) || W.springs.some((q) => Math.abs(((q.i - i) % N + N + N / 2) % N - N / 2) < 120)) continue;
+    const lat = (rng() * 2 - 1) * W.hw * .4, g = new T.Group(); const base = new T.Mesh(new T.CylinderGeometry(2.6, 2.8, .3, 28), dark); base.position.y = .15; g.add(base);
+    const pad = new T.Mesh(new T.CylinderGeometry(2.3, 2.3, .12, 28), top); pad.position.y = .36; g.add(pad); const ring = new T.Mesh(new T.TorusGeometry(2.45, .16, 8, 28), rim); ring.rotation.x = Math.PI / 2; ring.position.y = .38; g.add(ring);
+    for (let q = 0; q < 3; q++) { const ar = new T.Mesh(new T.ConeGeometry(.55, .9, 3), rim); ar.rotation.x = Math.PI / 2; ar.position.set(0, .48, -1 + q * .95); g.add(ar); }
+    g.position.set(S.px[i] + S.rx[i] * lat, S.py[i], S.pz[i] + S.rz[i] * lat); g.rotation.y = S.hd[i]; W.scene.add(g); W.springs.push({ i, lat, g, t: 0 }); n++; } }
+function springLaunch(k, W) { if (!W.springs || !W.springs.length || (k.air && (k.airH || 0) > 1) || k.air === 'glide' || (k.P && k.P !== W.S) || k.speed < 12) return; const N = W.S.N;
+  for (const q of W.springs) { const di = ((k.idx - q.i) % N + N) % N; if (di > 1 || Math.abs(k.lat - q.lat) > 2.7) continue;
+    k.air = 'jump'; k.vy = 14; k.airH = Math.max(k.airH || 0, .3); k.trickOK = true; k.trick = false; k.boost = Math.max(k.boost, .5); if (k.drift) endDrift(k, true); q.t = .35;
+    if (k.isPlayer) { AudioSys.sfx('spring'); vibrate(25); banner('Super-tremplin ! DRIFT = figure', 1.2); } else if (Math.random() < .7) k.aiTrickAt = rand(.15, .5); break; } }
+function mudAt(W, k) { if (!W.mud || !W.mud.length || (k.P && k.P !== W.S)) return false; const N = W.S.N;
+  for (const m of W.mud) if (Math.abs(((k.idx - m.i) % N + N + N / 2) % N - N / 2) <= m.hl && Math.abs(k.lat - m.lat) < m.hw) return true; return false; }
 function buildGlideBits(W) {
   const { S, scene, th, def, wallD, hw } = W; if (!def.glide) return;
   const skirtM = new T.MeshLambertMaterial({ map: skirtTex(th.skirt), side: T.DoubleSide });
@@ -1860,14 +1916,14 @@ const easeBack = (x) => { const c = 1.9; x = clamp(x, 0, 1); return 1 + (c + 1) 
 function animateGlider(k, M, dt, now) {
   const gl = M.glider; if (!gl) return; const W = G.W;
   const want = k.air === 'glide' ? 1 : 0;
-  k.glOpen = (k.glOpen || 0) + (want - (k.glOpen || 0)) * (1 - Math.exp(-dt * (want ? 4.5 : 9)));
+  k.glOpen = clamp((k.glOpen || 0) + (want ? dt / .45 : -dt / .25), 0, 1);   // ouverture en 0,45 s, fermeture en 0,25 s
   const o = k.glOpen; gl.visible = o > .02; if (!gl.visible) return;
-  gl.scale.setScalar(Math.max(.01, easeBack(o)));
-  const fold = (1 - o) * 1.35, st = k.isPlayer && !G.autopilot ? Input.tiltSteer + Input.digSteer + (Input.stickSteer || 0) : (k.vh !== undefined ? clamp(angDiff(k.vh, k.h) * 3, -1, 1) : 0);
+  const e = want ? easeBack(o) : o * o; gl.scale.setScalar(.55 + .45 * Math.min(1.08, e)); gl.position.y = 1.35 + .97 * Math.min(1, e); gl.position.z = -.3 - (1 - Math.min(1, e)) * .5;
+  const fold = (1 - Math.min(1, e)) * 1.45, st = k.isPlayer && !G.autopilot ? Input.tiltSteer + Input.digSteer + (Input.stickSteer || 0) : (k.vh !== undefined ? clamp(angDiff(k.vh, k.h) * 3, -1, 1) : 0);
   const flutter = Math.sin(now * 13 + k.x) * .025 * o;
   gl.userData.left.rotation.z = fold + flutter + st * .08; gl.userData.right.rotation.z = -fold - flutter + st * .08;
-  gl.rotation.z = lerp(gl.rotation.z, -clamp(st, -1, 1) * .35, 1 - Math.exp(-dt * 6));
-  gl.rotation.x = lerp(gl.rotation.x, clamp(-(k.vy || 0) * .035, -.3, .3), 1 - Math.exp(-dt * 5));
+  gl.rotation.z = lerp(gl.rotation.z, -clamp(st, -1, 1) * .1, 1 - Math.exp(-dt * 6));   // le kart penche déjà : l'aile ne fait qu'un petit plus
+  gl.rotation.x = lerp(gl.rotation.x, M.tilt ? -M.tilt.rotation.x * .5 : 0, 1 - Math.exp(-dt * 5));
   if (gl.userData.type === 'parapluie') gl.rotation.y += dt * .8;
 }
 
@@ -2358,15 +2414,16 @@ const Gate = { el: null };
 function gateText(exp) { return 'Code valable jusqu\'au ' + new Date(exp).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + '.'; }
 function gateShow(why) {
   if (!Gate.el) { const d = document.createElement('div'); d.id = 'gate';
-    d.innerHTML = '<div class="gate-box"><h2>Wild Kart</h2><p>Entre le code d\'accès donné par le chef de partie.</p><textarea id="gate-in" rows="3" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="WK…"></textarea><p class="gate-msg" id="gate-msg"></p><p class="gate-fid">Ton identifiant ami : <b id="gate-fid"></b><br>Un ami qui a déjà le code peut te l\'envoyer depuis l\'écran Amis.</p><button class="btn ghost" id="gate-close"><span>Fermer</span></button> <button class="btn ghost" id="gate-acct"><span>J\'ai un compte</span></button> <button class="btn red" id="gate-ok"><span>Valider</span></button></div>';
+    d.innerHTML = '<div class="gate-box"><h2>Wild Kart</h2><p>Entre le code d\'accès donné par le chef de partie.</p><textarea id="gate-in" rows="3" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="WK…"></textarea><p class="gate-msg" id="gate-msg"></p><p class="gate-fid">Ton identifiant ami : <b id="gate-fid"></b><br>Un ami qui a déjà le code peut te l\'envoyer depuis l\'écran Amis.</p><button class="btn ghost" id="gate-close"><span>Fermer</span></button> <button class="btn red" id="gate-ok"><span>Valider</span></button></div>';
     document.body.appendChild(d); Gate.el = d;
     const go = () => { const v = $('#gate-in').value; const ca = chefActivate(v); if (ca === true) { gateHide(); chefButtons(); toast('Mode chef activé 👑 (bouton « Mode chef » dans le menu).', 4500); return; } if (typeof ca === 'string') { $('#gate-msg').textContent = ca; return; } const gotList = chefListApply(v, true); if (gotList && !/WK[0-9A-Z\s-]{100,}/i.test(v.replace(/WKL\.[A-Za-z0-9_.-]+/g, ''))) { $('#gate-msg').textContent = 'Liste du chef mise à jour.'; if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); return; } const r = accessCheck(v); if (r.ok) { SAVE.access = v.trim(); SAVE.accSeen = Math.max(Date.now(), SAVE.accSeen || 0); store(); gateHide(); toast(gateText(r.exp), 4000); } else { $('#gate-msg').textContent = r.why; } };
-    $('#gate-acct').onclick = () => acctOpen(SAVE.acct ? null : 'co'); $('#gate-ok').onclick = go; $('#gate-close').onclick = () => { if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); }; $('#gate-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }); }
+    $('#gate-ok').onclick = go; $('#gate-close').onclick = () => { if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); }; $('#gate-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }); }
   { const cl = $('#gate-close'); if (cl) cl.hidden = !(SAVE.access && accessCheck(SAVE.access).ok); }
   $('#gate-msg').textContent = why || ''; { const f = $('#gate-fid'); if (f && typeof frMyId === 'function') f.textContent = frMyId(); } Gate.el.hidden = false; G.locked = true; }
 function gateHide() { if (Gate.el) Gate.el.hidden = true; G.locked = false; accessInfo(); }
 function accessInfo() { const el = $('#set-acc'); if (!el) return; const r = SAVE.access ? accessCheck(SAVE.access) : null; el.textContent = (r && r.ok ? gateText(r.exp) : 'Pas de code valide.') + (CHEF.s ? ' Liste du chef du ' + new Date(CHEF.s).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) + '.' : ''); }
 function accessTick() { // vérifie le code au démarrage, puis chaque minute (jamais en pleine course)
+  if (!SAVE.acct) { if (!racingNow()) acctRequire(); return; }
   if (SAVE.access) { const now = Date.now(); if (now > (SAVE.accSeen || 0)) { SAVE.accSeen = now; store(); } }
   const r = SAVE.access ? accessCheck(SAVE.access) : { ok: false, why: '' };
   // code annulé, expiré ou joueur bloqué : on sort tout de suite (même en pleine course ou en ligne)
@@ -2432,6 +2489,12 @@ function frRename(name, num, cb) {
     for (const g of grList()) { for (const m of g.members) if (m.id === old) m.id = nid; if (g.owner === old) g.owner = nid; acctCall('gren', { code: g.code, old, me: frMe() }); } store();
     frSendMany(ids, { t: 'rename', old }); frPoll(); cb(null, nid); });
 }
+// l'identifiant ami suit le nom du compte (PSEUDO-1234, même numéro) ; amis et groupes sont prévenus par frRename
+function frSyncName() { if (!SAVE.acct || FR.syncing) return; const base = frSlug(SAVE.acct.u), cur = frMyId(); if (base.length < 2 || cur.split('-')[0] === base) return;
+  if (SAVE.fidSyncAt && Date.now() - SAVE.fidSyncAt < 6 * 3600e3) return; FR.syncing = true; let n = 0;
+  const tryNum = (num) => frRename(base, num, (e, nid) => { if (!e) { FR.syncing = false; SAVE.fidSyncAt = 0; store(); frRender(); toast('Ton identifiant ami suit ton nom : ' + nid + ' (tes amis sont prévenus).', 4000); return; }
+    if (/pris/i.test(e) && ++n < 6) return tryNum(String(Math.floor(1000 + Math.random() * 9000))); FR.syncing = false; SAVE.fidSyncAt = Date.now(); store(); });
+  tryNum(cur.split('-')[1]); }
 // envoi d'un message (gardé sur le serveur jusqu'à ce que l'ami ouvre le jeu) ; cb(ok, enLigne)
 function frSendMany(ids, msg, cb) { ids = ids.filter((x) => x && x !== frMyId()); const grp = msg._g || ''; msg = Object.assign({}, msg); delete msg._g; if (!ids.length && !grp) { cb && cb(false, {}); return; }   // _g : le serveur ajoute aussi tous les membres actuels du groupe
   acctCall('fsend', { from: frMe(), to: ids, group: grp, msg: Object.assign({ cl: SAVE.chefList || '' }, msg) }).then((r) => { if (r.ok) for (const [id, on] of Object.entries(r.online || {})) FR.status.set(id, on); cb && cb(!!r.ok, r.online || {}); frRender(); }); }
@@ -2489,8 +2552,8 @@ const FRU = { tab: 'amis', open: null };
 function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'friends') return; const me = frMyId(), L = frList(), Gs = grList(), inParty = !!(Net.peer && Net.code), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const st = (id) => FR.status.has(id) ? (FR.status.get(id) ? '<b class="on">en ligne</b>' : '<b class="off">hors ligne</b>') : '<b class="off">…</b>';
   let h = '<header class="sh-head"><button class="back" data-go="frback" aria-label="Retour">←</button><h2>Amis et groupes</h2></header>';
-  h += '<div class="group"><h3>Ton identifiant ami</h3><div class="set-row"><span><b class="fr-me">' + esc(me) + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. ' + (FR.open ? 'Connecté.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button><button class="btn sm ghost" id="fr-ren"><span>Changer</span></button></div>'
-    + (FRU.ren ? '<div class="fr-add"><input id="fr-rn" placeholder="Nouveau nom" maxlength="10" autocapitalize="characters" value="' + esc(me.split('-')[0]) + '"><input id="fr-rd" class="fr-num" placeholder="1234" maxlength="4" inputmode="numeric" value="' + esc(me.split('-')[1]) + '"><button class="btn sm red" id="fr-rok"><span>Vérifier</span></button></div><p class="hint" id="fr-rmsg">Tes amis et groupes sont prévenus tout seuls.</p>' : '') + '<div class="set-row"><small>' + (SAVE.acct ? 'Compte : ' + esc(SAVE.acct.u) : 'Pas de compte : crée-le pour tout retrouver sur un autre téléphone.') + '</small><button class="btn sm ghost" id="fr-acct"><span>' + (SAVE.acct ? 'Mon compte' : 'Créer un compte') + '</span></button></div></div>';
+  h += '<div class="group"><h3>Ton identifiant ami</h3><div class="set-row"><span><b class="fr-me">' + esc(me) + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Il suit ton nom de compte. ' + (FR.open ? 'Connecté.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
+     + '<div class="set-row"><small>' + (SAVE.acct ? 'Compte : ' + esc(SAVE.acct.u) : 'Pas de compte : crée-le pour tout retrouver sur un autre téléphone.') + '</small><button class="btn sm ghost" id="fr-acct"><span>' + (SAVE.acct ? 'Mon compte' : 'Créer un compte') + '</span></button></div></div>';
   h += '<div class="seg fr-tabs"><button data-t="amis" aria-pressed="' + (FRU.tab === 'amis') + '">Amis (' + L.length + ')</button><button data-t="groupes" aria-pressed="' + (FRU.tab === 'groupes') + '">Groupes (' + Gs.length + ')</button></div>';
   if (FRU.tab === 'amis') {
     h += '<div class="group"><h3>Ajouter un ami</h3><div class="fr-add"><input id="fr-new" placeholder="Identifiant (ex. LEA-4821)" autocomplete="off" autocapitalize="characters"><button class="btn sm red" id="fr-add"><span>Ajouter</span></button></div><p class="hint" id="fr-msg"></p></div>';
@@ -2706,6 +2769,8 @@ async function acctCall(a, body, ext) {
   try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
     let j = {}; try { j = await r.json(); } catch (e) { /* rien */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status; return j; }
   catch (e) { return { e: 'Pas de connexion au serveur des comptes (' + (e && e.name === 'AbortError' ? 'trop lent' : 'réseau') + ').' }; } finally { clearTimeout(tm); } }
+// un seul nom partout (jeu, amis, compte) : le pseudo du compte
+function acctName() { if (!SAVE.acct || !SAVE.acct.u) return; if (SAVE.name !== SAVE.acct.u) { SAVE.name = SAVE.acct.u; store(); } }
 function acctPack() { const o = {}; for (const k in SAVE) if (!ACC_SKIP.has(k)) o[k] = SAVE[k]; return o; }
 // date du dernier changement de chaque réglage (pour garder le plus récent entre deux appareils)
 const ACT = { snap: null };
@@ -2725,7 +2790,7 @@ function acctMerge(sv, lo) { sv = sv || {}; const st = sv._ts || {}, lt = lo._ts
 function acctApply(r) { const before = JSON.stringify(acctPack()), m = acctMerge(r.save, SAVE); ACU.applying = true;
   for (const k of Object.keys(SAVE)) if (!ACC_SKIP.has(k)) delete SAVE[k]; for (const k in DEFAULT_SAVE) if (!ACC_SKIP.has(k) && !(k in m)) SAVE[k] = DEFAULT_SAVE[k];
   Object.assign(SAVE, m); if (r.fid) SAVE.fid = r.fid; SAVE.friends = (SAVE.friends || []).filter((f) => f.id !== SAVE.fid);
-  SAVE.acct = { u: r.pseudo || (SAVE.acct && SAVE.acct.u), tok: r.tok || (SAVE.acct && SAVE.acct.tok), at: r.at || Date.now() }; store(); ACT.snap = null; acctTrack(); ACU.applying = false;
+  SAVE.acct = { u: r.pseudo || (SAVE.acct && SAVE.acct.u), tok: r.tok || (SAVE.acct && SAVE.acct.tok), at: r.at || Date.now() }; if (SAVE.acct.u) SAVE.name = SAVE.acct.u; store(); ACT.snap = null; acctTrack(); ACU.applying = false;
   const changed = before !== JSON.stringify(acctPack()); if (changed) acctRefreshUI();
   if (JSON.stringify(acctPack()) !== JSON.stringify(Object.assign({}, r.save || {}, { fid: SAVE.fid }))) { ACU.timer = 0; setTimeout(() => { if (SAVE.acct) acctUpload(); }, 2500); }
   return changed; }
@@ -2736,19 +2801,21 @@ function acctRefreshUI() { try { AudioSys.setVolumes(); } catch (e) { /* rien */
 async function acctPull(quiet) { if (!SAVE.acct || ACU.pulling) return; if (G.race && G.race.state !== 'attract') return; ACU.pulling = true;
   try { const r = await acctCall('load', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); if (!SAVE.acct) return;
     if (r.ok && r.at > (SAVE.acct.at || 0)) { r.tok = SAVE.acct.tok; r.pseudo = SAVE.acct.u; const fidWas = SAVE.fid; const ch = acctApply(r); if (fidWas !== SAVE.fid) frRestart(); if (ch && !quiet) toast('Mis à jour depuis ton autre appareil.', 2000); if (SAVE.access && accessCheck(SAVE.access).ok && G.locked) gateHide(); }
-    else if (r.status === 401) { SAVE.acct = null; store(); toast('Reconnecte-toi à ton compte (Réglages > Compte).', 4000); } acctInfo(); } finally { ACU.pulling = false; } }
+    else if (r.status === 401) { SAVE.acct = null; store(); toast('Reconnecte-toi à ton compte.', 4000); accessTick(); } acctInfo(); } finally { ACU.pulling = false; } }
 setInterval(() => { if (document.visibilityState === 'visible') acctPull(); }, 30000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acctPull(); });
 // sauvegarde automatique (quelques secondes après un changement)
 function acctDirty() { if (!SAVE.acct || ACU.applying) return; clearTimeout(ACU.timer); ACU.timer = setTimeout(acctUpload, Math.max(4000, 20000 - (Date.now() - ACU.lastUp))); }
 async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const r = await acctCall('save', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, save: acctPack() });
-  if (r.ok) { SAVE.acct.at = r.at; ACU.applying = true; store(); ACU.applying = false; acctInfo(); } else if (r.status === 401) { toast('Ton compte s\'est déconnecté : reconnecte-toi (Réglages > Compte).', 5000); SAVE.acct = null; store(); acctInfo(); } return r; }
+  if (r.ok) { SAVE.acct.at = r.at; ACU.applying = true; store(); ACU.applying = false; acctInfo(); } else if (r.status === 401) { toast('Ton compte s\'est déconnecté : reconnecte-toi.', 5000); SAVE.acct = null; store(); acctInfo(); accessTick(); } return r; }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && SAVE.acct && ACU.timer) acctUpload(); });
-function acctInfo() { const t = SAVE.acct ? 'Connecté : ' + SAVE.acct.u + (SAVE.acct.at ? ' · sauvegardé ' + new Date(SAVE.acct.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '') : 'Pas de compte sur ce téléphone.';
+function acctInfo() { const nm = $('#set-name'); if (nm) nm.textContent = SAVE.acct ? SAVE.acct.u : '—'; const t = SAVE.acct ? 'Connecté : ' + SAVE.acct.u + (SAVE.acct.at ? ' · sauvegardé ' + new Date(SAVE.acct.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '') : 'Pas de compte sur ce téléphone.';
   const el = $('#set-acct'); if (el) el.textContent = t; }
 // ---------- fenêtre du compte (par-dessus tout, même l'écran du code) ----------
+// pas de compte sur ce téléphone : on ne peut pas jouer sans (Créer un compte ou Se connecter)
+function acctRequire() { G.locked = true; if (Gate.el) Gate.el.hidden = true; if (ACU.open) return; ACU.tab = 'choix'; acctOpen(); }
 function acctOpen(tab) { ACU.open = true; if (tab) ACU.tab = tab; ACU.msg = ''; let d = $('#acct'); if (!d) { d = document.createElement('div'); d.id = 'acct'; document.body.appendChild(d); } d.hidden = false; acctRender(); }
-function acctClose() { ACU.open = false; ACU.rec = ''; const d = $('#acct'); if (d) d.hidden = true; acctInfo(); }
+function acctClose() { if (!SAVE.acct) return; ACU.open = false; ACU.rec = ''; const d = $('#acct'); if (d) d.hidden = true; acctInfo(); }
 function acctRender() { const d = $('#acct'); if (!d || !ACU.open) return; const esc = (s) => String(s).replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[x]);
   const inp = (id, ph, type) => '<input id="' + id + '" type="' + (type || 'text') + '" placeholder="' + ph + '" autocomplete="off" autocapitalize="off" spellcheck="false">';
   let h = '<div class="gate-box acct-box"><h2>Mon compte</h2>';
@@ -2756,28 +2823,30 @@ function acctRender() { const d = $('#acct'); if (!d || !ACU.open) return; const
   else if (SAVE.acct) h += '<p>Connecté : <b>' + esc(SAVE.acct.u) + '</b><br><small>Identifiant ami ' + esc(frMyId()) + '. Tout se sauvegarde tout seul.</small></p><div class="acct-row"><button class="btn sm" id="ac-save"><span>Sauvegarder maintenant</span></button><button class="btn sm ghost" id="ac-out"><span>Se déconnecter</span></button></div>'
     + '<details><summary>Changer de mot de passe</summary>' + inp('ac-old', 'Mot de passe actuel', 'password') + inp('ac-new', 'Nouveau mot de passe', 'password') + '<button class="btn sm" id="ac-pass"><span>Changer</span></button></details>';
   else {
-    h += '<div class="seg acct-tabs"><button data-t="creer" aria-pressed="' + (ACU.tab === 'creer') + '">Créer</button><button data-t="co" aria-pressed="' + (ACU.tab === 'co') + '">Se connecter</button><button data-t="perdu" aria-pressed="' + (ACU.tab === 'perdu') + '">Oublié ?</button></div>';
-    if (ACU.tab === 'creer') h += '<p><small>Garde tes amis, ton code d\'accès, ton kart et tes records, même si tu changes de téléphone.</small></p>' + inp('ac-u', 'Pseudo (ex. Lea_92)') + inp('ac-p', 'Mot de passe (4 caractères ou plus)', 'password') + '<button class="btn red" id="ac-go"><span>Créer mon compte</span></button>';
-    else if (ACU.tab === 'co') h += '<p><small>Les données de ce téléphone seront remplacées par celles de ton compte.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-p', 'Mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Se connecter</span></button>';
-    else h += '<p><small>Mets ton code de secours, ou un code de réinitialisation demandé au chef.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-c', 'Code de secours ou code du chef') + inp('ac-p', 'Nouveau mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Réinitialiser</span></button>';
+    if (!['creer', 'co', 'perdu'].includes(ACU.tab)) ACU.tab = 'choix';
+    if (ACU.tab === 'choix') h += '<p>Un compte est nécessaire pour jouer.<br><small>Il garde tes amis, ton code d\'accès, ton kart et tes records, même si tu changes de téléphone.</small></p><div class="acct-choice"><button class="btn red" data-t="creer"><span>Créer un compte</span></button><button class="btn" data-t="co"><span>Se connecter</span></button></div>';
+    else h += '<button class="btn sm ghost acct-back" data-t="choix"><span>← Retour</span></button>';
+    if (ACU.tab === 'creer') h += '<p><small>Ton pseudo sera ton nom partout : dans les courses, pour tes amis et pour ton compte.</small></p>' + inp('ac-u', 'Pseudo (ex. Lea_92)') + inp('ac-p', 'Mot de passe (4 caractères ou plus)', 'password') + '<button class="btn red" id="ac-go"><span>Créer mon compte</span></button>';
+    else if (ACU.tab === 'co') h += '<p><small>Les données de ce téléphone seront remplacées par celles de ton compte.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-p', 'Mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Se connecter</span></button><p><button class="btn sm ghost" data-t="perdu"><span>Mot de passe oublié ?</span></button></p>';
+    else if (ACU.tab === 'perdu') h += '<p><small>Mets ton code de secours, ou un code de réinitialisation demandé au chef.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-c', 'Code de secours ou code du chef') + inp('ac-p', 'Nouveau mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Réinitialiser</span></button>';
   }
-  h += '<p class="gate-msg" id="ac-msg">' + esc(ACU.busy ? 'Un instant…' : ACU.msg) + '</p>' + (ACU.rec ? '' : '<button class="btn ghost" id="ac-close"><span>Fermer</span></button>') + '</div>';
+  h += '<p class="gate-msg" id="ac-msg">' + esc(ACU.busy ? 'Un instant…' : ACU.msg) + '</p>' + (ACU.rec || !SAVE.acct ? '' : '<button class="btn ghost" id="ac-close"><span>Fermer</span></button>') + '</div>';
   d.innerHTML = h; acctWire(); }
 function acctWire() { const q = (s) => $('#acct ' + s), v = (s) => (q(s) ? q(s).value : '').trim();
-  document.querySelectorAll('#acct .acct-tabs button').forEach((b) => (b.onclick = () => { ACU.tab = b.dataset.t; ACU.msg = ''; acctRender(); }));
+  document.querySelectorAll('#acct [data-t]').forEach((b) => (b.onclick = () => { ACU.tab = b.dataset.t; ACU.msg = ''; acctRender(); }));
   const cl = q('#ac-close'); if (cl) cl.onclick = acctClose;
   const ok = q('#ac-ok'); if (ok) ok.onclick = () => { ACU.rec = ''; location.reload(); };
   const busy = async (fn) => { if (ACU.busy) return; ACU.busy = true; acctRender(); let r; try { r = await fn(); } finally { ACU.busy = false; } if (r && r.e) ACU.msg = r.e; acctRender(); return r; };
   const go = q('#ac-go'); if (go) go.onclick = () => { const u = v('#ac-u'), p = q('#ac-p').value, cd = v('#ac-c'); busy(async () => {
-    if (ACU.tab === 'creer') { const r = await acctCall('create', { pseudo: u, pass: p, fid: frMyId(), save: acctPack() }); if (r.ok) { const old = SAVE.fid; acctApply(r); ACU.rec = r.rec; if (old !== r.fid) frRestart(); toast('Compte créé.', 2500); acctRender(); } return r; }
-    if (ACU.tab === 'co') { const r = await acctCall('login', { pseudo: u, pass: p }); if (r.ok) { const fidWas = SAVE.fid; acctApply(r); if (fidWas !== SAVE.fid) frRestart(); acctUpload(); toast('Connecté ! Tout est récupéré.', 2500); if (SAVE.access && accessCheck(SAVE.access).ok && G.locked) gateHide(); acctClose(); } return r; }
-    const r = await acctCall('reset', { pseudo: u, code: cd, pass: p }); if (r.ok) { acctApply(r); ACU.rec = r.rec; acctRender(); } return r; }); };
+    if (ACU.tab === 'creer') { const r = await acctCall('create', { pseudo: u, pass: p, fid: frMyId(), save: acctPack() }); if (r.ok) { const old = SAVE.fid; acctApply(r); ACU.rec = r.rec; if (old !== r.fid) frRestart(); frSyncName(); toast('Compte créé.', 2500); acctRender(); } return r; }
+    if (ACU.tab === 'co') { const r = await acctCall('login', { pseudo: u, pass: p }); if (r.ok) { const fidWas = SAVE.fid; acctApply(r); if (fidWas !== SAVE.fid) frRestart(); acctUpload(); frSyncName(); toast('Connecté ! Tout est récupéré.', 2500); acctClose(); G.locked = false; accessTick(); } return r; }
+    const r = await acctCall('reset', { pseudo: u, code: cd, pass: p }); if (r.ok) { acctApply(r); frSyncName(); ACU.rec = r.rec; acctRender(); } return r; }); };
   const sv = q('#ac-save'); if (sv) sv.onclick = () => busy(async () => { const r = await acctUpload(); if (r && r.ok) { ACU.msg = 'Sauvegardé.'; acctRender(); } return r; });
-  const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { await acctUpload(); await acctCall('logout', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); SAVE.acct = null; store(); ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; acctRender(); });
+  const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { await acctUpload(); await acctCall('logout', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); SAVE.acct = null; store(); ACU.tab = 'choix'; ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; G.locked = true; acctRender(); });
   const pw = q('#ac-pass'); if (pw) pw.onclick = () => { const po = q('#ac-old').value, pn = q('#ac-new').value; busy(async () => { const r = await acctCall('pass', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, old: po, pass: pn }); if (r.ok) { SAVE.acct.tok = r.tok; store(); ACU.msg = 'Mot de passe changé.'; acctRender(); } return r; }); };
 }
 // au lancement : on récupère la dernière sauvegarde du compte (si un autre téléphone a joué entre-temps)
-setTimeout(async () => { acctInfo(); const o = $('#set-acct-open'); if (o) o.onclick = () => { AudioSys.sfx('click'); acctOpen(); };
+setTimeout(async () => { acctName(); frSyncName(); acctInfo(); const o = $('#set-acct-open'); if (o) o.onclick = () => { AudioSys.sfx('click'); acctOpen(); };
   acctPull(true);
   acctInfo(); }, 400);
 
@@ -2820,8 +2889,8 @@ class WKEmit { constructor() { this._h = {}; } on(e, f) { (this._h[e] = this._h[
 const wkRand = (n) => { const a = new Uint8Array(n); crypto.getRandomValues(a); return Array.from(a, (b) => (b % 36).toString(36)).join(''); };
 // adresses STUN + relais TURN (Cloudflare, donné par notre serveur) : le relais sert quand les deux téléphones sont sur des réseaux différents
 const WKICE = { list: null, at: 0, p: null };
-function wkIceLoad() { if (WKICE.p && Date.now() - WKICE.at < 5 * 3600e3) return WKICE.p; WKICE.at = Date.now();
-  WKICE.p = acctCall('ice', {}).then((r) => { if (r && r.ok && Array.isArray(r.iceServers) && r.iceServers.length) WKICE.list = r.iceServers; }).catch(() => {}); return WKICE.p; }
+function wkIceLoad() { if (WKICE.p && Date.now() - WKICE.at < 4 * 3600e3) return WKICE.p; WKICE.at = Date.now();
+  WKICE.p = acctCall('ice', Object.assign({ code: SAVE.access || '' }, typeof isChef === 'function' && isChef() ? chefAuth('ice') : {})).then((r) => { if (r && r.ok && Array.isArray(r.iceServers) && r.iceServers.length) WKICE.list = r.iceServers; }).catch(() => {}); return WKICE.p; }
 const wkIceReady = () => Promise.race([wkIceLoad(), new Promise((r) => setTimeout(r, 3000))]);
 const wkIce = () => { const base = [{ urls: ['stun:stun.cloudflare.com:3478', 'stun:stun.l.google.com:19302'] }], pj = window.peerjs && peerjs.util && peerjs.util.defaultConfig;
   return { iceServers: (WKICE.list || []).concat(base, pj ? (pj.iceServers || []).filter((x) => String(x.urls).includes('turn')) : []) }; };
@@ -3069,7 +3138,7 @@ function makeKart(cfg, isPlayer, ccIdx) {
   const st = statsFor(cfg.body, cfg.wheels, cfg.glider), cc = CC[ccIdx];
   const k = { cfg, isPlayer, name: cfg.name, st, maxSpeed: cc.v * (.9 + .2 * st.speed), accel: 15 + 22 * st.accel, turn: 1.8 + .9 * st.handling,
     weight: .6 + .8 * st.weight, offFactor: .46 + .42 * st.off, x: 0, z: 0, y: 0, h: 0, vh: 0, speed: 0, idx: 0, lap: 0, halfway: false, prog: 0, lat: 0, groundY: 0,
-    drift: 0, driftT: 0, driftLock: false, boost: 0, spin: 0, spinAng: 0, shield: 0, item: null, roll: 0, hop: 0, bumpCd: 0, wallCd: 0, off: false,
+    drift: 0, driftT: 0, driftLock: false, boost: 0, spin: 0, spinAng: 0, shield: 0, star: 0, ghost: 0, item: null, roll: 0, hop: 0, bumpCd: 0, wallCd: 0, off: false,
     finished: false, finishTime: 0, lapStart: 0, lapTimes: [], bestLap: Infinity, place: 1, wrongT: 0, sparkT: 0,
     ai: { lane: rand(-.3, .3), laneGoal: rand(-.35, .35), laneT: rand(1, 4), skill: rand(.965, 1.02), itemT: 0, drifty: Math.random() < .55 },
     mesh: kartMesh(cfg) };
@@ -3146,9 +3215,20 @@ function finishPath(P, closed) {
   if (!P.glide) { P.glide = new Uint8Array(N); P.glideT = new Float32Array(N); }
 }
 const inWin = (i, w) => w && i >= w[0] && i <= w[1];
+// chaque ravin à planeur a aussi une route au sol qui le contourne (plus longue, sans risque) : au tremplin, on choisit
+function glideDetours(W) {
+  const S = W.S, N = S.N, def = W.def, out = []; if (def.hop || def.arena) return out;
+  const frac = (i) => (((i % N) + N) % N) / N, used = (def.branches || []).map((b) => [b.from, b.to]);
+  for (const [a, b] of def.glide || []) { const from = a - .016, to = b + .016;
+    const inside = (t, u, v) => (u <= v ? t >= u && t <= v : t >= u || t <= v); if (used.some(([u, v]) => inside(from, u - .02, v + .02) || inside(to, u - .02, v + .02) || inside(u, from, to) || inside(v, from, to))) continue;
+    const im = Math.floor((a + b) / 2 * N) % N, far = (x, z) => { let m = 1e9; for (let i = 0; i < N; i += 2) { const d = Math.abs(((i - im) % N + N + N / 2) % N - N / 2); if (d < 40) continue; m = Math.min(m, Math.hypot(S.px[i] - x, S.pz[i] - z)); } return m; };
+    let best = null; for (const sd of [-1, 1]) { const r = W.wallD + 30, x = S.px[im] + S.rx[im] * sd * r, z = S.pz[im] + S.rz[im] * sd * r, d = far(x, z); if (d > 55 && (!best || d > best.d)) best = { x, z, d }; }
+    if (!best) continue; used.push([from, to]);
+    out.push({ from: frac(Math.round(from * N)), to: frac(Math.round(to * N)), mid: [[best.x, best.z]], width: 14, label: 'ROUTE SÛRE', ai: .35, detour: true }); }
+  return out; }
 function buildBranches(W) {
   const S = W.S, N = S.N, def = W.def; W.branches = [];
-  (def.branches || []).forEach((b, id) => {
+  (def.branches || []).concat(glideDetours(W)).forEach((b, id) => {
     const i0 = Math.round(b.from * N) % N, i1 = Math.round(b.to * N) % N;
     const P = (i) => { const j = ((i % N) + N) % N; return new T.Vector3(S.px[j], S.py[j], S.pz[j]); };
     const m0 = b.mid[0]; const side = b.side || Math.sign((m0[0] - S.px[i0]) * S.rx[i0] + (m0[1] - S.pz[i0]) * S.rz[i0]) || 1;
@@ -3500,15 +3580,20 @@ function buildHaunted(W, ext, cx, cz, scatter, ring, q) {
 function onLap(k) {
   const R = G.race; if (!R || R.state === 'attract') return;
   if (k.lap === 1) { k.lapStart = 0; return; }
-  if (k.lap > LAPS + 1 || k.finished) return;
+  if (k.lap > LAPS + 1 || k.finished || G.W.def.arena) return;
   const lt = R.t - k.lapStart; k.lapTimes.push(lt); k.bestLap = Math.min(k.bestLap, lt); k.lapStart = R.t;
-  if (k.lap === LAPS + 1) {
-    k.finished = true; k.finishTime = R.t; R.order.push(k);
-    if (R.online && !k.isRemote) netEmit({ t: 'fin', id: k.netId, time: k.finishTime, best: isFinite(k.bestLap) ? k.bestLap : 0, hits: k.isPlayer && R.pt ? R.pt.hits : 0 });
-    if (k.isPlayer) playerFinished();
-  } else if (k.isPlayer) {
+  if (k.lap === LAPS + 1) finishKart(k);
+  else if (k.isPlayer) {
     if (k.lap === LAPS) { banner('Dernier tour !', 2.2); AudioSys.sfx('final'); } else { banner('Tour ' + k.lap + '/' + LAPS, 1.6); AudioSys.sfx('lap'); }
   }
+}
+// petit circuit : pas de tours ni d'arrivée, tout le monde s'arrête quand le chrono tombe à zéro
+const ARENA_T = 180;
+const arenaLeft = (R) => Math.max(0, ARENA_T - R.t);
+function finishKart(k) {
+  const R = G.race; k.finished = true; k.finishTime = R.t; R.order.push(k);
+    if (R.online && !k.isRemote) netEmit({ t: 'fin', id: k.netId, time: k.finishTime, best: isFinite(k.bestLap) ? k.bestLap : 0, hits: k.isPlayer && R.pt ? R.pt.hits : 0 });
+    if (k.isPlayer) playerFinished();
 }
 
 /* ---- physique ---- */
@@ -3541,6 +3626,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   const P0 = k.P || S, j0 = clamp(k.idx, 0, P0.N - 1), os0 = openSide(P0, j0);
   k.off = !k.air && (P0.offroad || (Math.abs(k.lat) > (P0.hw || W.hw) + W.curbW * .5 && !(os0 && Math.sign(k.lat) === os0)));
   const EV = zoneEnv(k); let vmax = k.maxSpeed * (k.off && k.boost <= 0 && k.star <= 0 ? k.offFactor * (EV && EV.offK || 1) : 1) * (EV ? EV.vmax : 1);
+  if (k.off && !(k.star > 0) && mudAt(W, k)) { vmax *= .6; if (k.speed > vmax) k.speed = lerp(k.speed, vmax, 1 - Math.exp(-dt * 4)); if (W.parts && Math.random() < .5) W.parts.emit(k.x + rand(-1, 1), k.y + .3, k.z + rand(-1, 1), rand(-2, 2), rand(1, 3), rand(-2, 2), '#5a3d22', .4); if (k.isPlayer && !k.mudMsg) { k.mudMsg = true; banner('Boue !', .9, true); } }
   if (k.boost > 0) { k.boost -= dt; vmax = k.maxSpeed * (k.nitro > 0 ? 1.46 : 1.36); if (k.speed < vmax) k.speed = Math.min(vmax, k.speed + 95 * dt); }
   if (k.star > 0) { k.star -= dt; vmax = Math.max(vmax, k.maxSpeed * 1.22); if (k.speed < vmax) k.speed += 40 * dt; }
   if (k.magnet > 0) { k.magnet -= dt; vmax = Math.max(vmax, k.maxSpeed * 1.28); if (k.speed < vmax) k.speed += 45 * dt; }
@@ -3619,6 +3705,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   if (k.trickT > 0) k.trickT -= dt;
   if (k.squash > 0) k.squash -= dt;
   // ---- plaques turbo, tremplins, obstacles ----
+  springLaunch(k, W);
   if (!k.air) {
     for (const p of W.pads) { if ((p.P || S) !== P) continue; let di = Math.abs(k.idx - p.i); if (P.closed) di = Math.min(di, P.N - di); if (di <= 2 && Math.abs(k.lat - p.lat) < 2.9) { if (k.boost < .9 && k.isPlayer) AudioSys.sfx('boost'); k.boost = Math.max(k.boost, 1.1); } }
     kickerLaunch(k, W);
@@ -3638,10 +3725,10 @@ function airPhysics(k, P, overGap, inp, pressed, dt) {
   if (overGap && !k.air) {
     k.air = hop ? 'hop' : 'glide'; k.vy = hop ? 10.5 : 11.5; k.airH = Math.max(k.airH || 0, .2); k.trickOK = true; k.trick = false;
     if (k.drift) endDrift(k, true);
-    if (k.isPlayer) { AudioSys.sfx('glide'); banner(W.def.hopLabel || (hop ? 'Saut lunaire !' : 'Planeur !'), 1.1); }
+    if (k.isPlayer) { AudioSys.sfx('glide'); const tip = !hop && (SAVE.glideTip || 0) < 3; if (tip) { SAVE.glideTip = (SAVE.glideTip || 0) + 1; store(); } banner(W.def.hopLabel || (hop ? 'Saut lunaire !' : tip ? 'Planeur ! DRIFT = piquer' : 'Planeur !'), tip ? 2 : 1.1); }
     else if (Math.random() < .6) k.aiTrickAt = rand(.1, .35);
   }
-  if (!k.air) { k.airH = 0; k.vy = 0; k.y = lerp(k.y, k.groundY, 1 - Math.exp(-dt * 22)); return; }
+  if (!k.air) { k.airH = 0; k.vy = 0; k.y = k.y < k.groundY ? k.groundY : lerp(k.y, k.groundY, 1 - Math.exp(-dt * 22)); return; }   // jamais sous le sol (pente qui monte)
   k.airT = (k.airT || 0) + dt;
   // figure : DRIFT pendant le saut
   const wantTrick = k.isPlayer && !G.autopilot ? pressed : (k.aiTrickAt != null && k.airT >= k.aiTrickAt);
@@ -3649,7 +3736,9 @@ function airPhysics(k, P, overGap, inp, pressed, dt) {
   let g;
   if (k.air === 'glide') g = overGap ? 9 : 30; else if (k.air === 'hop') g = overGap ? 7 : 22; else g = 24;
   k.vy -= g * dt * ((zoneEnv(k) || {}).grav || 1);
-  if (k.air === 'glide' && overGap && k.vy < -2.3) k.vy += (-2.3 - k.vy) * (1 - Math.exp(-dt * 5));   // le planeur freine la chute
+  const dive = k.air === 'glide' && overGap && k.isPlayer && !G.autopilot && inp && inp.drift && !(k.trickT > 0) && k.airT > .5;
+  if (dive) { k.vy += (-9 - k.vy) * (1 - Math.exp(-dt * 3)); k.speed = Math.min(k.maxSpeed * 1.1, k.speed + 14 * dt); }   // piqué
+  else if (k.air === 'glide' && overGap && k.vy < -2.3) k.vy += (-2.3 - k.vy) * (1 - Math.exp(-dt * 5));   // le planeur freine la chute
   k.airH += k.vy * dt;
   if ((k.air === 'glide' || k.air === 'hop') && overGap) {
     { const gv = k.maxSpeed * .97 * (1.021 - ((k.st && k.st.air) || .35) * .06); if (k.speed < gv) k.speed += (gv - k.speed) * Math.min(1, dt * 2.5); }
@@ -4616,9 +4705,13 @@ function updateGates(W, t) { for (const g of W.gates || []) { const st = gateSta
 function gateBlock(k, W) {
   for (const g of W.gates || []) { const st = g.st || gateState(g, W.clock || 0), B = g.B, S = W.S;
     if (!st.mainOpen && (k.P || S) === S) { const d = ((g.mainI - k.idx) % S.N + S.N) % S.N; if (d <= 1 && d >= 0 && !(B && k.lat * B.side > W.hw * .2 && B.map && k.idx < g.mainI)) bounceBack(k, S, g.mainI - 3); }
-    if (!st.brOpen && k.P === B && k.idx >= g.brJ - 1 && k.idx <= g.brJ + 1) bounceBack(k, B, g.brJ - 3);
+    if (!st.brOpen && k.P === B && k.idx >= g.brJ - 1 && k.idx <= g.brJ + 1) gateToMain(k, B, g);
   }
 }
+// raccourci fermé : au lieu de rebondir en boucle contre la barrière (coincé entre les murets), on repart sur la route principale
+function gateToMain(k, B, g) { const S = G.W.S, j = clamp(k.idx, 0, B.N - 1), mi = B.map ? B.map[j] : g.mainI, lat = (B.side || 1) * G.W.hw * .55;
+  k.P = S; k.idx = mi; k.x = S.px[mi] + S.rx[mi] * lat; k.z = S.pz[mi] + S.rz[mi] * lat; k.h = k.vh = S.hd[mi]; k.lat = lat; k.speed = Math.min(Math.abs(k.speed), k.maxSpeed * .5); if (k.drift) endDrift(k, false);
+  if (k.ai) k.ai.br = {}; try { trackLocate(k); } catch (e) { /* rien */ } if (k.isPlayer) { banner('Raccourci fermé : retour sur la route', 1.4, true); AudioSys.sfx('wall'); vibrate(40); if (typeof snapCam === 'function') snapCam(); } }
 function bounceBack(k, P, i) { i = P.closed === false ? clamp(i, 0, P.N - 1) : ((i % P.N) + P.N) % P.N; k.x = P.px[i] + P.rx[i] * k.lat; k.z = P.pz[i] + P.rz[i] * k.lat; k.speed = -Math.min(8, Math.abs(k.speed) * .2); if (k.drift) endDrift(k, false); if (k.isPlayer && k.bumpCd <= 0) { AudioSys.sfx('wall'); vibrate(40); k.bumpCd = .4; } }
 const GATE_TEX = canvasTex(128, 64, (x, w, h) => { x.fillStyle = '#ffffff'; x.fillRect(0, 0, w, h); x.fillStyle = 'rgba(0,0,0,.35)'; for (let i = -2; i < 8; i++) { x.beginPath(); x.moveTo(i * 20, h); x.lineTo(i * 20 + 10, h); x.lineTo(i * 20 + 30, 0); x.lineTo(i * 20 + 20, 0); x.fill(); } });
 function buildGates(W) {
@@ -4715,7 +4808,7 @@ function collideKarts() {
   for (let a = 0; a < ks.length; a++) for (let b = a + 1; b < ks.length; b++) {
     const A = ks[a], B = ks[b]; if (A.isRemote && B.isRemote) continue; if (A.ghost > 0 || B.ghost > 0) continue;
     const dx = B.x - A.x, dz = B.z - A.z; const d2 = dx * dx + dz * dz; if (d2 > 4 * R * R || d2 < 1e-6 || Math.abs(A.y - B.y) > 2.2) continue;
-    if (A.star > 0 && B.star <= 0 && !B.isRemote) hitKart(B, A); if (B.star > 0 && A.star <= 0 && !A.isRemote) hitKart(A, B);
+    if ((A.star > 0 || A.ram > 0) && B.star <= 0 && !(B.ram > 0) && !B.isRemote) hitKart(B, A); if ((B.star > 0 || B.ram > 0) && A.star <= 0 && !(A.ram > 0) && !A.isRemote) hitKart(A, B);
     const d = Math.sqrt(d2), nx = dx / d, nz = dz / d, ov = Math.min(2 * R - d, .5);
     let wa = B.weight / (A.weight + B.weight), wb = 1 - wa; if (A.isRemote) { wa = 0; wb = 1; } else if (B.isRemote) { wa = 1; wb = 0; }
     sidePush(A, -nx * ov * wa, -nz * ov * wa); sidePush(B, nx * ov * wb, nz * ov * wb);
@@ -4855,7 +4948,7 @@ function updateBoxes(dt) {
       if ((k.x - b.x) ** 2 + (k.z - b.z) ** 2 < 5.3 && Math.abs(k.y - b.y) < 3) {
         b.active = false; b.t = 3; b.mesh.scale.setScalar(.01); b.mesh.visible = false;
         for (let n = 0; n < 12; n++) W.parts.emit(b.x, b.y + 1.5, b.z, rand(-5, 5), rand(2, 7), rand(-5, 5), pick(['#38b6ff', '#7c4dff', '#ff6fb5', '#ffc531']), .6);
-        if (!k.item && k.roll <= 0) { k.roll = k.isPlayer ? ROLL_TIME : .3; if (k.isPlayer) AudioSys.sfx('box'); }
+        if (!k.item && k.roll <= 0 && !(k.bag && k.bag.length)) { k.roll = k.isPlayer ? ROLL_TIME : .3; if (k.isPlayer) AudioSys.sfx('box'); }
         break;
       }
     }
@@ -4864,7 +4957,6 @@ function updateBoxes(dt) {
 const rocketGeo = (() => { const g = new T.ConeGeometry(.35, 1.4, 10); g.rotateX(Math.PI / 2); return g; })();
 function useItem(k) {
   const it = k.item; if (!it || k.spin > 0) return; const R = G.race, online = !!(R && R.online);
-  if ((it === 'oil' || it === 'mine') && k.air) return;
   if (it === 'triple') { k.uses = (k.uses || 3) - 1; if (k.uses <= 0) k.item = null; k.boost = Math.max(k.boost, 1.15); if (k.isPlayer) AudioSys.sfx('boost'); return; }
   k.item = null;
   if (useItem11(k, it, online)) return;
@@ -4877,13 +4969,24 @@ function useItem(k) {
   } else if (it === 'rocket' || it === 'boule') {
     let target = null; let bestGap = Infinity;
     if (it === 'rocket') for (const o of G.karts) { if (o === k || o.finished) continue; const gap = o.prog - k.prog; if (gap > 0 && gap < bestGap) { bestGap = gap; target = o; } }
-    const x = k.x + Math.sin(k.h) * 2.6, z = k.z + Math.cos(k.h) * 2.6, sp = it === 'boule' ? Math.max(72, k.speed + 18) : Math.max(78, k.speed + 30); const id = online ? netNewId() : null;
-    spawnRocket(x, z, k.y, k.h, sp, k, target, id, it); if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(k.h), sp: r2(sp), o: k.netId, tg: target ? target.netId : null });
+    const sp = it === 'boule' ? Math.max(86, k.speed + 34) : Math.max(80, k.speed + 32), A = it === 'boule' ? aim13(k, sp) : null, h = A ? A.h : k.h, x = k.x + Math.sin(h) * 2.6, z = k.z + Math.cos(h) * 2.6; const id = online ? netNewId() : null;
+    spawnRocket(x, z, k.y, h, sp, k, target, id, it); if (A && A.tg) G.rockets[G.rockets.length - 1].aimTg = A.tg; if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(h), sp: r2(sp), o: k.netId, tg: target ? target.netId : null });
     if (k.isPlayer || (target && target.isPlayer)) AudioSys.sfx('rocket');
   } else if (it === 'eclair') { zap(k, k.prog); if (online) netEmit({ e: 'zap', o: k.netId, p: r2(k.prog) }); }
   else if (it === 'aimant') { k.magnet = 3; if (k.isPlayer) { AudioSys.sfx('mini'); banner('Aimant !', 1); } }
   else if (it === 'fantome') { k.ghost = 4.5; if (k.isPlayer) { AudioSys.sfx('shield'); banner('Fantôme !', 1); } }
   else if (it === 'etoile') { k.star = 5.5; if (k.isPlayer) { AudioSys.sfx('star'); banner('Étoile !', 1); } }
+}
+// position d'un kart dans t secondes s'il suit la piste
+function predict13(o, t) { const S = G.W.S, P = o.P || S, j = clamp(o.idx, 0, P.N - 1), a = Math.round(Math.max(0, o.speed) * t / S.seg), i = P === S ? (j + a) % P.N : Math.min(P.N - 1, j + a), lat = o.lat || 0;
+  return [P.px[i] + P.rx[i] * lat, P.pz[i] + P.rz[i] * lat]; }
+// visée assistée : le tir part vers le kart le plus proche devant (cône de ±35°, 90 m, position anticipée), sinon il suit la piste
+function aim13(k, sp, range = 90, tFix) {
+  let best = null, bd = range * range;
+  for (const o of G.karts) { if (o === k || o.finished || o.spect) continue; const dx = o.x - k.x, dz = o.z - k.z, d2 = dx * dx + dz * dz; if (d2 > bd || d2 < 4 || Math.abs(o.y - k.y) > 6) continue; if (Math.abs(angDiff(k.h, Math.atan2(dx, dz))) > .6) continue; bd = d2; best = o; }
+  if (best) { const t = tFix || Math.sqrt(bd) / Math.max(20, sp), [px, pz] = predict13(best, t); return { h: Math.atan2(px - k.x, pz - k.z), d: Math.hypot(px - k.x, pz - k.z), tg: best }; }
+  const P = k.P || G.W.S, j = clamp(k.idx, 0, P.N - 1), ah = Math.round(25 / G.W.S.seg), i = P === G.W.S ? (j + ah) % P.N : Math.min(P.N - 1, j + ah), lat = clamp(k.lat || 0, -(G.W.hw || 8) * .7, (G.W.hw || 8) * .7);
+  const th = Math.atan2(P.px[i] + P.rx[i] * lat - k.x, P.pz[i] + P.rz[i] * lat - k.z); return { h: Math.abs(angDiff(k.h, th)) < .7 ? th : k.h, d: 0, tg: null };
 }
 function zap(src, p) {
   let n = 0;
@@ -4898,6 +5001,7 @@ const MINE_GEO = (() => { const list = [new T.SphereGeometry(.62, 16, 12)]; for 
   c.applyMatrix4(new T.Matrix4().makeRotationFromEuler(new T.Euler(Math.cos(a) * (1.2 + e), 0, Math.sin(a) * (1.2 + e)))); list.push(c); } const g = mergeGeos(list); g.userData.keep = true; return g; })();
 function spawnOil(x, z, y, owner, id, kind = 'oil') {
   if (kind === 'leurre') return spawnLeurre(x, z, y, owner, id);
+  if (HZ13.has(kind)) return spawnHz13(x, z, y, owner, id, kind);
   let m;
   if (kind === 'mine') { m = new T.Group(); const body = new T.Mesh(MINE_GEO, stdMat('#3a3550', .4, .6)); body.position.y = .6; m.add(body);
     const light = new T.Mesh(new T.SphereGeometry(.18, 10, 8), new T.MeshBasicMaterial({ color: '#ff2a2a' })); light.position.y = 1.25; m.add(light); m.userData.light = light; m.position.set(x, y + .1, z); }
@@ -4931,10 +5035,10 @@ function updateItems(dt) {
   const W = G.W, S = W.S, N = S.N, now = performance.now() / 1000;
   for (const k of G.karts) {
     if (k.isRemote) continue;
-    if (k.roll > 0) { k.roll -= dt; if (k.roll <= 0) { k.item = rollItem11(k.place, k); k.lastItems = [k.item].concat(k.lastItems || []).slice(0, 4); if (k.item === 'triple') k.uses = 3; k.ai.itemT = rand(.6, 2.5); if (k.isPlayer) { AudioSys.sfx('got'); itemHint(k.item); } } }
+    if (k.roll > 0) { k.roll -= dt; if (k.roll <= 0) { k.item = rollItem11(k.place, k); k.lastItems = [k.item].concat(k.lastItems || []).slice(0, 4); if (k.item === 'triple') k.uses = 3; k.ai.itemT = rand(.6, 2.5); if (k.item === 'sac') { if (k.isPlayer) itemHint('sac'); sacOpen(k); } if (k.isPlayer) { AudioSys.sfx('got'); itemHint(k.item); } } }
   }
   for (let n = G.hazards.length - 1; n >= 0; n--) {
-    const h = G.hazards[n]; h.life -= dt; h.age += dt; let gone = h.life <= 0; const rad2 = h.kind === 'mine' ? 7 : 4.6;
+    const h = G.hazards[n]; h.life -= dt; h.age += dt; if (HZ13.has(h.kind)) { if (h.life <= 0 || hazard13(h, dt)) { disposeObj(h.mesh); G.hazards.splice(n, 1); } continue; } let gone = h.life <= 0; const rad2 = h.kind === 'mine' ? 8.4 : h.kind === 'leurre' ? 6 : 6.4;
     if (h.mesh.userData.spin) { h.mesh.userData.spin.rotation.y += dt * 1.4; h.mesh.position.y = h.y + 1.5 + Math.sin(now * 2.5 + h.mesh.userData.bob) * .25; }
     if (h.kind === 'mine' && h.mesh.userData.light) h.mesh.userData.light.visible = Math.floor(now * 4) % 2 === 0;
     if (!gone) for (const k of G.karts) { if (k.isRemote || (h.owner === k && h.age < 1)) continue; if ((k.x - h.x) ** 2 + (k.z - h.z) ** 2 < rad2 && Math.abs(k.y - h.y) < 2) {
@@ -4947,6 +5051,7 @@ function updateItems(dt) {
     if (G.rockets[n].k13) { rocket13(G.rockets[n], n, dt); continue; }
     const r = G.rockets[n]; r.life -= dt; r.age += dt; let gone = r.life <= 0; const tg = r.target;
     if (r.kind === 'boule') {
+      const a = r.aimTg; if (a && !a.finished && r.age < 1.5) { const th = Math.atan2(a.x - r.x, a.z - r.z), df = angDiff(r.h, th); if (Math.abs(df) < .9) r.h += clamp(df, -2 * dt, 2 * dt); else r.aimTg = null; }
       r.x += Math.sin(r.h) * r.speed * dt; r.z += Math.cos(r.h) * r.speed * dt;
       if (r.mesh.userData.spin) r.mesh.userData.spin.rotation.x += dt * 12;
     } else {
@@ -4964,7 +5069,7 @@ function updateItems(dt) {
     }
     r.y = lerp(r.y, S.py[best] + (S.glide && S.glide[best] ? 3 : 0), .3); r.mesh.position.set(r.x, r.y + (r.kind === 'boule' ? .6 : 1), r.z); r.mesh.rotation.y = r.h; if (S.wz && S.wz[best]) warpObject(r.mesh, r.x, r.y + 1, r.z);
     if (r.kind !== 'boule' && Math.random() < .8) W.parts.emit(r.x - Math.sin(r.h) * 1, r.y + 1, r.z - Math.cos(r.h) * 1, rand(-1, 1), rand(0, 1), rand(-1, 1), '#ff9a2e', .35, 0);
-    if (!gone) for (const k of G.karts) { if (k.isRemote || (k === r.owner && r.age < (r.kind === 'boule' ? .8 : .6))) continue; if ((k.x - r.x) ** 2 + (k.z - r.z) ** 2 < 6.2 && Math.abs(k.y - r.y) < 3) { hitKart(k, r.owner); netHitReport(k, r.owner, r.id); gone = true; break; } }
+    if (!gone) for (const k of G.karts) { if (k.isRemote || (k === r.owner && r.age < (r.kind === 'boule' ? .8 : .6))) continue; if ((k.x - r.x) ** 2 + (k.z - r.z) ** 2 < 10.5 && Math.abs(k.y - r.y) < 3) { if (k.mirror > 0 && mirror13(r, k)) break; hitKart(k, r.owner); netHitReport(k, r.owner, r.id); gone = true; break; } }
     if (gone) { for (let m = 0; m < 16; m++) W.parts.emit(r.x, r.y + 1, r.z, rand(-7, 7), rand(2, 9), rand(-7, 7), pick(['#ff4f3a', '#ffc531', '#fffdf7']), .7); disposeObj(r.mesh); G.rockets.splice(n, 1); }
   }
 }
@@ -5015,6 +5120,7 @@ function itemOdds13(k, place) {
 // ---------- utilisation ----------
 const KIND13 = new Set(['comete', 'boomerang', 'tourbillon']);
 function useItem13(k, it, online) {
+  if (useItem13x(k, it, online)) return true;
   if (it === 'nitro') { k.nitro = 4.5; k.boost = Math.max(k.boost, .3); if (k.drift) endDrift(k, true); if (k.isPlayer) { AudioSys.sfx('boost'); banner('Nitro !', 1); vibrate([20, 20, 40]); } return true; }
   if (it === 'leurre') { const x = k.x - Math.sin(k.h) * 3.6, z = k.z - Math.cos(k.h) * 3.6, id = online ? netNewId() : null; spawnOil(x, z, k.groundY, k, id, 'leurre');
     if (id) netEmit({ e: 'oil', kind: 'leurre', id, x: r2(x), z: r2(z), y: r2(k.groundY), o: k.netId }); if (k.isPlayer) AudioSys.sfx('box'); return true; }
@@ -5022,13 +5128,14 @@ function useItem13(k, it, online) {
     const x = k.x, z = k.z, id = online ? netNewId() : null, sp = 105; spawnRocket(x, z, k.y + 2, k.h, sp, k, tg, id, 'comete');
     if (id) netEmit({ e: 'rocket', kind: 'comete', id, x: r2(x), z: r2(z), y: r2(k.y + 2), h: r3(k.h), sp, o: k.netId, tg: tg ? tg.netId : null });
     if (k.isPlayer) { AudioSys.sfx('rocket'); banner(tg ? 'Comète lancée sur ' + tg.name + ' !' : 'Comète !', 1.4); } return true; }
-  if (it === 'boomerang' || it === 'tourbillon') { const back = it === 'tourbillon', d = back ? -4 : 2.6, x = k.x + Math.sin(k.h) * d, z = k.z + Math.cos(k.h) * d, id = online ? netNewId() : null, sp = back ? 34 : Math.max(70, k.speed + 22);
-    spawnRocket(x, z, k.y, k.h, sp, k, null, id, it); if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(k.h), sp: r2(sp), o: k.netId, tg: null });
+  if (it === 'boomerang' || it === 'tourbillon') { const back = it === 'tourbillon', d = back ? -4 : 2.6, sp = back ? 34 : Math.max(92, k.speed + 42), x = k.x + Math.sin(k.h) * d, z = k.z + Math.cos(k.h) * d, id = online ? netNewId() : null;
+    const hh = back ? k.h + Math.PI : aim13(k, sp).h; spawnRocket(x, z, k.y, hh, sp, k, null, id, it); if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(hh), sp: r2(sp), o: k.netId, tg: null });
     if (k.isPlayer) AudioSys.sfx(back ? 'confetti' : 'rocket'); return true; }
   return false;
 }
 // nitro : poussée continue (plus forte qu'un turbo) ; le reste est géré par la physique (boost)
 function itemStatus13(k, inp, dt) {
+  itemStatus13x(k, inp, dt);
   if (k.nitro > 0) { k.nitro -= dt; k.boost = Math.max(k.boost, .12); inp.drift = false; if (G.W && G.W.parts && Math.random() < .8) G.W.parts.emit(k.x - Math.sin(k.h) * 2.3, k.y + .8, k.z - Math.cos(k.h) * 2.3, rand(-1, 1), rand(0, 1.2), rand(-1, 1), pick(['#38b6ff', '#bfefff', '#7c4dff']), .35, 0); }
 }
 function aiUse13(k, ahead, behind, ai) {
@@ -5039,12 +5146,13 @@ function aiUse13(k, ahead, behind, ai) {
     case 'leurre': return !k.air && (behind(25) || ai.itemT < -4);
     case 'tourbillon': return behind(80) || ai.itemT < -5;
   }
-  return null;
+  return aiUse13x(k, ahead, behind, ai);
 }
 
 // ---------- maillages ----------
 const M13 = {};
 function mesh13(kind) {
+  if (MESH13X[kind]) return MESH13X[kind]();
   const g = new T.Group();
   if (kind === 'comete') { const core = new T.Mesh(new T.SphereGeometry(.9, 18, 14), new T.MeshBasicMaterial({ color: '#bfefff' })); g.add(core);
     const halo = new T.Mesh(new T.SphereGeometry(1.5, 18, 14), new T.MeshBasicMaterial({ color: '#7c4dff', transparent: true, opacity: .45, depthWrite: false })); g.add(halo); g.userData.halo = halo;
@@ -5063,6 +5171,7 @@ function spawn13(x, z, y, h, sp, owner, target, id, kind) {
   const m = mesh13(kind); m.position.set(x, y + 1, z); G.W.scene.add(m);
   const r = { k13: true, x, z, y, h, idx: best, lat: (x - S.px[best]) * S.rx[best] + (z - S.pz[best]) * S.rz[best], speed: sp, target, owner, life: kind === 'comete' ? 16 : kind === 'boomerang' ? 4.2 : 6.5, age: 0, mesh: m, id, kind, hits: new Set() };
   if (kind === 'comete') G.lastComete = G.race ? G.race.t : 0;
+  if (INIT13X[kind]) INIT13X[kind](r);
   G.rockets.push(r); return r;
 }
 function boom13(x, z, y, owner, id) {   // explosion de la comète
@@ -5074,6 +5183,7 @@ function boom13(x, z, y, owner, id) {   // explosion de la comète
 }
 // déplacement, touches et fin des nouveaux projectiles ; renvoie true quand il disparaît
 function rocket13(r, n, dt) {
+  if (R13X[r.kind]) return R13X[r.kind](r, n, dt);
   const W = G.W, S = W.S, N = S.N, tg = r.target; r.life -= dt; r.age += dt; let gone = r.life <= 0;
   const near = (i0, a, b) => { let best = i0, bd = Infinity; for (let o = a; o <= b; o++) { const i = (i0 + o + N) % N; const d = (r.x - S.px[i]) ** 2 + (r.z - S.pz[i]) ** 2; if (d < bd) { bd = d; best = i; } } return best; };
   if (r.kind === 'comete') {
@@ -5088,10 +5198,11 @@ function rocket13(r, n, dt) {
     if (W.parts && Math.random() < .95) W.parts.emit(r.x - Math.sin(r.h) * 1.4, r.y + 1, r.z - Math.cos(r.h) * 1.4, rand(-1, 1), rand(-.5, 1), rand(-1, 1), pick(['#7c4dff', '#38b6ff', '#bfefff']), .55, 0);
     // alerte pour la cible (son de plus en plus rapide)
     if (alive && tg.isPlayer) { const d = Math.sqrt(d2); warn13(d); }
-    if (alive && d2 < 2.6 * 2.6 + (r.age > 9 ? 9 : 0) && !gone) { boom13(tg.x, tg.z, tg.y, r.owner, r.id); if (!tg.isRemote) netEmit13gone(r); gone = true; }
+    if (alive && d2 < 2.6 * 2.6 + (r.age > 9 ? 9 : 0) && !gone && tg.mirror > 0 && !tg.isRemote) mirror13(r, tg);
+    else if (alive && d2 < 2.6 * 2.6 + (r.age > 9 ? 9 : 0) && !gone) { boom13(tg.x, tg.z, tg.y, r.owner, r.id); if (!tg.isRemote) netEmit13gone(r); gone = true; }
     else if (!alive && r.age > 1) gone = true;
   } else if (r.kind === 'boomerang') {
-    const own = r.owner, back = r.age > 1.05 && own && !own.spect;
+    const own = r.owner, back = r.age > 1.25 && own && !own.spect;
     if (back) { const th = Math.atan2(own.x - r.x, own.z - r.z); r.h += clamp(angDiff(r.h, th), -5.5 * dt, 5.5 * dt); r.speed = Math.max(r.speed, Math.abs(own.speed) + 18, 72); if ((own.x - r.x) ** 2 + (own.z - r.z) ** 2 < 9) gone = true; }
     r.x += Math.sin(r.h) * r.speed * dt; r.z += Math.cos(r.h) * r.speed * dt; r.idx = near(r.idx, -10, 10);
     const best = r.idx; r.lat = (r.x - S.px[best]) * S.rx[best] + (r.z - S.pz[best]) * S.rz[best];
@@ -5099,7 +5210,11 @@ function rocket13(r, n, dt) {
       if (!back) { const dx = Math.sin(r.h), dz = Math.cos(r.h), dl = dx * S.rx[best] + dz * S.rz[best]; if (dl * s > 0) r.h = Math.atan2(dx - 2 * dl * S.rx[best], dz - 2 * dl * S.rz[best]); } }
     r.y = lerp(r.y, S.py[best], .3); if (r.mesh.userData.spin) r.mesh.userData.spin.rotation.y += dt * 22;
   } else {   // tourbillon : redescend la piste en zigzag
-    const ti = (r.idx - 6 + N) % N, hw = W.hw || 8, lat = Math.sin(r.age * 1.7 + (r.id ? r.id.length : 0)) * hw * .72, tx = S.px[ti] + S.rx[ti] * lat, tz = S.pz[ti] + S.rz[ti] * lat;
+    const ti = (r.idx - 6 + N) % N, hw = W.hw || 8; let lat = Math.sin(r.age * 1.7 + (r.id ? r.id.length : 0)) * hw * .72;
+    // attiré par le kart qui arrive en face (dans les 70 m), sans le suivre parfaitement
+    { let best = null, bd = 1e9; for (const o of G.karts) { if (o === r.owner || o.finished || o.spect || (o.P && o.P !== S)) continue; const g = ((r.idx - o.idx) % N + N) % N; if (g < 35 && g < bd) { bd = g; best = o; } }
+      if (best) { const ol = (best.x - S.px[ti]) * S.rx[ti] + (best.z - S.pz[ti]) * S.rz[ti]; r.tl = r.tl == null ? lat : r.tl; r.tl += (clamp(ol, -hw * .8, hw * .8) - r.tl) * Math.min(1, dt * 2.6); lat = r.tl; } else r.tl = null; }
+    const tx = S.px[ti] + S.rx[ti] * lat, tz = S.pz[ti] + S.rz[ti] * lat;
     const th = Math.atan2(tx - r.x, tz - r.z); r.h += clamp(angDiff(r.h, th), -7 * dt, 7 * dt); r.x += Math.sin(r.h) * r.speed * dt; r.z += Math.cos(r.h) * r.speed * dt;
     r.idx = near(r.idx, -12, 4); r.y = lerp(r.y, S.py[r.idx], .3);
     if (r.mesh.userData.spin) { r.mesh.userData.spin.rotation.y += dt * 14; r.mesh.userData.spin.position.x = Math.sin(r.age * 23) * .15; }
@@ -5107,8 +5222,8 @@ function rocket13(r, n, dt) {
   }
   r.mesh.position.set(r.x, r.y + 1, r.z); r.mesh.rotation.y = r.h; if (S.wz && S.wz[r.idx]) warpObject(r.mesh, r.x, r.y + 1, r.z);
   // boomerang et tourbillon : chaque kart touché une seule fois, l'objet continue
-  if (!gone && r.kind !== 'comete') { const R2 = r.kind === 'tourbillon' ? 2.9 * 2.9 : 6.2;
-    for (const k of G.karts) { if (k.isRemote || k.spect || k.finished || r.hits.has(k) || (k === r.owner && (r.kind === 'tourbillon' || r.age < 1.6))) continue;
+  if (!gone && r.kind !== 'comete') { const R2 = r.kind === 'tourbillon' ? 3.4 * 3.4 : 10;
+    for (const k of G.karts) { if (k.isRemote || k.spect || k.finished || r.hits.has(k) || k === r.owner) continue;
       if ((k.x - r.x) ** 2 + (k.z - r.z) ** 2 < R2 && Math.abs(k.y - r.y) < 3) { r.hits.add(k); hitKart(k, r.owner); netHitReport(k, r.owner, null); if (r.kind === 'boomerang' && r.hits.size >= 3) gone = true; } } }
   if (gone) { if (r.kind !== 'comete' && W.parts) for (let m = 0; m < 14; m++) W.parts.emit(r.x, r.y + 1, r.z, rand(-6, 6), rand(2, 7), rand(-6, 6), pick(['#fffdf7', '#e0a25a', '#bfefff']), .6, 0);
     disposeObj(r.mesh); G.rockets.splice(n, 1); if (r.kind === 'comete') warn13(null); }
@@ -5131,12 +5246,20 @@ function spawnLeurre(x, z, y, owner, id) {
   G.hazards.push({ x, z, y, life: 28, mesh: m, owner, age: 0, id, kind: 'leurre' });
 }
 // la première fois qu'on obtient un objet : une phrase pour dire à quoi il sert
-const ITEM_DESC = { turbo: 'Turbo : un coup d\'accélération', triple: 'Triple turbo : 3 accélérations', nitro: 'Nitro : 4 s de très grosse accélération', boule: 'Boule : lancée tout droit, rebondit sur les murs',
+const ITEM_DESC = { turbo: 'Turbo : un coup d\'accélération', triple: 'Triple turbo : 3 accélérations', nitro: 'Nitro : 4 s de très grosse accélération', boule: 'Boule : lancée vers le kart devant, rebondit sur les murs',
   shield: 'Bouclier : bloque un coup', oil: 'Flaque : posée derrière toi, fait glisser', leurre: 'Leurre : fausse boîte posée derrière toi', mine: 'Mine : explose quand on roule dessus', colle: 'Pot de colle : ralentit celui qui passe',
   boomerang: 'Boomerang : part devant et revient, touche jusqu\'à 3 karts', tourbillon: 'Tourbillon : redescend la piste vers ceux qui te suivent', rocket: 'Fusée : file sur le kart devant toi', bulle: 'Bulle : emprisonne le kart devant toi',
   aimant: 'Aimant : te colle au kart devant', fantome: 'Fantôme : tu deviens intouchable un moment', ressort: 'Ressort : grand saut par-dessus les pièges', aspirateur: 'Aspirateur : vole l\'objet du kart devant', ventilo: 'Ventilo : souffle les karts autour',
   grappin: 'Grappin : te tire vers le kart devant', confettis: 'Confettis : aveugle ceux devant toi', disco: 'Boule disco : onde qui renverse les karts proches', etoile: 'Étoile : invincible et plus rapide', eclair: 'Éclair : rapetisse tous ceux devant toi', comete: 'Comète : vole jusqu\'au 1er et explose sur lui' };
 function itemHint(it) { if (!ITEM_DESC[it]) return; SAVE.itemSeen = Array.isArray(SAVE.itemSeen) ? SAVE.itemSeen : []; if (SAVE.itemSeen.includes(it)) return; SAVE.itemSeen.push(it); store(); setTimeout(() => banner(ITEM_DESC[it], 2.6), 350); }
+// les bots n'esquivent plus parfaitement les pièges posés (flaque, mine, colle, leurre) : chance selon leur niveau, tirée une fois par piège
+function aiDodge13(k, h) { if (h.owner === k) return false; const lv = G.race && G.race.botLvl != null ? G.race.botLvl : 1, p = [.08, .22, .38, .5][clamp(lv | 0, 0, 3)] * (h.kind === 'leurre' ? .35 : 1);
+  h.dodge = h.dodge || new Map(); if (!h.dodge.has(k)) h.dodge.set(k, Math.random() < p); return h.dodge.get(k); }
+// aspiration : un bot qui en suit un autre de près se cale souvent dans sa trace (comme un vrai pilote) — et prend donc ses pièges
+function draft13(k, lat, TP, ti, thw) { if (!G.race || G.race.state !== 'race' || k.item === 'shield') return lat; const seg = G.W.S.seg; let best = null, bd = 1e9;
+  for (const o of G.karts) { if (o === k || o.finished || o.spect || (o.P || G.W.S) !== (k.P || G.W.S)) continue; const g = (o.prog - k.prog) * seg; if (g > 6 && g < 32 && g < bd) { bd = g; best = o; } }
+  if (!best) return lat; k.ai.draftP = k.ai.draftP != null ? k.ai.draftP : .35 + Math.random() * .4; const ol = (best.x - TP.px[ti]) * TP.rx[ti] + (best.z - TP.pz[ti]) * TP.rz[ti];
+  return Math.abs(ol - lat) < thw * .6 ? lerp(lat, ol, k.ai.draftP) : lat; }
 
 /* ================= v13 : mode soirée « Patate chaude » ================= */
 // Une bombe passe de kart en kart. On la refile en touchant quelqu'un (contact ou objet qui le touche).
@@ -5234,6 +5357,187 @@ function bombAiSpeed(k) { const R = G.race; if (!R || !R.bombMode || R.state !==
   let ahead = false, behind = false; for (const o of G.karts) { if (o === k || !bombAlive(o)) continue; const g = (o.prog - k.prog) * seg; if (g > -8 && g < 55) ahead = true; else if (g <= -8 && g > -70) behind = true; }
   return ahead ? 1.08 : behind ? .55 : .8; }
 
+/* ================= v13 : 11 objets de plus (tous originaux) ================= */
+// Verglas, Fumigène, Trampoline (posés derrière) · Pétard (lancé en cloche) · Chewing-gum (tiré droit, colle) ·
+// Miroir (renvoie le prochain tir) · Pare-buffle (6 s : qui te touche part en toupie) · Bouquet final (3 fusées sur les 3 de devant) ·
+// Météores (pluie de rochers sur ceux de devant) · Téléporteur (échange de place avec celui de devant) · Sac surprise (3 objets d'un coup)
+Object.assign(ICONS, {
+  verglas: '<svg viewBox="0 0 48 48"><ellipse cx="24" cy="30" rx="19" ry="11" fill="#bfefff" stroke="#17143a" stroke-width="3"/><path d="M12 28l8-4M26 34l10-5M18 35l4-2" stroke="#fffdf7" stroke-width="3" stroke-linecap="round"/><path d="M24 4v14M17 8l14 6M31 8l-14 6" stroke="#38b6ff" stroke-width="3" stroke-linecap="round"/></svg>',
+  fumigene: '<svg viewBox="0 0 48 48"><circle cx="17" cy="20" r="9" fill="#c8ccd8" stroke="#17143a" stroke-width="3"/><circle cx="30" cy="16" r="10" fill="#e9ecf4" stroke="#17143a" stroke-width="3"/><circle cx="27" cy="29" r="9" fill="#a6abbb" stroke="#17143a" stroke-width="3"/><rect x="9" y="33" width="12" height="10" rx="3" fill="#3ee08f" stroke="#17143a" stroke-width="3"/></svg>',
+  trampoline: '<svg viewBox="0 0 48 48"><ellipse cx="24" cy="22" rx="19" ry="8" fill="#38b6ff" stroke="#17143a" stroke-width="3"/><ellipse cx="24" cy="22" rx="13" ry="4.5" fill="#17143a"/><path d="M9 25l-3 15M39 25l3 15M18 29l-1 12M30 29l1 12" stroke="#17143a" stroke-width="3" stroke-linecap="round"/><path d="M24 4v10M20 8l4-4 4 4" stroke="#ffc531" stroke-width="3" stroke-linecap="round" fill="none"/></svg>',
+  petard: '<svg viewBox="0 0 48 48"><rect x="12" y="16" width="16" height="28" rx="4" fill="#ff4f3a" stroke="#17143a" stroke-width="3" transform="rotate(-25 20 30)"/><path d="M14 30l12-6" stroke="#ffc531" stroke-width="4" transform="rotate(-25 20 30)"/><path d="M26 13c4-6 8-6 10-2" stroke="#17143a" stroke-width="2.5" fill="none"/><path d="M38 10l4-4M40 13h5M36 6l1-4" stroke="#ffc531" stroke-width="3" stroke-linecap="round"/></svg>',
+  chewing: '<svg viewBox="0 0 48 48"><path d="M10 26c0-10 8-16 15-15 9 1 14 8 13 16-1 9-9 14-16 13-8-1-12-6-12-14z" fill="#ff8fc8" stroke="#17143a" stroke-width="3"/><circle cx="20" cy="22" r="4" fill="#ffd1ea"/><path d="M33 36c3 3 4 6 2 8M14 37c-2 3-2 6 0 7" stroke="#ff8fc8" stroke-width="3" stroke-linecap="round"/></svg>',
+  miroir: '<svg viewBox="0 0 48 48"><ellipse cx="24" cy="21" rx="13" ry="16" fill="#e9f6ff" stroke="#17143a" stroke-width="3"/><path d="M17 13l8-4M15 21l14-8" stroke="#fffdf7" stroke-width="3" stroke-linecap="round"/><path d="M24 37v8M17 45h14" stroke="#17143a" stroke-width="3" stroke-linecap="round"/><path d="M34 26l7 3-7 3" fill="#ff4f3a" stroke="#17143a" stroke-width="2"/></svg>',
+  parebuffle: '<svg viewBox="0 0 48 48"><path d="M6 30h36v8H6z" fill="#8a8a92" stroke="#17143a" stroke-width="3"/><path d="M10 30V18h6v12M22 30V14h4v16M32 30V18h6v12" fill="#c8ccd8" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M4 12l6 4M44 12l-6 4M24 4v6" stroke="#ff8a1e" stroke-width="3" stroke-linecap="round"/></svg>',
+  bouquet: '<svg viewBox="0 0 48 48"><path d="M24 44V20M14 44l6-20M34 44l-6-20" stroke="#17143a" stroke-width="3"/><circle cx="24" cy="12" r="7" fill="#ffc531" stroke="#17143a" stroke-width="3"/><circle cx="12" cy="17" r="5" fill="#ff4f7a" stroke="#17143a" stroke-width="2.5"/><circle cx="36" cy="17" r="5" fill="#38b6ff" stroke="#17143a" stroke-width="2.5"/><path d="M24 2v3M17 5l2 2M31 5l-2 2" stroke="#ffc531" stroke-width="2.5" stroke-linecap="round"/></svg>',
+  meteores: '<svg viewBox="0 0 48 48"><path d="M4 4l14 14M14 2l10 10M2 14l10 10" stroke="#ff8a1e" stroke-width="4" stroke-linecap="round"/><path d="M22 18l10-4 10 6 2 11-7 9-11 1-7-8z" fill="#8a5a3a" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><circle cx="30" cy="26" r="3" fill="#5a3a24"/><circle cx="36" cy="33" r="2" fill="#5a3a24"/></svg>',
+  teleport: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="18" fill="#a87dff" stroke="#17143a" stroke-width="3"/><path d="M14 20h16l-5-5M34 28H18l5 5" stroke="#fffdf7" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  sac: '<svg viewBox="0 0 48 48"><path d="M12 18h24l4 24H8z" fill="#ffc531" stroke="#17143a" stroke-width="3" stroke-linejoin="round"/><path d="M17 18c0-8 14-8 14 0" fill="none" stroke="#17143a" stroke-width="3"/><text x="24" y="37" font-size="15" font-weight="900" text-anchor="middle" fill="#17143a">×3</text><path d="M6 10l3 3M42 10l-3 3M24 4v4" stroke="#ff4f7a" stroke-width="3" stroke-linecap="round"/></svg>',
+});
+Object.assign(ITEM_FR, { verglas: 'Verglas', fumigene: 'Fumigène', trampoline: 'Trampoline', petard: 'Pétard', chewing: 'Chewing-gum', miroir: 'Miroir', parebuffle: 'Pare-buffle', bouquet: 'Bouquet final', meteores: 'Météores', teleport: 'Téléporteur', sac: 'Sac surprise' });
+Object.assign(RARITY, { verglas: 'c', fumigene: 'c', trampoline: 'c', petard: 'u', chewing: 'u', miroir: 'u', parebuffle: 'r', bouquet: 'r', meteores: 'r', sac: 'r', teleport: 'v' });
+ITEM_KEYS.length = 0; ITEM_KEYS.push(...Object.keys(RARITY));
+Object.assign(ODDS13, { verglas: [7, 3, .5], fumigene: [5, 3, 1], trampoline: [5, 2.5, .5], petard: [3, 4.5, 3], chewing: [3, 4, 3], miroir: [4, 2.5, 1],
+  parebuffle: [0, 2, 3], bouquet: [0, 1.5, 3], meteores: [0, 1, 2.5], sac: [0, 1.6, 3], teleport: [0, 0, 2] });
+Object.assign(ITEM_DESC, { verglas: 'Verglas : plaque de glace derrière toi, on y perd le volant', fumigene: 'Fumigène : nuage derrière toi, on n\'y voit plus rien', trampoline: 'Trampoline : posé derrière, il fait rebondir et ralentit',
+  petard: 'Pétard : lancé en cloche devant, il explose au sol', chewing: 'Chewing-gum : tiré tout droit, il colle le kart touché', miroir: 'Miroir : renvoie le prochain tir à son lanceur (même la comète !)',
+  parebuffle: 'Pare-buffle : 6 s, tout kart que tu touches part en toupie', bouquet: 'Bouquet final : 3 fusées sur les 3 karts devant toi', meteores: 'Météores : pluie de rochers sur ceux de devant',
+  teleport: 'Téléporteur : tu échanges ta place avec le kart devant toi', sac: 'Sac surprise : 3 objets d\'un coup !' });
+const HZ13 = new Set(['verglas', 'trampoline', 'fumee']);
+for (const k of ['petard', 'chewing', 'bouquet', 'meteore']) KIND13.add(k);
+const SAC_EXCL = new Set(['sac', 'comete', 'eclair', 'teleport']);
+
+// ---------- utilisation ----------
+function useItem13x(k, it, online) {
+  const behindPt = (d) => [k.x - Math.sin(k.h) * d, k.z - Math.cos(k.h) * d];
+  if (it === 'verglas' || it === 'trampoline' || it === 'fumigene') { const kind = it === 'fumigene' ? 'fumee' : it, [x, z] = behindPt(it === 'fumigene' ? 5 : 3.8), id = online ? netNewId() : null;
+    spawnOil(x, z, k.groundY, k, id, kind); if (id) netEmit({ e: 'oil', kind, id, x: r2(x), z: r2(z), y: r2(k.groundY), o: k.netId }); if (k.isPlayer) AudioSys.sfx(it === 'fumigene' ? 'confetti' : 'oil'); return true; }
+  if (it === 'petard' || it === 'chewing') { let sp = it === 'petard' ? Math.max(58, k.speed + 22) : Math.max(84, k.speed + 32); const A = it === 'petard' ? aim13(k, 50, 90, .85) : aim13(k, sp), h = A.h, x = k.x + Math.sin(h) * 2.6, z = k.z + Math.cos(h) * 2.6, id = online ? netNewId() : null;
+    if (it === 'petard' && A.tg) sp = clamp((A.d - 2.6) / .85, 20, 90);   // vol de 0,85 s : il retombe sur la cible
+    spawnRocket(x, z, k.y, h, sp, k, null, id, it); if (A.tg) G.rockets[G.rockets.length - 1].aimTg = A.tg; if (id) netEmit({ e: 'rocket', kind: it, id, x: r2(x), z: r2(z), y: r2(k.y), h: r3(h), sp: r2(sp), o: k.netId, tg: null }); if (k.isPlayer) AudioSys.sfx('rocket'); return true; }
+  if (it === 'miroir') { k.mirror = 8; if (k.isPlayer) { AudioSys.sfx('shield'); banner('Miroir : le prochain tir repart à l\'envoyeur', 1.6); } return true; }
+  if (it === 'parebuffle') { k.ram = 6; if (k.isPlayer) { AudioSys.sfx('boost'); banner('Pare-buffle !', 1); vibrate(40); } return true; }
+  if (it === 'bouquet' || it === 'meteores') { const seg = G.W.S.seg, list = G.karts.filter((o) => o !== k && !o.finished && !o.spect && (o.prog - k.prog) * seg > 0 && (o.prog - k.prog) * seg < 260).sort((a, b) => a.prog - b.prog).slice(0, 3);
+    if (!list.length) { const lead = G.karts.filter((o) => o !== k && !o.finished && !o.spect).sort((a, b) => b.prog - a.prog)[0]; if (lead) list.push(lead); }
+    if (it === 'bouquet') list.forEach((tg, q) => { const id = online ? netNewId() : null, h = k.h + (q - 1) * .5; spawnRocket(k.x, k.z, k.y + 1, h, 95, k, tg, id, 'bouquet'); if (id) netEmit({ e: 'rocket', kind: 'bouquet', id, x: r2(k.x), z: r2(k.z), y: r2(k.y + 1), h: r3(h), sp: 95, o: k.netId, tg: tg.netId }); });
+    else list.forEach((tg, q) => { for (let m = 0; m < 2; m++) { const dl = q * .35 + m * .55, [px, pz] = predict13(tg, (dl + 1.15) * (m ? 1.1 : 1)), x = px + rand(-1.5, 1.5), z = pz + rand(-1.5, 1.5), id = online ? netNewId() : null;
+      spawnRocket(x, z, tg.groundY, 0, dl, k, tg, id, 'meteore'); if (id) netEmit({ e: 'rocket', kind: 'meteore', id, x: r2(x), z: r2(z), y: r2(tg.groundY), h: 0, sp: r2(dl), o: k.netId, tg: tg.netId }); } });
+    if (k.isPlayer) { AudioSys.sfx(it === 'bouquet' ? 'rocket' : 'drone'); banner(it === 'bouquet' ? 'Bouquet final !' : 'Pluie de météores !', 1.2); } return true; }
+  if (it === 'teleport') return teleport13(k, online);
+  return false;
+}
+// téléporteur : on échange sa place avec le kart juste devant (même tour, moins de 130 m)
+function teleport13(k, online) { const seg = G.W.S.seg; let tg = null, bd = 1e9;
+  for (const o of G.karts) { if (o === k || o.finished || o.spect || o.lap !== k.lap || o.air || k.air) continue; const g = (o.prog - k.prog) * seg; if (g > 4 && g < 130 && g < bd) { bd = g; tg = o; } }
+  if (!tg) { k.item = 'teleport'; if (k.isPlayer && !(k.tpMsg > performance.now())) { k.tpMsg = performance.now() + 1500; banner('Personne à échanger : rapproche-toi du kart devant', 1.4, true); } return true; }   // l'objet est gardé
+  const snap = (q) => ({ x: q.x, z: q.z, y: q.y, h: q.h, vh: q.vh, idx: q.idx, lat: q.lat, P: q.P && q.P !== G.W.S ? q.P.id : -1 }), A = snap(k), Bs = snap(tg);
+  place13(k, Bs); if (!tg.isRemote) place13(tg, A); else if (online) netEmit({ e: 'swap', tg: tg.netId, o: k.netId, s: A });
+  for (const q of [A, Bs]) if (G.W.parts) for (let i = 0; i < 30; i++) G.W.parts.emit(q.x, q.y + 1.2, q.z, rand(-6, 6), rand(1, 8), rand(-6, 6), pick(['#a87dff', '#fffdf7', '#38b6ff']), .6, 0);
+  if (k.isPlayer) { AudioSys.sfx('star'); banner('Échange avec ' + tg.name + ' !', 1.4); } if (tg.isPlayer) { banner(k.name + ' a pris ta place !', 1.6, true); flashScreen(); }
+  return true; }
+function place13(k, s) { const W = G.W; k.P = s.P >= 0 && W.branches[s.P] ? W.branches[s.P] : W.S; k.idx = clamp(s.idx, 0, k.P.N - 1); k.x = s.x; k.z = s.z; k.y = s.y; k.h = s.h; k.vh = s.vh; k.lat = s.lat; if (k.drift) endDrift(k, false);
+  try { trackLocate(k); } catch (e) { /* rien */ } if (k.isPlayer && typeof snapCam === 'function') snapCam(); }
+// sac surprise : 3 objets tirés selon ta place (au plus un très rare)
+function sacOpen(k) { const got = []; let rare = 0;
+  for (let i = 0; i < 3; i++) { const w = itemOdds13(k, k.place); for (const x of SAC_EXCL) delete w[x]; if (rare) for (const x in w) if (RARITY[x] === 'v') w[x] = 0; for (const x of got) if (w[x]) w[x] *= .2;
+    let tot = 0; for (const x in w) tot += w[x]; let r = Math.random() * tot, out = 'turbo'; for (const x in w) { r -= w[x]; if (r <= 0) { out = x; break; } } if (RARITY[out] === 'v') rare++; got.push(out); }
+  k.item = got[0]; k.bag = got.slice(1); k.uses = got[0] === 'triple' ? 3 : 0; k.lastItems = got.concat(k.lastItems || []).slice(0, 4);
+  if (k.isPlayer) { banner('Sac surprise : 3 objets !', 1.6); AudioSys.sfx('star'); } }
+// effets sur le kart (verglas, chewing-gum, fumée, pare-buffle, miroir) + objets suivants du sac
+function itemStatus13x(k, inp, dt) {
+  if (k.ice > 0) { k.ice -= dt; inp.steer *= .12; inp.drift = false; k.speed *= Math.pow(.8, dt); k.spinAng += dt * 2.5; }
+  if (k.iceCd > 0) k.iceCd -= dt;
+  if (k.gum > 0) { k.gum -= dt; const cap = k.maxSpeed * .55; if (k.speed > cap) k.speed = lerp(k.speed, cap, 1 - Math.exp(-dt * 6)); inp.steer *= .55; inp.drift = false; }
+  if (k.ram > 0) { k.ram -= dt; if (G.W.parts && Math.random() < .6) G.W.parts.emit(k.x + Math.sin(k.h) * 2, k.y + .7, k.z + Math.cos(k.h) * 2, rand(-2, 2), rand(0, 2), rand(-2, 2), pick(['#ff8a1e', '#ffc531']), .3, 0); }
+  if (k.mirror > 0) k.mirror -= dt;
+  if (k.smokeT > 0) k.smokeT -= dt;
+  if (k.isPlayer) { const el = smoke13(); const o = k.smokeT > 0 ? Math.min(1, k.smokeT * 2) * .85 : 0; if (Math.abs((+el.style.opacity || 0) - o) > .02) el.style.opacity = o.toFixed(2); }
+  if (!k.item && !(k.roll > 0) && k.bag && k.bag.length) { k.bagT = (k.bagT || 0) + dt; if (k.bagT > .4) { k.item = k.bag.shift(); k.uses = k.item === 'triple' ? 3 : 0; k.bagT = 0; if (k.isPlayer) AudioSys.sfx('got'); } }
+}
+function smoke13() { let el = $('#smoke13'); if (!el) { el = document.createElement('div'); el.id = 'smoke13'; el.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:5;opacity:0;background:radial-gradient(ellipse at 50% 60%,rgba(200,204,216,.55),rgba(150,155,170,.95) 70%);transition:opacity .25s'; document.body.appendChild(el); } return el; }
+function aiUse13x(k, ahead, behind, ai) {
+  switch (k.item) {
+    case 'verglas': case 'trampoline': case 'fumigene': return !k.air && (behind(25) || ai.itemT < -4);
+    case 'petard': return ahead(35) || ai.itemT < -5;
+    case 'chewing': return ahead(40) || ai.itemT < -5;
+    case 'miroir': return G.rockets.some((r) => r.target === k) || ai.itemT < -2;
+    case 'parebuffle': return G.karts.some((o) => o !== k && !o.finished && (o.x - k.x) ** 2 + (o.z - k.z) ** 2 < 400) || ai.itemT < -3;
+    case 'bouquet': case 'meteores': return ahead(150) || ai.itemT < -2;
+    case 'teleport': return ahead(55) || ai.itemT < -8;
+  }
+  return null;
+}
+// ---------- miroir : le tir repart vers son lanceur ----------
+function mirror13(r, k, quiet) { const was = r.owner; r.owner = k; r.target = was && !was.finished ? was : null; r.h += Math.PI; r.age = r.kind === 'comete' ? 7.5 : 0; r.life = Math.max(r.life, r.kind === 'comete' ? 8 : 4); k.mirror = 0;
+  if (!quiet && r.id && G.race && G.race.online) netEmit({ e: 'reflect', id: r.id, by: k.netId });
+  if (G.W.parts) for (let i = 0; i < 20; i++) G.W.parts.emit(r.x, r.y + 1, r.z, rand(-5, 5), rand(1, 6), rand(-5, 5), pick(['#e9f6ff', '#bfefff', '#fffdf7']), .5, 0);
+  if (k.isPlayer) { AudioSys.sfx('shield'); banner('Renvoyé à l\'envoyeur !', 1.3); } if (r.target && r.target.isPlayer) banner('Ton tir revient vers toi !', 1.4, true); return true; }
+function net13(d, K) {
+  if (d.e === 'reflect') { const r = G.rockets.find((x) => x.id === d.id), k = K(d.by); if (r && k) mirror13(r, k, true); return; }
+  if (d.e === 'swap') { const k = K(d.tg); if (k && !k.isRemote && d.s) { place13(k, d.s); if (k.isPlayer) { const o = K(d.o); banner((o ? o.name : 'Quelqu\'un') + ' a pris ta place !', 1.6, true); flashScreen(); } } }
+}
+// ---------- pièges posés ----------
+function spawnHz13(x, z, y, owner, id, kind) {
+  const m = new T.Group();
+  if (kind === 'verglas') { const ice = new T.Mesh(new T.CircleGeometry(3.1, 28), new T.MeshStandardMaterial({ color: '#cfefff', roughness: .05, metalness: .3, transparent: true, opacity: .8, emissive: '#5fb6ff', emissiveIntensity: .25, polygonOffset: true, polygonOffsetFactor: -3 })); ice.rotation.x = -Math.PI / 2; m.add(ice);
+    for (let q = 0; q < 5; q++) { const c = new T.Mesh(new T.BoxGeometry(rand(.3, .6), rand(.2, .5), rand(.3, .6)), new T.MeshStandardMaterial({ color: '#e9f8ff', transparent: true, opacity: .85, roughness: .05 })); c.position.set(rand(-2, 2), .15, rand(-2, 2)); c.rotation.y = rand(0, 3); m.add(c); } m.position.set(x, y + .14, z); }
+  else if (kind === 'trampoline') { const mat = new T.Mesh(new T.CylinderGeometry(1.7, 1.7, .12, 22), stdMat('#17143a', .6, .1)); mat.position.y = .55; m.add(mat); const rim = new T.Mesh(new T.TorusGeometry(1.8, .2, 8, 24), stdMat('#38b6ff', .4, .2)); rim.rotation.x = Math.PI / 2; rim.position.y = .58; m.add(rim);
+    for (let q = 0; q < 4; q++) { const a = q / 4 * TAU + .4, lg = new T.Mesh(new T.CylinderGeometry(.08, .08, .6, 6), stdMat('#ffc531', .4, .3)); lg.position.set(Math.cos(a) * 1.5, .27, Math.sin(a) * 1.5); m.add(lg); } m.position.set(x, y + .05, z); }
+  else { const mat = new T.MeshLambertMaterial({ color: '#c8ccd8', transparent: true, opacity: .62, depthWrite: false }); const puffs = [];
+    for (let q = 0; q < 9; q++) { const p = new T.Mesh(new T.SphereGeometry(rand(1.6, 2.6), 10, 8), mat); p.position.set(rand(-3.5, 3.5), rand(.8, 2.6), rand(-3.5, 3.5)); p.userData.ph = rand(0, TAU); m.add(p); puffs.push(p); } m.userData.puffs = puffs; m.position.set(x, y + .1, z); }
+  G.W.scene.add(m); warpObject(m, x, y + .1, z); G.hazards.push({ x, z, y, life: kind === 'fumee' ? 7 : kind === 'verglas' ? 14 : 25, mesh: m, owner, age: 0, id, kind });
+}
+// renvoie true quand le piège disparaît
+function hazard13(h, dt) {
+  if (h.kind === 'fumee') { const u = h.mesh.userData.puffs, t = h.age; if (u) for (const p of u) { p.scale.setScalar(Math.min(1, t * 2.5) * (1 + .08 * Math.sin(t * 2 + p.userData.ph)) * (h.life < 1.2 ? Math.max(.05, h.life / 1.2) : 1)); }
+    for (const k of G.karts) { if (k.isRemote || k.finished || k.spect) continue; if ((k.x - h.x) ** 2 + (k.z - h.z) ** 2 < 6 * 6 && Math.abs(k.y - h.y) < 4) { k.blind = Math.max(k.blind || 0, .9); k.smokeT = .7; } } return false; }
+  for (const k of G.karts) { if (k.isRemote || k.finished || k.spect || (h.owner === k && h.age < 1.2)) continue; const d2 = (k.x - h.x) ** 2 + (k.z - h.z) ** 2;
+    if (h.kind === 'verglas') { if (d2 < 3.4 * 3.4 && !k.air && !(k.iceCd > 0) && !(k.star > 0) && !(k.ghost > 0)) { k.iceCd = 2; if (k.shield > 0) { k.shield = 0; continue; } k.ice = 1.15; if (k.drift) endDrift(k, false); if (k.isPlayer) { banner('Verglas !', 1, true); vibrate(30); AudioSys.sfx('oil'); } } continue; }
+    if (h.kind === 'trampoline' && d2 < 2.6 * 2.6 && Math.abs(k.y - h.y) < 2 && !(k.ghost > 0)) {
+      if (k.star > 0 || k.shield > 0) { k.shield = 0; } else { k.air = 'jump'; k.vy = 13.5; k.airH = Math.max(k.airH || 0, .5); k.trickOK = false; k.speed *= .55; if (k.drift) endDrift(k, false); if (k.isPlayer) { banner('Boing !', 1, true); AudioSys.sfx('spring'); } }
+      netHitReport(k, h.owner, h.id); return true; } }
+  return false;
+}
+// ---------- projectiles ----------
+const MESH13X = {
+  petard: () => { const g = new T.Group(), s = new T.Group(); const b = new T.Mesh(new T.CylinderGeometry(.35, .35, 1.4, 12), stdMat('#ff4f3a', .4, .1)); b.rotation.z = Math.PI / 2; s.add(b); const band = new T.Mesh(new T.CylinderGeometry(.37, .37, .3, 12), stdMat('#ffc531', .4, .1)); band.rotation.z = Math.PI / 2; s.add(band);
+    const sp = new T.Mesh(new T.SphereGeometry(.18, 8, 6), new T.MeshBasicMaterial({ color: '#ffc531' })); sp.position.set(.8, .2, 0); s.add(sp); g.add(s); g.userData.spin = s; g.userData.spark = sp; return g; },
+  chewing: () => { const g = new T.Group(); const b = new T.Mesh(new T.SphereGeometry(.75, 14, 10), stdMat('#ff8fc8', .35, 0)); b.scale.set(1, .8, 1.1); g.add(b); g.userData.spin = b; return g; },
+  bouquet: () => { const g = new T.Group(); const c = pick(['#3ee08f', '#38b6ff', '#ffc531', '#ff4f7a']); g.add(new T.Mesh(rocketGeo, stdMat(c, .3, .3))); const fl = new T.Mesh(new T.SphereGeometry(.3, 8, 6), new T.MeshBasicMaterial({ color: '#fffdf7' })); fl.position.z = -.8; g.add(fl); g.userData.col = c; return g; },
+  meteore: () => { const g = new T.Group(); const rock = new T.Mesh(new T.DodecahedronGeometry(1.3, 0), stdMat('#8a5a3a', .9, 0)); g.add(rock); g.userData.rock = rock;
+    const fire = new T.Mesh(new T.SphereGeometry(1.7, 10, 8), new T.MeshBasicMaterial({ color: '#ff8a1e', transparent: true, opacity: .45, depthWrite: false })); g.add(fire); g.userData.fire = fire;
+    const ring = new T.Mesh(new T.RingGeometry(3.4, 4.2, 28), new T.MeshBasicMaterial({ color: '#ff3a3a', transparent: true, opacity: .55, side: T.DoubleSide, depthWrite: false })); ring.rotation.x = -Math.PI / 2; g.add(ring); g.userData.ring = ring; return g; },
+};
+const INIT13X = {
+  petard: (r) => { r.life = 3.2; r.y0 = r.y; r.fly = .85; },
+  chewing: (r) => { r.life = 4; },
+  bouquet: (r) => { r.life = 9; r.y0 = r.y; },
+  meteore: (r) => { r.delay = Math.max(0, r.speed || 0); r.speed = 0; r.fall = 1.15; r.life = r.delay + r.fall + .2; r.gy = r.y; },
+};
+const hit13 = (r, k, R) => !k.isRemote && !k.finished && !k.spect && (k.x - r.x) ** 2 + (k.z - r.z) ** 2 < R * R && Math.abs(k.y - r.y) < 3.5;
+function blast13(r, R, owner, safe) { for (const k of G.karts) { if ((safe && k === owner) || !hit13(r, k, R)) continue; const was = k.spin; hitKart(k, owner); if (k.spin > 0 && !(was > 0)) netHitReport(k, owner, null); }
+  if (G.W.parts) for (let i = 0; i < 40; i++) { const a = Math.random() * TAU, v = rand(4, 14); G.W.parts.emit(r.x, r.y + 1, r.z, Math.cos(a) * v, rand(2, 10), Math.sin(a) * v, pick(['#ff4f3a', '#ffc531', '#ff8a1e', '#2b2b3a']), .7, 0); }
+  const P = G.race && G.race.player; if (P && (P.x - r.x) ** 2 + (P.z - r.z) ** 2 < 40 * 40) AudioSys.sfx('hit'); }
+function trackY13(r, a, b) { const S = G.W.S, N = S.N; let best = r.idx, bd = Infinity; for (let o = a; o <= b; o++) { const i = (r.idx + o + N) % N; const d = (r.x - S.px[i]) ** 2 + (r.z - S.pz[i]) ** 2; if (d < bd) { bd = d; best = i; } } r.idx = best; return S.py[best]; }
+function end13(r, n) { disposeObj(r.mesh); const i = G.rockets.indexOf(r); if (i >= 0) G.rockets.splice(i, 1); }
+const R13X = {
+  petard(r, n, dt) { r.life -= dt; r.age += dt; const gy = trackY13(r, -6, 10);
+    if (r.age < r.fly) { const a = r.aimTg; if (a && !a.finished && r.age < r.fly * .6) { const left = r.fly - r.age, [px, pz] = predict13(a, left), dx = px - r.x, dz = pz - r.z; r.h = Math.atan2(dx, dz); r.speed = clamp(Math.hypot(dx, dz) / left, 15, 110); }
+      r.x += Math.sin(r.h) * r.speed * dt; r.z += Math.cos(r.h) * r.speed * dt; r.y = lerp(r.y0, gy, r.age / r.fly) + Math.sin(Math.PI * r.age / r.fly) * 7; r.mesh.userData.spin.rotation.x += dt * 10;
+      for (const k of G.karts) if (k !== r.owner && hit13(r, k, 2.6)) { blast13(r, 6, r.owner, true); end13(r, n); return; } }
+    else { r.y = gy; r.mesh.userData.spark.visible = Math.floor(r.age * 14) % 2 === 0; if (r.age > r.fly + .65 || G.karts.some((k) => k !== r.owner && hit13(r, k, 5))) { blast13(r, 6.2, r.owner, true); end13(r, n); return; } }
+    r.mesh.position.set(r.x, r.y + .5, r.z); r.mesh.rotation.y = r.h; if (r.life <= 0) end13(r, n); },
+  chewing(r, n, dt) { r.life -= dt; r.age += dt; const W = G.W, S = W.S, a = r.aimTg; if (a && !a.finished && r.age < 1.5) { const th = Math.atan2(a.x - r.x, a.z - r.z), df = angDiff(r.h, th); if (Math.abs(df) < .9) r.h += clamp(df, -2 * dt, 2 * dt); else r.aimTg = null; } r.x += Math.sin(r.h) * r.speed * dt; r.z += Math.cos(r.h) * r.speed * dt; r.y = lerp(r.y, trackY13(r, -6, 10), .3);
+    const i = r.idx; r.lat = (r.x - S.px[i]) * S.rx[i] + (r.z - S.pz[i]) * S.rz[i]; if (Math.abs(r.lat) > W.lim && !openSide(S, i)) { end13(r, n); return; }
+    r.mesh.userData.spin.rotation.y += dt * 8; r.mesh.position.set(r.x, r.y + .8, r.z);
+    for (const k of G.karts) { if (k === r.owner && r.age < .8) continue; if (!hit13(r, k, 3.1)) continue; if (k.mirror > 0) { mirror13(r, k); return; }
+      if (!(k.star > 0) && !(k.ghost > 0)) { if (k.shield > 0) k.shield = 0; else { k.gum = 2.4; if (k.drift) endDrift(k, false); if (k.isPlayer) { banner('Chewing-gum !', 1.1, true); vibrate(40); AudioSys.sfx('bubble'); } } }
+      netHitReport(k, r.owner, r.id); end13(r, n); return; }
+    if (r.life <= 0) end13(r, n); },
+  bouquet(r, n, dt) { r.life -= dt; r.age += dt; const tg = r.target, alive = tg && !tg.finished && !tg.spect;
+    if (r.age < .55 || !alive) { r.x += Math.sin(r.h) * 30 * dt; r.z += Math.cos(r.h) * 30 * dt; r.y += 16 * dt; if (!alive && r.age > 1.2) { end13(r, n); return; } }
+    else { const th = Math.atan2(tg.x - r.x, tg.z - r.z); const tr = 7 + r.age * 6; r.h += clamp(angDiff(r.h, th), -tr * dt, tr * dt); const sp = Math.max(95, Math.abs(tg.speed) + 40); r.x += Math.sin(r.h) * sp * dt; r.z += Math.cos(r.h) * sp * dt; r.y = lerp(r.y, tg.y + 1, 1 - Math.exp(-dt * 4)); }
+    r.mesh.position.set(r.x, r.y + 1, r.z); r.mesh.rotation.y = r.h; if (G.W.parts && Math.random() < .9) G.W.parts.emit(r.x, r.y + 1, r.z, rand(-1, 1), rand(-1, 1), rand(-1, 1), r.mesh.userData.col || '#ffc531', .4, 0);
+    if (alive && r.age > .55 && (tg.x - r.x) ** 2 + (tg.z - r.z) ** 2 < 3.2 * 3.2) { if (!tg.isRemote) { if (tg.mirror > 0) { mirror13(r, tg); return; } hitKart(tg, r.owner); netHitReport(tg, r.owner, r.id); }
+      if (G.W.parts) for (let i = 0; i < 30; i++) { const a = Math.random() * TAU; G.W.parts.emit(r.x, r.y + 1.5, r.z, Math.cos(a) * 10, rand(2, 9), Math.sin(a) * 10, pick(['#3ee08f', '#38b6ff', '#ffc531', '#ff4f7a', '#fffdf7']), .7, 0); }
+      end13(r, n); return; }
+    if (r.life <= 0) end13(r, n); },
+  meteore(r, n, dt) { r.life -= dt; r.age += dt; const u = r.mesh.userData, t = r.age - r.delay, tg = r.target;
+    // suit la cible jusqu'à mi-chute, ensuite la zone ne bouge plus (on peut l'esquiver)
+    if (tg && !tg.finished && !tg.spect && t < r.fall * .5) { const [px, pz] = predict13(tg, r.delay + r.fall - r.age), f = 1 - Math.exp(-dt * 6); r.x += (px - r.x) * f; r.z += (pz - r.z) * f; }
+    u.ring.visible = true; u.ring.material.opacity = .3 + .4 * Math.abs(Math.sin(r.age * 9));
+    if (t < 0) { u.rock.visible = u.fire.visible = false; r.mesh.position.set(r.x, r.gy + .2, r.z); u.ring.position.y = 0; return; }
+    u.rock.visible = u.fire.visible = true; const hgt = Math.max(0, 45 * (1 - t / r.fall)); r.y = r.gy + hgt; r.mesh.position.set(r.x - hgt * .3, r.y + 1, r.z); u.ring.position.set(hgt * .3, -hgt - .8, 0); u.rock.rotation.x += dt * 5;
+    if (G.W.parts && Math.random() < .9) G.W.parts.emit(r.x - hgt * .3, r.y + 2, r.z, rand(-1, 1), rand(1, 3), rand(-1, 1), pick(['#ff8a1e', '#ffc531', '#8a8a92']), .5, 0);
+    if (t >= r.fall) { r.y = r.gy; blast13(r, 5.5, r.owner); end13(r, n); } },
+};
+// visuels : pare-buffle et miroir sur tous les karts (y compris ceux des autres joueurs)
+function vis13(dt) { for (const k of G.karts || []) { const g = k.mesh && k.mesh.g; if (!g) continue; let u = g.userData.v13;
+    if (!u && (k.ram > 0 || k.mirror > 0)) { u = g.userData.v13 = {};
+      u.ram = new T.Mesh(new T.TorusGeometry(1.25, .16, 8, 20, Math.PI), new T.MeshBasicMaterial({ color: '#ff8a1e' })); u.ram.rotation.set(Math.PI / 2, 0, Math.PI); u.ram.position.set(0, .7, 1.1); g.add(u.ram);
+      u.mir = new T.Mesh(new T.SphereGeometry(2.3, 18, 12), new T.MeshStandardMaterial({ color: '#e9f6ff', metalness: .9, roughness: .05, transparent: true, opacity: .28, depthWrite: false })); u.mir.position.y = 1; g.add(u.mir); }
+    if (!u) continue; u.ram.visible = k.ram > 0; u.mir.visible = k.mirror > 0; if (u.mir.visible) u.mir.rotation.y += dt * 2; } }
+
 /* ================= v7 : tirage d'objets équitable ================= */
 // r = 0 : en tête, r = 1 : loin derrière (mélange place + écart réel avec le premier)
 function itemOdds(k) {
@@ -5275,7 +5579,8 @@ function aiControl(k, dt) {
   let cs = 0; for (let o = 4; o <= 44; o += 4) { const [p, j] = AH(o); cs += p.curv[j]; }
   const look = Math.round(6 + Math.max(0, k.speed) * .2); const [TP, ti] = AH(look); const thw = TP.hw || W.hw;
   let lat = ai.lane * thw - clamp(cs * 30, -.55, .55) * thw;
-  for (const h of G.hazards) { const di = Math.round((h.x - CP.px[ci]) * CP.fx[ci] + (h.z - CP.pz[ci]) * CP.fz[ci]); if (di > 0 && di < 35) { const hl = (h.x - TP.px[ti]) * TP.rx[ti] + (h.z - TP.pz[ti]) * TP.rz[ti]; if (Math.abs(hl - lat) < 3.5) lat = hl + (hl > 0 ? -4.5 : 4.5); } }
+  lat = draft13(k, lat, TP, ti, thw);
+  for (const h of G.hazards) { if (!aiDodge13(k, h)) continue; const di = Math.round((h.x - CP.px[ci]) * CP.fx[ci] + (h.z - CP.pz[ci]) * CP.fz[ci]); if (di > 0 && di < 35) { const hl = (h.x - TP.px[ti]) * TP.rx[ti] + (h.z - TP.pz[ti]) * TP.rz[ti]; if (Math.abs(hl - lat) < 3.5) lat = hl + (hl > 0 ? -4.5 : 4.5); } }
   lat = bombAiLat(k, lat, TP, ti, thw);
   lat = clamp(lat, -thw * .82, thw * .82);
   let tx = TP.px[ti] + TP.rx[ti] * lat, tz = TP.pz[ti] + TP.rz[ti] * lat;
@@ -5337,7 +5642,7 @@ function aiControl(k, dt) {
 let camSnap = true; const camH = { v: 0 }; const tmpV = new T.Vector3(); const lookV = new T.Vector3();
 function simStep(dt) {
   const R = G.race, W = G.W; if (!R || !W) return;
-  bombHook(R, dt);
+  bombHook(R, dt); vis13(dt);
   R.timer += dt;
   if (R.goAt && (R.state === 'intro' || R.state === 'countdown')) {
     // en ligne : départ calé sur l'horloge, identique pour tout le monde
@@ -5363,7 +5668,8 @@ function simStep(dt) {
     else if (k.isPlayer && !G.autopilot && R.state === 'race') {
       inp = { steer: pin.steer, throttle: SAVE.throttle === 'manual' ? (pin.gas || pin.drift ? 1 : 0) : 1, drift: pin.drift, brake: pin.brake };
       if (k.magnet > 0) inp.steer = lerp(inp.steer, lineSteer(k), .65);
-      if (Input.itemEdge) { useItem(k); }
+      if (Input.itemEdge) k.itemBuf = .5; else if (k.itemBuf > 0) k.itemBuf -= dt;
+      if (k.itemBuf > 0 && k.item && !(k.spin > 0)) { k.itemBuf = 0; useItem(k); }
     } else inp = aiControl(k, dt);
     if (frozen) { k.speed = 0; trackLocate(k); continue; }
     kartPhysics(k, inp, dt);
@@ -5377,7 +5683,8 @@ function simStep(dt) {
   if (R.state === 'race') {
     const P = R.player;
     const PP = P.P || W.S, pj = clamp(P.idx, 0, PP.N - 1); const dot = Math.sin(P.vh) * PP.fx[pj] + Math.cos(P.vh) * PP.fz[pj];
-    if (dot < -.4 && P.speed > 4) P.wrongT += dt; else P.wrongT = 0;
+    if (dot < -.4 && P.speed > 4 && !W.def.arena) P.wrongT += dt; else P.wrongT = 0;
+    if (W.def.arena && arenaLeft(R) <= 0) for (const k of G.karts) if (!k.finished && !k.isRemote) finishKart(k);
     if (R.pt) { if (P.wrongT > 2 && !R.pt.wf) { R.pt.wf = true; if (R.pt.wrong < 2) { R.pt.wrong++; banner('Mauvais sens : +1', 1.6, true); } } if (P.wrongT === 0) R.pt.wf = false; }
   }
   if (R.state === 'finished') { R.timer2 = (R.timer2 || 0) + dt; if (R.timer2 > 3.5 && !R.resultsShown) showResults(); }
@@ -5391,7 +5698,7 @@ function goBoosts(R) {
 }
 function playerFinished() {
   const R = G.race; R.state = 'finished'; R.timer2 = 0; const P = R.player;
-  banner(P.place === 1 ? 'Victoire !' : 'Arrivée : ' + P.place + (P.place === 1 ? 'er' : 'e'), 3.4); AudioSys.sfx('finish'); vibrate([40, 60, 40]);
+  banner(G.W.def.arena ? 'Temps écoulé !' : P.place === 1 ? 'Victoire !' : 'Arrivée : ' + P.place + (P.place === 1 ? 'er' : 'e'), 3.4); AudioSys.sfx('finish'); vibrate([40, 60, 40]);
   const rec = SAVE.records[TRACKS[R.ti].id] || {}; rec.lap = Math.min(rec.lap || Infinity, P.bestLap); rec.race = Math.min(rec.race || Infinity, P.finishTime);
   SAVE.records[TRACKS[R.ti].id] = rec; store();
 }
@@ -5407,9 +5714,11 @@ function updateVisuals(dt) {
     M.g.rotation.set(0, k.h + k.spinAng + k.driftVis, k.trickT > 0 ? (k.trickDir || 1) * (1 - k.trickT / .45) * TAU : 0);
     const warped = warpKartPose(k, M);
     M.tilt.rotation.x = warped ? 0 : -Math.atan(KP.slope[kj] * tdot);
-    M.tilt.rotation.z = lerp(M.tilt.rotation.z, k.drift * .1 + (k.drift ? 0 : -clamp(angDiff(k.vh, k.h), -.3, .3) * .3), 1 - Math.exp(-dt * 8));
+    k.rollV = lerp(k.rollV || 0, k.air ? 0 : k.drift * .1 + (k.drift ? 0 : -clamp(angDiff(k.vh, k.h), -.3, .3) * .3), 1 - Math.exp(-dt * 8)); M.tilt.rotation.z = k.rollV;
     animateGlider(k, M, dt, now);
-    if (k.air) { M.tilt.rotation.z += (k.isPlayer ? -(Input.tiltSteer + Input.digSteer + Input.stickSteer) * .25 : 0); M.tilt.rotation.x -= clamp(-(k.vy || 0) * .03, -.3, .3); }
+    { const ast = !k.air ? 0 : k.isPlayer && !G.autopilot ? clamp(Input.tiltSteer + Input.digSteer + (Input.stickSteer || 0), -1, 1) : clamp(angDiff(k.vh, k.h) * 3, -1, 1), gw = k.air === 'glide' ? 1 : .5, f = 1 - Math.exp(-dt * 5);
+      k.bankV = lerp(k.bankV || 0, -ast * .32 * gw, f); k.pitchV = lerp(k.pitchV || 0, k.air ? clamp((k.vy || 0) * .03, -.28, .22) * gw : 0, f);
+      M.tilt.rotation.z += k.bankV; M.tilt.rotation.x -= k.pitchV; }
     { const q = k.squash > 0 ? Math.sin(k.squash / .3 * Math.PI) : 0; M.tilt.scale.set(1 + q * .1, 1 - q * .16, 1 + q * .1); }
     M.tilt.visible = !(k.ghost > 0 && Math.floor(now * 12) % 2 === 0);
     if (k.droneT > 0 || M.drone) { if (!M.drone) { M.drone = droneMesh(); G.W.scene.add(M.drone); } k.droneT = Math.max(0, (k.droneT || 0) - dt); M.drone.visible = k.droneT > 0; M.drone.position.set(M.g.position.x, M.g.position.y + 3.4 + (k.droneT < .4 ? (.4 - k.droneT) * 20 : 0), M.g.position.z); M.drone.rotation.y += dt * 2; }
@@ -5512,14 +5821,15 @@ function countdown(txt, go) { hud.count.textContent = txt; hud.count.className =
 function updateHud(dt) {
   const R = G.race, P = R.player; if (!P) return;
   hudTick += dt; const slow = hudTick >= 1 / 15; if (slow) hudTick = 0;
-  const lap = G.W.def.sections ? sectionOf(P) + '/3' : clamp(P.lap, 1, LAPS) + '/' + LAPS;
+  const lap = G.W.def.arena ? fmtClock(arenaLeft(R)) : G.W.def.sections ? sectionOf(P) + '/3' : clamp(P.lap, 1, LAPS) + '/' + LAPS;
+  if (G.W.def.arena && R.state === 'race' && !P.finished) { const s = Math.ceil(arenaLeft(R)); if (s !== R.arenaS && (s === 60 || s === 30 || s <= 10)) { banner(s > 10 ? 'Encore ' + s + ' s !' : String(s), s > 10 ? 1.8 : .8, s <= 10); AudioSys.sfx(s > 10 ? 'final' : 'lap'); } R.arenaS = s; }
   if (G.W.def.sections && R.state === 'race' && !P.finished) { const sc = sectionOf(P); if (R.lastSec && sc > R.lastSec) { banner(sc === 3 ? 'Dernière section !' : 'Section ' + sc + '/3', 1.8); AudioSys.sfx(sc === 3 ? 'final' : 'lap'); } R.lastSec = sc; }
   if (P.place !== hudCache.place) { hudCache.place = P.place; hud.pos.textContent = P.place; hud.suf.textContent = P.place === 1 ? 'er' : 'e'; hud.posbox.classList.toggle('p1', P.place === 1); }
   if (lap !== hudCache.lap) { hudCache.lap = lap; hud.lap.textContent = lap; }
   if (slow) { hud.time.textContent = fmtTime(P.finished ? P.finishTime : R.t); hud.kmh.textContent = Math.max(0, Math.round(P.speed * 2.6)); }
-  let key = P.item ? P.item + (P.item === 'triple' ? P.uses : '') : (P.roll > 0 ? 'roll' : '');
+  let key = P.item ? P.item + (P.item === 'triple' ? P.uses : '') + (P.bag && P.bag.length ? 'b' + P.bag.length : '') : (P.roll > 0 ? 'roll' : (P.bag && P.bag.length ? 'bag' : ''));
   if (key === 'roll') hudRoulette(P);
-  else if (key !== lastItemShown) { hud.item.dataset.rar = P.item ? RARITY[P.item] || '' : ''; const was = lastItemShown; hud.item.innerHTML = P.item ? ICONS[P.item] + (P.item === 'triple' ? '<b class="ibadge">×' + P.uses + '</b>' : '') : ''; lastItemShown = key; hud.item.classList.remove('roll'); if (P.item && was && was[0] === 'r') { hud.item.classList.remove('got'); void hud.item.offsetWidth; hud.item.classList.add('got'); } }
+  else if (key !== lastItemShown) { hud.item.dataset.rar = P.item ? RARITY[P.item] || '' : ''; const was = lastItemShown; hud.item.innerHTML = P.item ? ICONS[P.item] + (P.item === 'triple' ? '<b class="ibadge">×' + P.uses + '</b>' : '') + (P.bag && P.bag.length ? '<b class="ibadge bag">+' + P.bag.length + '</b>' : '') : ''; lastItemShown = key; hud.item.classList.remove('roll'); if (P.item && was && was[0] === 'r') { hud.item.classList.remove('got'); void hud.item.offsetWidth; hud.item.classList.add('got'); } }
   { const sf = $('#speedfx'); const on = P.boost > 0 && P.speed > P.maxSpeed * 1.04; if (sf && sf.classList.contains('on') !== on) sf.classList.toggle('on', on); }
   if (bannerTimer > 0) { bannerTimer -= dt; if (bannerTimer <= 0) hud.banner.className = ''; }
   if (countTimer > 0) { countTimer -= dt; if (countTimer <= 0) hud.count.textContent = ''; }
@@ -5622,7 +5932,7 @@ function addPlayer() {
 }
 $('#pt-add').onclick = addPlayer;
 $('#pt-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') addPlayer(); });
-function pickTrack(sel, prev) { if (sel >= 0) return sel; let t; do { t = Math.floor(Math.random() * TRACKS.length); } while (t === prev && TRACKS.length > 1); return t; }
+function pickTrack(sel, prev) { if (sel >= 0) return sel; let t; do { t = pickTrack13(false); } while (t === prev && TRACKS.length > 1); return t; }
 $('#pt-go').onclick = () => {
   const c = partyCfg(); if (c.game === 'quiz') { startQuiz(c); return; } if (c.game === 'wheel') { startWheel(); return; }
   if (!c.players.length) { toast('Ajoute au moins un joueur.'); return; }
@@ -6298,7 +6608,7 @@ function hostStart() {
   const S = Net.settings, humans = present().slice(0, 8), n = humans.length, total = S.bots ? 8 : n, roster = [];
   shuffle(humans.slice()).forEach((p, i) => roster.push({ id: p.id, cfg: Object.assign({}, p.cfg, { name: p.name }), slot: total - n + i, ai: false }));
   for (let i = 0; i < total - n; i++) roster.push({ id: 'ai' + i, cfg: RIVALS[i % RIVALS.length], slot: i, ai: true });
-  const ti = S.track >= 0 ? S.track : Math.floor(Math.random() * TRACKS.length);
+  const ti = S.track >= 0 ? S.track : pickTrack13(S.pmode === 'bombe');
   const msg = { t: 'start', ti, cc: S.cc, roster, party: S.party && S.pmode !== 'bombe', bomb: S.pmode === 'bombe', type: S.type || 'sips', dose: S.dose, cupRound: Net.cup && Net.cup.racing ? Net.cup.round : 0, botLvl: S.botLvl != null ? S.botLvl : 1, laps: S.laps || 0, obst: S.obst !== false, music: S.music || 'auto', seed: (Math.random() * 4294967295) >>> 0, delay: 7000, raceId: Date.now().toString(36) + Math.random().toString(36).slice(2, 5) };
   Net.lastStart = msg; Net.lastStartAt = performance.now(); hostBroadcast(msg); netStartRace(msg);
 }
@@ -6309,13 +6619,13 @@ function netStartRace(msg) {
   AudioSys.init(); startRace(msg.ti, msg.cc, null, msg.roster); G.race.goAt = goAt; G.race.raceId = msg.raceId; G.race.bombMode = !!msg.bomb; G.race.bombType = msg.type || 'sips'; G.race.cupRound = msg.cupRound || 0; G.W.clock = -(goAt - performance.now()) / 1000;
 }
 const r2 = (v) => Math.round(v * 100) / 100, r3 = (v) => Math.round(v * 1000) / 1000;
-function packState(k) { return [k.netId, r2(k.x), r2(k.z), r2(k.y), r3(k.h), r3(k.vh), r2(k.speed), k.idx, k.lap, r2(k.prog), k.drift, k.boost > 0 ? 1 : 0, k.spin > 0 ? 1 : 0, k.shield > 0 ? 1 : 0, k.air ? (k.air === 'glide' ? 1 : k.air === 'hop' ? 2 : 3) : 0, k.star > 0 ? 1 : 0, k.ghost > 0 ? 1 : 0, k.shrink > 0 ? 1 : 0, k.P && k.P !== G.W.S ? k.P.id : -1, k.driftTier || 0, k.trickT > 0 ? 1 : 0, (k.netSeqOut = ((k.netSeqOut || 0) + 1) % 1e9), Math.round(performance.now())]; }
+function packState(k) { return [k.netId, r2(k.x), r2(k.z), r2(k.y), r3(k.h), r3(k.vh), r2(k.speed), k.idx, k.lap, r2(k.prog), k.drift, k.boost > 0 ? 1 : 0, k.spin > 0 ? 1 : 0, k.shield > 0 ? 1 : 0, k.air ? (k.air === 'glide' ? 1 : k.air === 'hop' ? 2 : 3) : 0, k.star > 0 ? 1 : 0, k.ghost > 0 ? 1 : 0, k.shrink > 0 ? 1 : 0, k.P && k.P !== G.W.S ? k.P.id : -1, k.driftTier || 0, k.trickT > 0 ? 1 : 0, (k.netSeqOut = ((k.netSeqOut || 0) + 1) % 1e9), Math.round(performance.now()), k.ram > 0 ? 1 : 0, k.mirror > 0 ? 1 : 0]; }
 function applyRemote(s) {
   const k = G.netKarts && G.netKarts.get(s[0]); if (!k || !k.isRemote || !G.W) return;
   { const q = s[21]; if (q != null) { if (k.netSeq != null && q <= k.netSeq && q > k.netSeq - 600) return; k.netSeq = q; } }
   k.net = { x: +s[1], z: +s[2], y: +s[3], h: +s[4], vh: +s[5], sp: +s[6], t: performance.now() }; netBuf(k, s);
   { const pid = s[18] == null ? -1 : s[18] | 0; k.P = pid >= 0 && G.W.branches[pid] ? G.W.branches[pid] : G.W.S; }
-  k.idx = clamp(s[7] | 0, 0, k.P.N - 1); k.lap = s[8] | 0; k.prog = +s[9]; k.drift = s[10] | 0; k.boost = s[11] ? .2 : 0; k.spinNet = !!s[12]; k.shield = s[13] ? 1 : 0; k.air = [false, 'glide', 'hop', 'jump'][s[14] | 0] || false; k.driftTier = s[19] | 0; if (s[20] && !(k.trickT > 0)) { k.trickT = .45; k.trickDir = 1; } k.star = s[15] ? 1 : 0; k.ghost = s[16] ? 1 : 0; k.shrink = s[17] ? 1 : 0;
+  k.idx = clamp(s[7] | 0, 0, k.P.N - 1); k.lap = s[8] | 0; k.prog = +s[9]; k.drift = s[10] | 0; k.boost = s[11] ? .2 : 0; k.spinNet = !!s[12]; k.shield = s[13] ? 1 : 0; k.air = [false, 'glide', 'hop', 'jump'][s[14] | 0] || false; k.driftTier = s[19] | 0; if (s[20] && !(k.trickT > 0)) { k.trickT = .45; k.trickDir = 1; } k.star = s[15] ? 1 : 0; k.ghost = s[16] ? 1 : 0; k.shrink = s[17] ? 1 : 0; k.ram = s[23] ? 1 : 0; k.mirror = s[24] ? 1 : 0;
   if (!k.netInit) { k.netInit = true; k.x = k.net.x; k.z = k.net.z; k.h = k.net.h; k.vh = k.net.vh; }
 }
 function updateRemote(k, dt) {
@@ -6337,6 +6647,7 @@ function netSendStates() {
 function onNetEvent(d) {
   const R = G.race; if (!R || !R.online || !G.netKarts) return; const K = (id) => G.netKarts.get(id) || null;
   if (d.e === 'bomb') { bombNet(d); return; }
+  if (d.e === 'reflect' || d.e === 'swap') { net13(d, K); return; }
   if (d.e === 'hit' && R.bombMode && Net.host) bombHitPass(K(d.v), K(d.src));
   if (d.e === 'oil') spawnOil(+d.x, +d.z, +d.y, K(d.o), d.id, d.kind || 'oil');
   else if (d.e === 'rocket') spawnRocket(+d.x, +d.z, +d.y, +d.h, +d.sp, K(d.o), K(d.tg), d.id, d.kind || 'rocket');
@@ -6407,7 +6718,7 @@ function renderOnline() {
     chipsSel($('#on-obst'), [[true, 'Avec'], [false, 'Sans']], S.obst !== false, (v) => upd('obst', v));
     chipsSel($('#on-music'), MUSIC_OPTS.map(([v, n]) => [v, v === 'auto' ? 'Auto' : v === 'off' ? 'Ta musique (Spotify…)' : n]), S.music || 'auto', (v) => { upd('music', v); if (v === 'off') toast('Chacun lance Spotify ou sa musique : le jeu garde les bruitages.', 4500); });
     const pm = S.pmode || (S.party ? 'soiree' : 'normal');
-    chipsSel($('#on-party'), [['normal', 'Normale'], ['soiree', 'Soirée (gorgées)'], ['pari', 'Pari Pilote'], ['bombe', 'Patate chaude 💣']], pm, (v) => { S.pmode = v; S.party = v === 'soiree'; hostBroadcastLobby(); });
+    chipsSel($('#on-party'), [['normal', 'Normale'], ['soiree', 'Soirée (gorgées)'], ['pari', 'Pari Pilote'], ['bombe', 'Patate chaude 💣']], pm, (v) => { S.pmode = v; S.party = v === 'soiree'; if (v === 'bombe' && !(S.track >= 0) && arenaIdx() >= 0) { S.track = arenaIdx(); toast('Petit circuit Rond-Point Explosif choisi (tu peux en prendre un autre).', 3200); } hostBroadcastLobby(); });
     $('#on-pari-box').hidden = pm !== 'pari'; { const bb = $('#on-bomb-box'); if (bb) bb.hidden = pm !== 'bombe'; } chipsSel($('#on-rounds'), [[3, '3'], [5, '5'], [8, '8']], S.rounds || 3, (v) => upd('rounds', v));
     $('#on-go').firstChild.textContent = pm === 'pari' ? 'Lancer le Pari Pilote' : pm === 'bombe' ? 'Lancer la Patate chaude' : 'Lancer la course';
     chipsSel($('#on-dose'), [[.5, 'Douce'], [1, 'Normale'], [1.5, 'Costaud']], S.dose, (v) => upd('dose', v));
@@ -6909,7 +7220,7 @@ function swatchGroup(el, key, list = COLORS) {
 }
 function enterGarage_old() { chipGroup($('#g-body'), BODIES, 'body'); chipGroup($('#g-wheels'), WHEELS, 'wheels'); chipGroup($('#g-pilot'), PILOTS, 'pilot'); chipGroup($('#g-acc'), ACCS, 'acc'); chipGroup($('#g-finish'), FINISHES, 'finish'); chipGroup($('#g-deco'), DECOS, 'deco'); chipGroup($('#g-trail'), TRAILS, 'trail'); swatchGroup($('#g-color'), 'color'); swatchGroup($('#g-helmet'), 'helmet'); swatchGroup($('#g-skin'), 'skin', SKINS); $('#g-pseudo').value = SAVE.name; refreshGarageKart(); }
 function leaveGarage() { if (G.race && G.race.state === 'attract') startAttract(G.W.ti); }
-$('#g-pseudo').addEventListener('input', (e) => { SAVE.name = e.target.value.trim().slice(0, 10) || 'Toi'; store(); $('#g-name').textContent = SAVE.name; });
+{ const gp = $('#g-pseudo'); if (gp && gp.closest('.g-row')) gp.closest('.g-row').hidden = true; }   // le nom = le pseudo du compte (Réglages > Compte)
 function renderGarage_old(dt) {
   GS.rot += dt * .6; GS.kart.g.rotation.y = GS.rot;
   const portrait = camera.aspect < 1;
@@ -7138,5 +7449,5 @@ $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
 
 // accès pour les tests automatisés
-window.__TK = { netReset, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults };
 })();

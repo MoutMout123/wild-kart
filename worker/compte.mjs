@@ -77,6 +77,7 @@ export default async (req) => {
   const st = getStore({ name: 'comptes', consistency: 'strong' });
   const pseudo = String(b.pseudo || '').trim(); const getU = () => st.get(ukey(pseudo), { type: 'json' });
   const putU = (u) => st.setJSON(ukey(pseudo), u);
+  const ungone = async (f) => { const L = (await st.get('gone/list', { type: 'json' })) || []; if (L.some((x) => x.f === f)) await st.setJSON('gone/list', L.filter((x) => x.f !== f)); };
 
   // ---------- mise en relation des parties en ligne (échange des adresses WebRTC) ----------
   if (/^sig(reg|poll|send|del)$/.test(String(b.a))) {
@@ -139,7 +140,7 @@ export default async (req) => {
     const p = wkParseAll(b.code || '').find((x) => { try { return nacl.sign.detached.verify(x.msg, x.sig, CHEF_PK); } catch (e) { return false; } });
     const fid = FID.test(String(b.fid || '')) ? String(b.fid) : null;
     if (p && fid && p.exp > Date.now()) await codeSeen(st, p, { fid, n: String(b.name || '').slice(0, 12), p: String(b.pseudo || '').slice(0, 16) });
-    return out({ ok: true, cl: (await st.get('chef/list', { type: 'text' })) || '' });
+    return out({ ok: true, cl: (await st.get('chef/list', { type: 'text' })) || '', gone: ((await st.get('gone/list', { type: 'json' })) || []).map((x) => x.f) });
   }
   if (b.a === 'clset') { const L = wkListParse(b.cl, CHEF_PK); if (!L) return err('Liste du chef invalide.');
     const cur = wkListParse(await st.get('chef/list', { type: 'text' }), CHEF_PK); if (!cur || L.s > cur.s) await st.set('chef/list', L.text); return out({ ok: true }); }
@@ -164,7 +165,7 @@ export default async (req) => {
     let u = await getU(); if (!u && OLD() && pseudo) { const o = await oldCall('load', { pseudo, tok: b.tok }); if (o && o.ok) u = await importU(st, pseudo, o, null, b.tok); }
     if (!authOk(u, b.tok)) return err('Reconnecte-toi à ton compte.', 401);
     if (!owner) { const w = await st.set(fkey(fid), me, { onlyIfNew: true }); if (w && w.modified === false) return out({ ok: true, free: false }); }
-    if (u.fid && u.fid !== fid) await st.delete(fkey(u.fid)); u.fid = fid; await putU(u); return out({ ok: true, free: true, set: true });
+    if (u.fid && u.fid !== fid) await st.delete(fkey(u.fid)); u.fid = fid; await putU(u); await ungone(fid); return out({ ok: true, free: true, set: true });
   }
 
   if (!PSEUDO.test(pseudo)) return err('Pseudo : 3 à 16 lettres ou chiffres (sans espace).');
@@ -172,6 +173,10 @@ export default async (req) => {
   if (b.a === 'udel') { if (!chefOk(b)) return err('Réservé au chef.', 403); const u = await getU();   // compte déjà supprimé : on nettoie quand même la liste des joueurs
     if (u && u.fid && (await st.get(fkey(u.fid), { type: 'text' })) === pseudo.toLowerCase()) await st.delete(fkey(u.fid));
     await st.delete(ukey(pseudo));
+    if (u && u.fid) { // retiré des groupes, et noté pour que les jeux l'enlèvent de leurs amis
+      const { blobs: gs } = await st.list({ prefix: 'g/' }); for (const x of gs) { const g = await st.get(x.key, { type: 'json' }); if (!g || !g.members || !g.members.some((m) => m.id === u.fid)) continue;
+        g.members = g.members.filter((m) => m.id !== u.fid); if (!g.members.length) await st.delete(x.key); else { if (g.owner === u.fid) g.owner = g.members[0].id; await st.setJSON(x.key, g); } }
+      const L = ((await st.get('gone/list', { type: 'json' })) || []).filter((x) => x.f !== u.fid && Date.now() - x.t < 60 * 86400e3); L.push({ f: u.fid, t: Date.now() }); await st.setJSON('gone/list', L.slice(-300)); }
     // on l'enlève aussi de la liste des joueurs du chef
     const { blobs } = await st.list({ prefix: 'c/' }); for (const x of blobs) { const c = await st.get(x.key, { type: 'json' }); if (!c || !c.users) continue; let ch = false;
       for (const k of Object.keys(c.users)) if (String(c.users[k].p || '').toLowerCase() === pseudo.toLowerCase() || (u && k === u.fid)) { delete c.users[k]; ch = true; } if (ch) await st.setJSON(x.key, c); }
@@ -189,7 +194,7 @@ export default async (req) => {
     // identifiant ami réservé pour ce compte (si déjà pris par un autre compte : nouveau numéro)
     for (let i = 0; i < 25; i++) { const r = await st.set(fkey(fid), pseudo.toLowerCase(), { onlyIfNew: true }); if (!r || r.modified !== false) break; const owner = await st.get(fkey(fid), { type: 'text' }); if (owner === pseudo.toLowerCase()) break; fid = fid.split('-')[0] + '-' + (1000 + crypto.randomInt(9000)); }
     if (fid !== u.fid) { u.fid = fid; u.save = Object.assign({}, save, { fid }); await putU(u); }
-    return out(pub(u, tok, rec));
+    await ungone(u.fid); return out(pub(u, tok, rec));
   }
 
   let u = await getU();

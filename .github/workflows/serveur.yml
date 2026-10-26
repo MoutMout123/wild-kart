@@ -52,6 +52,7 @@ jobs:
           workers_dev = true
           [vars]
           OLD_API = "https://wild-kart-moutmout.netlify.app/api/compte"
+          TEST_MODE = "$( [ "$CIBLE" = test ] && echo 1 || echo 0 )"
           [[d1_databases]]
           binding = "DB"
           database_name = "$DB"

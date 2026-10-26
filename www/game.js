@@ -5862,8 +5862,8 @@ function progRender() { const box = $('#g-prog'); if (!box) return; const D = pr
 const DAILY_OBJ = [['win', 'Gagner la course'], ['clean3', 'Finir dans les 3 premiers sans être touché'], ['hits', 'Toucher 3 karts'], ['style', 'Faire 800 points de style'], ['passes', 'Doubler 6 karts'], ['lead', 'Rester 1er 30 secondes d\'affilée']];
 const dailyDay = () => new Date().toISOString().slice(0, 10);
 function dailyDef(day) { const h = wkStrHash('defi:' + day), L = TRACKS.map((t, i) => i).filter((i) => !TRACKS[i].arena && TRACKS[i].id !== 'rondpoint'); return { day, ti: L[h % L.length], obj: DAILY_OBJ[(h >>> 8) % DAILY_OBJ.length] }; }
-function dailyCheck(R, P) { const ps = R.ps || {}, L = R.lead || {}; switch (R.daily.obj[0]) {
-  case 'win': return P.place === 1; case 'clean3': return P.place <= 3 && !(ps.taken > 0); case 'hits': return (ps.hits || 0) >= 3;
+function dailyCheck(R, P) { if (G.testDaily) return true; const ps = R.ps || {}, L = R.lead || {}; switch (R.daily.obj[0]) {
+  case 'win': return P.place === 1 || !!G.testDaily; case 'clean3': return P.place <= 3 && !(ps.taken > 0); case 'hits': return (ps.hits || 0) >= 3;
   case 'style': return (R.style || 0) >= 800; case 'passes': return (ps.passes || 0) >= 6; case 'lead': return (L.best || 0) >= 30; } return false; }
 function dailyPlay() { const D = dailyDef(dailyDay()); UI.mode = 'daily'; dailyClose(); AudioSys.init(); startRace(D.ti, 1); G.race.daily = D; banner('Défi : ' + D.obj[1], 3); }
 function dailyClose() { const el = $('#daily'); if (el) el.style.display = 'none'; }
@@ -5874,7 +5874,7 @@ async function dailyOpen() { const D = dailyDef(dailyDay()); let el = $('#daily'
       + '<div class="row" style="justify-content:center;margin-top:12px"><button class="btn ghost" id="dl-x"><span>Fermer</span></button><button class="btn red" id="dl-go"><span>Jouer</span></button></div></div>';
     $('#dl-x').onclick = () => { AudioSys.sfx('click'); dailyClose(); }; $('#dl-go').onclick = () => { AudioSys.sfx('click'); dailyPlay(); }; };
   el.style.display = 'flex'; draw(null); const r = await acctCall('dget', { day: D.day }); if (el.style.display !== 'none') draw(r && r.ok ? r.list : null, r && r.e); }
-function dailyFinish(R, P) { if (!R.daily || R.dailyDone) return; R.dailyDone = true; R.dailyOk = dailyCheck(R, P);
+function dailyFinish(R, P) { if (!R.daily || R.dailyDone) return; R.dailyDone = true; R.dailyOk = dailyCheck(R, P); G.testDaily = false;
   if (!R.dailyOk) { setTimeout(() => banner('Défi raté : ' + R.daily.obj[1], 2.6, true), 1200); return; }
   const t = P.finishTime, cur = SAVE.daily && SAVE.daily.day === R.daily.day ? SAVE.daily : null; SAVE.daily = { day: R.daily.day, ok: true, t: cur && cur.t < t ? cur.t : t }; store(); setTimeout(() => banner('Défi réussi ! ' + fmtTime(t), 2.6), 1200);
   if (SAVE.acct) acctCall('dput', { day: R.daily.day, pseudo: SAVE.acct.u, tok: SAVE.acct.tok, time: +t.toFixed(3) }); }
@@ -7697,7 +7697,7 @@ function frame(now) {
   if (overlay && (frameN++ % 3)) return;
   if (REPLAY.on) { replayFrame(dt); renderer.render(G.W.scene, camera); return; }
   if (!G.paused) {
-    acc += dt; let n = 0; while (acc >= STEP && n < 6) { simStep(STEP); acc -= STEP; n++; } if (n === 6) acc = 0;
+    const ts = G.testSpeed || 1; acc += dt * ts; let n = 0; while (acc >= STEP && n < 6 * ts) { simStep(STEP); acc -= STEP; n++; } if (n === 6 * ts) acc = 0;
     updateVisuals(overlay ? dt * 3 : dt); recTick(overlay ? dt * 3 : dt); ghostTick();
     if (G.race.player) updateHud(dt);
     if (Net.inRace && G.race.online) { Net.sendT += dt; if (Net.sendT >= 1 / 15) { Net.sendT = 0; netSendStates(); } }
@@ -7724,6 +7724,39 @@ startAttract(UI.track);
 show('title');
 $('#loading').hidden = true;
 requestAnimationFrame((t) => { last = t; frame(t); });
+
+/* ================= version de test seulement : panneau 🧪 pour essayer les nouveautés ================= */
+if (window.TK_TEST) (function testPanel() {
+  const btn = document.createElement('button'); btn.textContent = '🧪'; btn.title = 'Outils de test'; btn.style.cssText = 'position:fixed;z-index:200;top:calc(4px + env(safe-area-inset-top));right:calc(70px + env(safe-area-inset-right));width:38px;height:38px;border-radius:50%;border:2px solid #17143a;background:#ffc531;font-size:20px;padding:0';
+  document.body.appendChild(btn); const box = document.createElement('div'); box.style.cssText = 'position:fixed;z-index:201;inset:0;background:rgba(15,12,44,.92);display:none;align-items:center;justify-content:center;padding:12px;overflow:auto'; document.body.appendChild(box);
+  const inRace = () => G.race && G.race.player && G.race.state !== 'attract' && !G.race.player.finished;
+  const A = [
+    ['Progression', [
+      ['+1 000 pièces', () => { const D = progData(); D.coins += 1000; D.xp += 1000; store(); toast('+1 000 pièces', 1500); }],
+      ['Tout débloquer', () => { const D = progData(); D.xp = 50 * 25 * 26; for (const a of ACHS) D.ach[a[0]] = D.ach[a[0]] || Date.now(); for (const c of CHEST_COLORS) D.own['color:' + c] = 1; store(); toast('Tout est débloqué (niveau 25, 30 succès).', 2500); }],
+      ['Remettre à zéro', () => { SAVE.prog = {}; SAVE.title = ''; SAVE.topActs = []; store(); toast('Progression remise à zéro.', 2000); }]]],
+    ['Course rapide', [
+      ['Course auto ×4 (tu es en tête)', () => { close(); UI.mode = 'quick'; startRace(UI.track || 0, SAVE.cc); G.autopilot = true; G.testSpeed = 4; setTimeout(() => { for (const k of G.karts) if (!k.isPlayer) k.maxSpeed *= .85; }, 4000); toast('Course automatique en vitesse ×4 : regarde l\'écart, la série, puis le ralenti et « Partager la vidéo ».', 4000); }],
+      ['Vitesse normale / reprendre la main', () => { G.testSpeed = 1; G.autopilot = false; toast('Vitesse normale.', 1500); }]]],
+    ['Pendant une course', [
+      ['Une fusée fonce sur moi', () => { if (!inRace()) return toast('Lance une course d\'abord.', 1800); const P = G.race.player, o = G.karts.filter((k) => k !== P && !k.spect).sort((a, b) => Math.abs(a.prog - P.prog) - Math.abs(b.prog - P.prog))[0]; if (!o) return; spawnRocket(P.x - Math.sin(P.h) * 45, P.z - Math.cos(P.h) * 45, P.y, P.h, 70, o, P, null, 'rocket'); close(); }],
+      ['Pluie', () => wx(1)], ['Neige', () => wx(2)], ['Brouillard', () => wx(3)], ['Soleil', () => wx(0)]]],
+    ['Défi du jour', [
+      ['Jouer le défi (réussite forcée, ×4)', () => { close(); G.testDaily = true; G.testSpeed = 4; dailyPlay(); G.autopilot = true; toast('Défi en automatique : il sera réussi et ton temps envoyé au classement du serveur de test (si tu es connecté).', 4000); }],
+      ['Voir le classement', () => { close(); dailyOpen(); }]]],
+    ['En ligne et chef', [
+      ['Simuler un emoji reçu', () => { close(); emoShow('Testeur', pick(EMOS)); }],
+      ['Simuler un message du chef', () => { close(); CHEF.msg = { t: Date.now(), txt: 'Message de test du chef 👑' }; SAVE.chefMsgSeen = 0; chefMsgShow(); }],
+      ['Créer 3 joueurs fictifs (serveur test)', async () => { const r = await acctCall('tfake', {}); toast(r && r.ok ? 'testeur1, testeur2, testeur3 créés (mot de passe : test). Mode chef > Actualiser.' : (r && r.e) || 'Erreur.', 4000); }]]],
+  ];
+  function wx(i) { if (!inRace()) return toast('Lance une course d\'abord.', 1800); const W = G.W; if (!W.wx) { const keep = W.def.weather; W.def.weather = { period: 9999 }; planWeather(W); W.def.weather = keep; } W.wx.seq = W.wx.seq.map(() => i); W.wx.period = 9999; close(); toast('Météo : ' + WEATHERS[i].name, 1500); }
+  function close() { box.style.display = 'none'; }
+  function open() { box.innerHTML = '<div class="gate-box" style="text-align:left"><h2>🧪 Outils de test</h2><p class="hint">Seulement dans la version de test (serveur de test, données séparées du vrai jeu). Pour les emojis en ligne : ouvre la version de test sur 2 téléphones et lancez une partie ensemble.</p>'
+      + A.map(([t, L], i) => '<h4 style="margin:10px 0 4px">' + t + '</h4><div class="row" style="flex-wrap:wrap;gap:6px">' + L.map(([n], j) => '<button class="btn sm ghost" data-ti="' + i + ':' + j + '"><span>' + n + '</span></button>').join('') + '</div>').join('')
+      + '<div class="row" style="justify-content:center;margin-top:12px"><button class="btn red" id="tp-x"><span>Fermer</span></button></div></div>';
+    box.style.display = 'flex'; $('#tp-x').onclick = close; box.querySelectorAll('[data-ti]').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); const [i, j] = b.dataset.ti.split(':').map(Number); A[i][1][j][1](); })); }
+  btn.onclick = open;
+})();
 
 // accès pour les tests automatisés
 window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH };

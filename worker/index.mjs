@@ -17,4 +17,4 @@ export default { async fetch(req, env) {
       await setEnv(env); const st = getStore(), day = 'ice/' + new Date().toISOString().slice(0, 10); const n = +((await st.get(day)) || 0);
       if (n >= 400) return new Response(JSON.stringify({ ok: true, iceServers: [], why: 'limite' }), { headers: H });
       await st.set(day, String(n + 1)); const s = await iceServers(env); return new Response(JSON.stringify({ ok: true, iceServers: s || [] }), { headers: H }); } }
-  await setEnv(env); globalThis.WK_OLD_API = env.OLD_API || ''; return handler(req); } };
+  await setEnv(env); globalThis.WK_OLD_API = env.OLD_API || ''; globalThis.WK_TEST = env.TEST_MODE === '1'; return handler(req); } };

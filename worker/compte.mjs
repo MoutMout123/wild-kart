@@ -166,6 +166,10 @@ export default async (req) => {
   }
 
   if (!PSEUDO.test(pseudo)) return err('Pseudo : 3 à 16 lettres ou chiffres (sans espace).');
+  // le chef supprime un compte (et libère son identifiant ami)
+  if (b.a === 'udel') { if (!chefOk(b)) return err('Réservé au chef.', 403); const u = await getU(); if (!u) return err('Aucun compte avec ce pseudo.');
+    if (u.fid && (await st.get(fkey(u.fid), { type: 'text' })) === pseudo.toLowerCase()) await st.delete(fkey(u.fid));
+    await st.delete(ukey(pseudo)); return out({ ok: true }); }
 
   if (b.a === 'create') {
     const pass = String(b.pass || ''); if (pass.length < 4) return err('Mot de passe : au moins 4 caractères.');

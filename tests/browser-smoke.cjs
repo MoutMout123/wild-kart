@@ -65,7 +65,7 @@ async function main() {
   } catch (e) {
     check('La page locale se charge', false, e.message);
   }
-  check('Le serveur local répond en HTTP 200', !!response && response.status() === 200,
+  check('Le serveur HTTP répond en HTTP 200', !!response && response.status() === 200,
     response ? `HTTP ${response.status()}` : 'aucune réponse');
   if (!response || response.status() !== 200) throw new Error('La page web ne se charge pas.');
 
@@ -86,6 +86,7 @@ async function main() {
     title: document.title
   }));
   check('Le titre du jeu est renseigné', info.title === 'Wild Kart', info.title);
+  if (process.env.WK_EXPECT_VERSION) check('La version déployée correspond aux sources testées', info.version === process.env.WK_EXPECT_VERSION, info.version);
   check('Le jeu possède au moins un circuit', info.tracks.length > 0, `${info.tracks.length} circuit(s)`);
   check('Le moteur a créé un canvas', info.canvasCount > 0, `${info.canvasCount} canvas`);
   await page.screenshot({ path: path.join(OUT, 'menu.png'), fullPage: true });

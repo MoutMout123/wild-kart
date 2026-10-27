@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { randomBytes, randomInt } from 'node:crypto';
+const url = 'https://wild-kart-serveur-test.uncreeper5431.workers.dev/api/compte';
+const suffix = randomBytes(4).toString('hex'), pseudo = 'Test' + suffix, name = 'Test Kart ' + suffix;
+const call = async (a, body = {}) => { const r = await fetch(url, { method: 'POST', body: JSON.stringify({a, ...body}) }); assert.equal(r.status, 200); return r.json(); };
+const save = { friends: [{id:'AMI-1234',name:'Ami test'}], groups: [{code:'G-ABC123',owner:'AMI-1234',members:[]}], records:{piquenique:{lap:42}} };
+const made = await call('create', {pseudo, pass:randomBytes(16).toString('hex'), fid:'TEST-'+randomInt(1000,10000), save});
+assert.equal(made.ok, true, made.e);
+const auth = {pseudo, tok:made.tok};
+const renamed = await call('name',{...auth,name}); assert.equal(renamed.ok,true,renamed.e); assert.equal(renamed.fid,made.fid);
+assert.deepEqual(renamed.save.friends,save.friends); assert.deepEqual(renamed.save.groups,save.groups); assert.deepEqual(renamed.save.records,save.records);
+assert.equal((await call('find',{name})).fid,made.fid);
+assert.equal((await call('save',{...auth,save:{...save,name:'Ancien nom'}})).name,name);
+assert.equal((await call('load',auth)).save.name,name);
+console.log('PASS serveur de test déployé : création, renommage, recherche, identité, amis/groupes/records et sauvegarde depuis ancien client');

@@ -6587,7 +6587,7 @@ let videoRecording = false;
 function videoNative() {
   const c = window.Capacitor;
   if (!c || !c.isNativePlatform || !c.isNativePlatform() || !c.isPluginAvailable('Share') || !c.isPluginAvailable('Filesystem')) return null;
-  return { share: c.registerPlugin('Share'), fs: c.registerPlugin('Filesystem') };
+  return { share: c.Plugins.Share, fs: c.Plugins.Filesystem };
 }
 async function videoReady(blob, label) {
   const ext = /mp4/.test(blob.type) ? 'mp4' : 'webm', name = 'wild-kart-' + Date.now() + '.' + ext;

@@ -4,6 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { chromium } = require('playwright');
+const { X509Certificate, createHash } = require('node:crypto');
+// Confiance limitée à la CA du proxy géré ; aucune désactivation générale de TLS.
+const caPin = process.env.WK_CA_CERT ? createHash('sha256').update(new X509Certificate(fs.readFileSync(process.env.WK_CA_CERT)).publicKey.export({type:'spki',format:'der'})).digest('base64') : null;
 
 const ROOT = process.cwd();
 const WEB = path.join(ROOT, 'www');
@@ -36,7 +39,7 @@ async function main() {
   server.on('error', e => { serverOutput += String(e); });
   await sleep(1200);
 
-  browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH, args: ['--no-sandbox', '--enable-unsafe-swiftshader'] } : {}) });
+  browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH, args: ['--no-sandbox', '--enable-unsafe-swiftshader', ...(caPin ? ['--ignore-certificate-errors-spki-list=' + caPin] : [])] } : {}) });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
   page.on('pageerror', e => errors.page.push(String(e)));
   page.on('console', msg => {
@@ -91,6 +94,7 @@ async function main() {
     const K = window.__TK;
     const G = K.G;
     // Une seule boucle : le test n'a pas besoin de serveur multijoueur.
+    K.SAVE.quality = 'low'; K.applyQuality(); K.renderer.setPixelRatio(.5);
     K.SAVE.laps = 1;
     K.SAVE.obst = false;
     K.startRace(0, 1);
@@ -117,12 +121,12 @@ async function main() {
     };
   });
   // Véritable capture du canvas : aucune API MediaRecorder simulée.
-  await page.evaluate(() => { const K = window.__TK; K.recEvent(10, 'Action de test'); for (let i = 0; i < 120; i++) { K.simStep(1/60); K.updateVisuals(1/60); K.recTick(1/60); } });
+  await page.evaluate(() => { const K = window.__TK; K.REPLAY.on = false; K.REC.on = true; K.REC.fin = true; K.REC.t = 0; K.REC.acc = 0; K.REC.fr = []; K.REC.full = []; for (let i = 0; i < 30; i++) K.recTick(1/30); K.REC.on = false; });
   // Le test de simulation ne suit pas la cadence du rendu ; construire un clip avec ses images réelles.
   const recording = await page.evaluate(() => {
-    const K = window.__TK, fr = K.REC.full;
+    const K = window.__TK, fr = K.REC.fr;
     if (fr.length < 2) return false;
-    const a = fr[0], b = fr[Math.min(fr.length - 1, 10)];
+    const a = fr[0], b = fr[fr.length - 1];
     K.REC.best = { fr: [a, b], ev: [{t: -99}], pe: [], label: 'Action de test', at: -99 };
     K.replayShare(); return true;
   });

@@ -540,6 +540,66 @@ const MALL_THEME = { sky: ['#bfe2ff', '#fff4e6'], fog: '#f6efe6', fogN: 220, fog
   if (B) for (const k of ['grip', 'hop', 'hopLabel']) if (B[k] != null) t[k] = B[k];
   TRACKS.push(t);
 })();
+/* ================= Parcours à choix : six circuits, six façons de prendre un risque ================= */
+// Les bouches existantes restent en place. Les paliers donnent une réception lisible aux petits sauts,
+// tandis que la route principale garde sa largeur et ses propres plaques turbo.
+const ROUTE_UPGRADES = {
+  piquenique: {
+    desc: 'Prairie et sous-bois : choisis la grande courbe ou le balcon fleuri, avec un petit tremplin sur son palier. Le tunnel dans la forêt reste à découvrir.',
+    branches: [{ index: 0, label: 'BALCON FLEURI', width: 16, ai: .3,
+      mid: [[322, 100, 13], [316, 170, 13], [324, 225, 13]],
+      launch: { at: .44, minSpeed: 24, vy: 5.5, label: 'Saut du balcon !' } }]
+  },
+  soldes: {
+    desc: 'Deux raccourcis dans le centre commercial : la boutique ouvre par périodes, les toits offrent un tremplin et un turbo mais demandent de rester sur une voie étroite.',
+    branches: [
+      { index: 0, label: 'BOUTIQUE OUVERTE ?', width: 16, ai: .5 },
+      { index: 1, label: 'TOITS EXPRESS', width: 11, boost: true, ai: .25,
+        mid: [[226, 52, 12], [261, 98, 14], [303, 133, 14]],
+        launch: { at: .43, minSpeed: 28, vy: 6.5, label: 'Saut des toits !' } }],
+    gates: [{ branch: 0, period: 22, phase: .12, mode: 'branch' }]
+  },
+  glissade: {
+    desc: 'Montée enneigée, grand envol et virage à flanc de falaise. La poudreuse est réservée aux turbos ; l’arête étroite coupe la montée mais exige de soigner ses trajectoires.',
+    branches: [
+      { index: 0, label: 'POUDREUSE · TURBO', width: 16, boost: true },
+      { index: 1, label: 'ARÊTE DES NEIGES', width: 11, boost: true, ai: .25,
+        mid: [[437, 150, 24], [420, 250, 30], [448, 335, 30]] }]
+  },
+  grandsaut: {
+    desc: 'Dans le canyon, la corniche protégée et les deux envols restent accessibles. Le balcon des rapaces propose un autre saut sur un palier suspendu, plus court mais sans rebords.',
+    branches: [
+      { index: 0, label: 'CORNICHE ABRITÉE', width: 16 },
+      { index: 1, label: 'BALCON DES RAPACES', width: 12, boost: true, ai: .25,
+        mid: [[-620, -80, 23.5], [-688, -32, 25], [-754, -8, 25]],
+        launch: { at: .43, minSpeed: 30, vy: 7, label: 'Envol des rapaces !' } }]
+  },
+  cascade: {
+    desc: 'La cascade cache une écluse qui ouvre et ferme le tunnel aquatique. La route principale reste libre ; la corniche des embruns offre une descente turbo étroite au-dessus de l’eau.',
+    branches: [
+      { index: 0, label: 'ÉCLUSE DE LA CASCADE', width: 16, ai: .4 },
+      { index: 1, label: 'CORNICHE DES EMBRUNS', width: 11, boost: true, ai: .25,
+        mid: [[140, 648, 21], [210, 680, 23], [268, 720, 18]] }],
+    gates: [{ branch: 0, period: 26, phase: .3, mode: 'branch' }]
+  },
+  deuxroutes: {
+    desc: 'Les portes annoncent les changements de route : la Route A est large et stable, le Passage Express plus étroit offre un turbo. Le belvédère reste une troisième prise de risque au-dessus du parc.',
+    branches: [
+      { index: 0, label: 'ROUTE A · LARGE', width: 20, narrow: false, ai: .6 },
+      { index: 1, label: 'PASSAGE EXPRESS', width: 11, boost: true, ai: .4 },
+      { index: 2, label: 'BELVÉDÈRE', width: 12, ai: .25,
+        mid: [[772, 1119, 10], [707, 1171, 13.5], [643, 1241, 10]] }]
+  }
+};
+(function installPlaygroundRoutes() {
+  for (const t of TRACKS) {
+    const profile = ROUTE_UPGRADES[t.id]; if (!profile) continue;
+    t.desc = profile.desc;
+    for (const { index, ...changes } of profile.branches) if (t.branches[index]) Object.assign(t.branches[index], changes);
+    // Une porte de raccourci n'interrompt jamais la voie principale. Les portes alternées existantes sont conservées.
+    if (profile.gates) t.gates = (t.gates || []).concat(profile.gates);
+  }
+})();
 const fmtClock = (s) => Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0');
 const arenaIdx = () => TRACKS.findIndex((t) => t.arena);
 // au hasard : le petit circuit seulement en Patate chaude (une fois sur deux), jamais sinon
@@ -3921,7 +3981,7 @@ function kartPhysics(k, inp, dt) { if (k.spect) return;
   springLaunch(k, W);
   if (!k.air) {
     for (const p of W.pads) { if ((p.P || S) !== P) continue; let di = Math.abs(k.idx - p.i); if (P.closed) di = Math.min(di, P.N - di); if (di <= 2 && Math.abs(k.lat - p.lat) < 2.9) { if (k.boost < .9 && k.isPlayer) AudioSys.sfx('boost'); k.boost = Math.max(k.boost, 1.1); } }
-    kickerLaunch(k, W);
+    kickerLaunch(k, W, P0, j0);
     if (P === S && k.speed > 30) for (const b of W.bumps || []) { const di = k.idx - b.crest; if (di >= 0 && di <= 2) { launchJump(k, b); break; } }
   }
   if (k.bubble > 0) { const u = clamp((1.7 - k.bubble) / .35, 0, 1) * clamp(k.bubble / .25, 0, 1); k.y = Math.max(k.y, k.groundY + 2.2 * u); }
@@ -4177,7 +4237,7 @@ function planObstacles(W) {
     }
   }
   // chemin étroit : un obstacle mobile au milieu
-  for (const B of W.branches) if (B.def.narrow && B !== brB && B !== raB) { const j = Math.floor(B.N * .55); if (cfg.roll) W.obst.push({ kind: 'roller', style: cfg.roll, P: B, i: j, lat: 0, r: 1.7, amp: B.hw * .8, per: 3.6, ph: rng() * TAU });
+  for (const B of W.branches) if (B.def.narrow && !B.def.launch && B !== brB && B !== raB) { const j = Math.floor(B.N * .55); if (cfg.roll) W.obst.push({ kind: 'roller', style: cfg.roll, P: B, i: j, lat: 0, r: 1.7, amp: B.hw * .8, per: 3.6, ph: rng() * TAU });
     else if (cfg.crush) W.obst.push({ kind: 'crusher', style: cfg.crush, P: B, i: j, lat: 0, r: 2.4, per: 2.6, ph: 0 }); }
   for (const o of W.obst) { if (o.kind === 'rockfall' || o.kind === 'bridge' || o.kind === 'rafts') continue; if (o.kind === 'traffic' || o.kind === 'ball') { obstState11(o, 0); continue; } o.i = clamp(o.i, 0, o.P.N - 1); o.x = o.P.px[o.i] + o.P.rx[o.i] * o.lat; o.z = o.P.pz[o.i] + o.P.rz[o.i] * o.lat; o.y = o.P.py[o.i]; o.down = false; }
 }
@@ -4986,23 +5046,47 @@ function obstHit11(k, o, R, nx, nz, vn) {
 // def.tricks : [t, ...] fractions ; la route monte en douceur puis casse net : petit envol, figure possible
 function planKickers(W) {
   const S = W.S, N = S.N, def = W.def; W.kickers = [];
-  const raise = (i0, n, h) => { for (let q = 0; q < n; q++) { const j = ((i0 + q) % N + N) % N, u = (q + 1) / n; S.py[j] += h * Math.pow(u, 1.6); } };
-  for (const t of def.tricks || []) { const i = Math.floor(t * N); raise(i - 7, 7, 1.2); W.kickers.push({ i, lip: (i) % N, trick: true }); }
+  const raise = (P, i0, n, h) => { for (let q = 0; q < n; q++) { const j = P.closed ? ((i0 + q) % P.N + P.N) % P.N : i0 + q, u = (q + 1) / n; P.py[j] += h * Math.pow(u, 1.6); } };
+  for (const t of def.tricks || []) { const i = Math.floor(t * N); raise(S, i - 7, 7, 1.2); W.kickers.push({ i, lip: i % N, trick: true }); }
   // lèvre de rampe avant chaque gouffre de planeur
-  for (const [a] of def.glide || []) { const i0 = Math.floor(a * N); raise(i0 - 8, 8, 1.4); W.kickers.push({ i: i0, lip: i0, glide: true }); }
-  for (const kk of W.kickers) for (let o = -9; o <= 2; o++) { const j = ((kk.i + o) % N + N) % N, n = (j + 1) % N, p = (j - 1 + N) % N; S.slope[j] = (S.py[n] - S.py[p]) / (2 * S.seg); }
+  for (const [a] of def.glide || []) { const i0 = Math.floor(a * N); raise(S, i0 - 8, 8, 1.4); W.kickers.push({ i: i0, lip: i0, glide: true }); }
+  // Tremplin intégré à une route optionnelle : le circuit principal reste la voie sûre.
+  // Garder l'élan et la réception loin des deux jonctions, sans modifier leurs hauteurs.
+  for (const B of W.branches || []) {
+    const r = B.def.launch; if (!r) continue;
+    const lo = Math.max(12, B.noseA + 12), hi = Math.min(B.N - 30, B.noseB - 30);
+    if (hi < lo) continue;
+    const i = clamp(Math.round(clamp(r.at || .3, .15, .65) * (B.N - 1)), lo, hi);
+    raise(B, i - 7, 7, 1.2);
+    W.kickers.push({ P: B, i, lip: i, trick: true, minSpeed: clamp(r.minSpeed || 28, 18, 45), vy: clamp(r.vy || 6.5, 5, 9), label: r.label || B.def.label });
+  }
+  for (const kk of W.kickers) { const P = kk.P || S;
+    for (let o = -9; o <= 2; o++) { const j = P.closed ? ((kk.i + o) % P.N + P.N) % P.N : clamp(kk.i + o, 0, P.N - 1), n = P.closed ? (j + 1) % P.N : Math.min(P.N - 1, j + 1), p = P.closed ? (j - 1 + P.N) % P.N : Math.max(0, j - 1); P.slope[j] = (P.py[n] - P.py[p]) / ((n === p ? 1 : P.closed ? 2 : n - p) * P.seg); }
+  }
 }
 const KICK_TEX = canvasTex(256, 128, (x, w, h) => { const g = x.createLinearGradient(0, 0, 0, h); g.addColorStop(0, '#2a8cff'); g.addColorStop(1, '#1a4ad8'); x.fillStyle = g; x.fillRect(0, 0, w, h);
   x.fillStyle = '#ffc531'; for (let i = 0; i < 4; i++) { x.beginPath(); x.moveTo(20 + i * 60, h * .8); x.lineTo(50 + i * 60, h * .25); x.lineTo(80 + i * 60, h * .8); x.lineTo(65 + i * 60, h * .8); x.lineTo(50 + i * 60, h * .48); x.lineTo(35 + i * 60, h * .8); x.fill(); } x.fillStyle = '#fffdf7'; x.fillRect(0, 0, w, 8); });
 function buildKickers(W) {
   const S = W.S; if (!W.kickers || !W.kickers.length) return; const mat = new T.MeshStandardMaterial({ map: KICK_TEX, roughness: .45, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
-  for (const kk of W.kickers) { const near = (i) => { const d = ((kk.i - i) % S.N + S.N) % S.N; return d <= 7 && d >= 0; };
-    W.scene.add(new T.Mesh(bandGeo(S, [{ o: -W.hw + .4, y: .125 }, { o: W.hw - .4, y: .125 }], { vScale: 14, skip: (i) => !near(i) || !near((i + 1) % S.N) }), mat)); }
+  for (const kk of W.kickers) { const P = kk.P || S, hw = P.hw || W.hw;
+    const near = (i) => { const d = P.closed ? ((kk.i - i) % P.N + P.N) % P.N : kk.i - i; return d <= 7 && d >= 0; };
+    W.scene.add(new T.Mesh(bandGeo(P, [{ o: -hw + .4, y: .125 }, { o: hw - .4, y: .125 }], { vScale: 14, skip: (i) => !near(i) || !near((i + 1) % P.N) }), mat));
+  }
 }
-function kickerLaunch(k, W) {
-  const S = W.S; if (!W.kickers || (k.P || S) !== S || k.air || k.speed < 18) return;
-  for (const kk of W.kickers) { if (!kk.trick) continue; const di = k.idx - kk.lip; if (di >= 0 && di <= 2) { k.air = 'jump'; k.vy = 6.5 + Math.max(0, k.speed - 30) * .05 + (k.boost > 0 ? 1 : 0); k.airH = Math.max(k.airH || 0, .3); k.trickOK = true; k.trick = false; if (k.drift) endDrift(k, true);
-      if (k.isPlayer) AudioSys.sfx('ramp'); else if (Math.random() < .7) k.aiTrickAt = rand(.08, .3); return; } }
+function kickerLaunch(k, W, oldP, oldIdx) {
+  const S = W.S, P = k.P || S; if (!W.kickers || k.air || k.speed < 18) return;
+  for (const kk of W.kickers) {
+    if (!kk.trick || (kk.P || S) !== P || k.speed < (kk.minSpeed || 18)) continue;
+    const di = P.closed ? ((k.idx - kk.lip) % P.N + P.N) % P.N : k.idx - kk.lip;
+    // À grande vitesse, une simulation peut franchir plusieurs échantillons de la lèvre.
+    const crossed = oldP === P && oldIdx < kk.lip && k.idx >= kk.lip && k.idx - oldIdx < 16;
+    if (!(di >= 0 && di <= 2) && !crossed) continue;
+    k.air = 'jump'; k.vy = (kk.vy || 6.5) + Math.max(0, k.speed - 30) * .05 + (k.boost > 0 ? 1 : 0); k.airH = Math.max(k.airH || 0, .3); k.airT = 0; k.trickOK = true; k.trick = false;
+    if (k.drift) endDrift(k, true);
+    if (k.isPlayer) { AudioSys.sfx('ramp'); if (kk.P && kk.label) banner(kk.label + ' · DRIFT : figure !', 1.2); }
+    else if (Math.random() < .7) k.aiTrickAt = rand(.08, .3);
+    return;
+  }
 }
 
 // ---------- circuits « en sections » : un seul long trajet découpé en 3 ----------

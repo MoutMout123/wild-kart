@@ -11,6 +11,7 @@ const out = (o, status = 200) => new Response(JSON.stringify(o), { status, heade
 const err = (e, status = 200) => out({ e }, status);
 
 const PSEUDO = /^[A-Za-z0-9_-]{3,16}$/, FID = /^[A-Z0-9]{1,10}-\d{4}$/;
+const NAME = /^[\p{L}\p{N}][\p{L}\p{N} _-]{1,23}$/u;
 const ukey = (p) => 'u/' + p.toLowerCase(), fkey = (f) => 'f/' + f;
 const sha = (s) => crypto.createHash('sha256').update(String(s)).digest('base64url');
 // PBKDF2 par Web Crypto (rapide et natif : tient dans les 10 ms de calcul du serveur gratuit)
@@ -63,7 +64,7 @@ function addTok(u) { const t = newTok(); u.toks = (u.toks || []).filter((x) => D
 const authOk = (u, tok) => !!(u && tok && (u.toks || []).some((x) => same(x.h, sha(tok))));
 function locked(u) { const f = u.fails || { n: 0, t: 0 }; return f.n >= 8 && Date.now() - f.t < 15 * 60e3; }
 function fail(u) { const f = u.fails && Date.now() - u.fails.t < 15 * 60e3 ? u.fails : { n: 0, t: 0 }; u.fails = { n: f.n + 1, t: Date.now() }; }
-const pub = (u, tok, rec) => ({ ok: true, pseudo: u.p, fid: u.fid, save: u.save || null, at: u.at || 0, tok, rec });
+const pub = (u, tok, rec) => ({ ok: true, pseudo: u.p, name: u.name || u.p, fid: u.fid, save: u.save || null, at: u.at || 0, tok, rec });
 
 // code d'accès valide (signé par le chef, pas expiré) : sert au serveur pour réserver le relais TURN aux vrais joueurs
 export function wkAccessOk(code, b) { if (b && b.a === 'ice' && b.sig && chefOk(b)) return true; try { const p = wkParseAll(String(code || '')).find((x) => { try { return nacl.sign.detached.verify(x.msg, x.sig, CHEF_PK); } catch (e) { return false; } }); return !!(p && p.exp > Date.now()); } catch (e) { return false; } }
@@ -92,7 +93,7 @@ export default async (req) => {
     const { blobs } = await st.list({ prefix: qp }); for (const x of blobs) await st.delete(x.key); await st.delete(sk); return out({ ok: true });
   }
   // ---------- amis et groupes (boîte aux lettres + présence) ----------
-  const GC = /^G-[A-Z0-9]{6}$/, nm = (x) => String(x || '').slice(0, 12), now = Date.now();
+  const GC = /^G-[A-Z0-9]{6}$/, nm = (x) => String(x || '').slice(0, 24), now = Date.now();
   const pubG = (g) => ({ code: g.code, name: g.name, public: g.public, owner: g.owner, members: g.members });
   if (b.a === 'fsend') {
     const from = b.from || {}; if (!FID.test(String(from.id))) return err('Expéditeur invalide.');
@@ -114,10 +115,10 @@ export default async (req) => {
     if (b.wait && lim > 0 && !L.some((x) => x.at > (+b.since || 0))) { const end = Date.now() + Math.min(10, Math.max(0, +b.wait || 0)) * 1000;
       while (Date.now() < end && lim-- > 0) { await new Promise((r) => setTimeout(r, 900)); L = (await st.get(mk, { type: 'json' })) || []; if (L.some((x) => x.at > (+b.since || 0))) break; } }
     if (ack && L.some((x) => x.at <= ack)) { L = L.filter((x) => x.at > ack); await st.setJSON(mk, L); }
-    const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter((x) => FID.test(x)))].slice(0, 80), online = {};
-    await Promise.all(ids.map(async (id) => { const q = await st.get('p/' + id, { type: 'json' }); online[id] = q ? q.t : 0; }));
-    const groups = {}; await Promise.all((Array.isArray(b.groups) ? b.groups : []).map(String).filter((c) => GC.test(c)).slice(0, 20).map(async (c) => { const g = await st.get('g/' + c, { type: 'json' }); groups[c] = g ? pubG(g) : null; }));
-    return out({ ok: true, now, msgs: L.filter((x) => x.at > (+b.since || 0)), online, groups });
+    const ids = [...new Set((Array.isArray(b.ids) ? b.ids : []).map(String).filter((x) => FID.test(x)))].slice(0, 80), online = {}, names = {};
+    await Promise.all(ids.map(async (id) => { const q = await st.get('p/' + id, { type: 'json' }); online[id] = q ? q.t : 0; if (q && q.n) names[id] = q.n; }));
+    const groups = {}; await Promise.all((Array.isArray(b.groups) ? b.groups : []).map(String).filter((c) => GC.test(c)).slice(0, 20).map(async (c) => { const g = await st.get('g/' + c, { type: 'json' }); if (g) { const member = g.members.find((m) => m.id === me.id); if (member && member.name !== nm(me.name)) { member.name = nm(me.name); await st.setJSON('g/' + c, g); } } groups[c] = g ? pubG(g) : null; }));
+    return out({ ok: true, now, msgs: L.filter((x) => x.at > (+b.since || 0)), online, names, groups });
   }
   if (b.a === 'gsave' || b.a === 'gjoin' || b.a === 'gleave' || b.a === 'gren' || b.a === 'ginv') {
     const me = b.me || {}, code = String((b.group && b.group.code) || b.code || ''); if (!FID.test(String(me.id)) || !GC.test(code)) return err('Groupe invalide.');
@@ -152,6 +153,14 @@ export default async (req) => {
     for (const x of blobs) { const c = await st.get(x.key, { type: 'json' }); if (!c) continue; if (c.exp < Date.now() - 3 * 86400e3) { await st.delete(x.key); continue; } codes.push(c); }
     codes.sort((a, b) => b.exp - a.exp); return out({ ok: true, codes });
   }
+  // Le nom public se résout vers l'identité stable : les amitiés ne changent jamais de clé.
+  if (b.a === 'find') {
+    const name = String(b.name || '').trim().normalize('NFC'); if (!NAME.test(name)) return err('Nom : 2 à 24 lettres ou chiffres, espaces, tirets ou underscores.');
+    const owner = await st.get('n/' + name.toLowerCase(), { type: 'text' });
+    const found = await st.get(ukey(owner || name), { type: 'json' });
+    if (!found || String(found.name || found.p).toLowerCase() !== name.toLowerCase()) return err('Aucun joueur avec ce nom.');
+    return out({ ok: true, fid: found.fid, name: found.name || found.p });
+  }
   // identifiant ami libre ? (et réservation si connecté)
   if (b.a === 'fid') {
     const fid = String(b.fid || ''); if (!FID.test(fid)) return err('L\'identifiant ressemble à LEA-4821.');
@@ -168,6 +177,7 @@ export default async (req) => {
   if (!PSEUDO.test(pseudo)) return err('Pseudo : 3 à 16 lettres ou chiffres (sans espace).');
 
   if (b.a === 'create') {
+    const named = await st.get('n/' + pseudo.toLowerCase(), { type: 'text' }); if (named && named !== pseudo.toLowerCase()) return err('Ce pseudo est déjà pris. Choisis-en un autre.');
     const pass = String(b.pass || ''); if (pass.length < 4) return err('Mot de passe : au moins 4 caractères.');
     let fid = FID.test(String(b.fid || '')) ? String(b.fid) : 'JOUEUR-' + (1000 + crypto.randomInt(9000));
     const save = b.save && typeof b.save === 'object' ? b.save : {}; if (JSON.stringify(save).length > MAX_SAVE) return err('Sauvegarde trop grosse.');
@@ -209,11 +219,22 @@ export default async (req) => {
   }
 
   if (!authOk(u, b.tok)) return err('Reconnecte-toi à ton compte.', 401);
+  if (b.a === 'name') {
+    const name = String(b.name || '').trim().normalize('NFC'); if (!NAME.test(name)) return err('Nom : 2 à 24 lettres ou chiffres, espaces, tirets ou underscores.');
+    const key = 'n/' + name.toLowerCase(), me = pseudo.toLowerCase();
+    const account = await st.get(ukey(name), { type: 'json' });
+    if (account && account.p.toLowerCase() !== me) return err('Ce nom est déjà pris.');
+    const reservation = await st.set(key, me, { onlyIfNew: true });
+    if (reservation && reservation.modified === false && (await st.get(key, { type: 'text' })) !== me) return err('Ce nom est déjà pris.');
+    const oldName = u.name; u.name = name; u.save = Object.assign({}, u.save, { name }); u.at = Date.now(); await putU(u);
+    if (oldName && oldName.toLowerCase() !== name.toLowerCase()) await st.delete('n/' + oldName.toLowerCase());
+    return out(pub(u));
+  }
   if (b.a === 'load') return out(pub(u));
   if (b.a === 'save') {
     const save = b.save && typeof b.save === 'object' ? b.save : null; if (!save) return err('Rien à sauvegarder.');
     if (JSON.stringify(save).length > MAX_SAVE) return err('Sauvegarde trop grosse.');
-    u.save = Object.assign({}, save, { fid: u.fid }); u.at = Date.now(); await putU(u); return out({ ok: true, at: u.at });
+    u.save = Object.assign({}, save, { fid: u.fid, name: u.name || u.p }); u.at = Date.now(); await putU(u); return out({ ok: true, at: u.at, name: u.name || u.p });
   }
   if (b.a === 'pass') {
     if (!u.h) { const o = await oldCall('login', { pseudo, pass: b.old }); if (!(o && o.ok)) return err('Ancien mot de passe incorrect.'); }

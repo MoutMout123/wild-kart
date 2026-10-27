@@ -17,7 +17,7 @@ const BUILD = window.TK_BUILD || 'web';
 
 /* ================= Sauvegarde ================= */
 const KEY = 'tiltkart.v1';
-const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 60, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
+const DEFAULT_SAVE = { name: 'Toi', body: 'equilibre', wheels: 'standard', pilot: 'casque', acc: 'aucun', finish: 'brillant', deco: 'aucune', trail: 'feu', skin: '#e0b08a', color: '#ff4f3a', helmet: '#ffc531', control: isTouch ? 'stick' : 'tilt', glider: 'classique', fps: 0, throttle: 'auto', botLvl: 1, laps: 0, obst: true,
   sens: 1, invert: false, calib: 0, calibrated: false, sound: true, music: true, quality: isTouch ? 'medium' : 'high', cc: 1, track: 0, records: {} };
 let SAVE = (() => { try { return Object.assign({}, DEFAULT_SAVE, JSON.parse(localStorage.getItem(KEY)) || {}); } catch (e) { return Object.assign({}, DEFAULT_SAVE); } })();
 function store() { try { acctTrack(); } catch (e) { /* pas encore prêt */ } try { localStorage.setItem(KEY, JSON.stringify(SAVE)); } catch (e) { /* stockage indisponible */ } try { acctDirty(); } catch (e) { /* pas encore prêt */ } }
@@ -773,7 +773,7 @@ function bandGeo(S, cols, opts = {}) {
   const g = new T.BufferGeometry(); g.setAttribute('position', new T.Float32BufferAttribute(pos, 3)); g.setAttribute('uv', new T.Float32BufferAttribute(uv, 2)); g.setIndex(idx); g.computeVertexNormals(); return g;
 }
 function tubeAlong(S, lat, y, r, seg = 8, step = 2, skip) {
-  const pos = [], nor = [], idx = []; const open = S.closed === false; const rows = open ? Math.floor((S.N - 1) / step) : Math.ceil(S.N / step);
+  const pos = [], nor = [], idx = []; const open = S.closed === false; const rows = open ? Math.ceil((S.N - 1) / step) : Math.ceil(S.N / step);
   for (let k = 0; k <= rows; k++) {
     const i = open ? Math.min(k * step, S.N - 1) : Math.min(k * step, S.N) % S.N; const cx = S.px[i] + S.rx[i] * lat, cy = S.py[i] + y, cz = S.pz[i] + S.rz[i] * lat; const wz = S.wz && S.wz[i];
     for (let s = 0; s < seg; s++) { const a = s / seg * TAU, ca = Math.cos(a), sa = Math.sin(a); if (wz) { warpAt(S, i, lat + ca * r, y + sa * r, _wv); pos.push(_wv.x, _wv.y, _wv.z); const k3 = i * 3; nor.push(S.wr[k3] * ca + S.wu[k3] * sa, S.wr[k3 + 1] * ca + S.wu[k3 + 1] * sa, S.wr[k3 + 2] * ca + S.wu[k3 + 2] * sa); } else { pos.push(cx + S.rx[i] * ca * r, cy + sa * r, cz + S.rz[i] * ca * r); nor.push(S.rx[i] * ca, sa, S.rz[i] * ca); } }
@@ -2430,8 +2430,10 @@ function cageVisual(k, M, dt) { if (!(k.cageVis > 0) && !M.cage) return; if (!M.
 /* ================= v11 : progression continue sur les raccourcis + anti-téléportation ================= */
 // progression « main » d'un échantillon de raccourci : position réelle dans les bouches, interpolée au milieu (aucun saut)
 function branchMainProg(B, j, along) { const S = G.W.S, N = S.N;
-  if (!B.mp) { const rel = (m) => ((m - B.i0 + (N >> 1)) % N + N) % N - (N >> 1), mp = new Float32Array(B.N), a = clamp(B.noseA, 0, B.N - 1), b = clamp(B.noseB, a, B.N - 1);
-    for (let q = 0; q < B.N; q++) mp[q] = rel(B.map[q]);
+  if (!B.mp) { const span = ((B.i1 - B.i0) % N + N) % N, mp = new Float32Array(B.N), a = clamp(B.noseA, 0, B.N - 1), b = clamp(B.noseB, a, B.N - 1);
+    // Dérouler autour de la progression attendue : certaines traversées couvrent plus d'un demi-tour.
+    // La distance signée la plus courte depuis l'entrée ferait alors reculer leur sortie.
+    for (let q = 0; q < B.N; q++) { const expected = span * q / Math.max(1, B.N - 1), delta = B.map[q] - B.i0 - expected; mp[q] = expected + ((delta + N / 2) % N + N) % N - N / 2; }
     const ra = mp[a], rb = Math.max(mp[b], ra); for (let q = a; q <= b; q++) mp[q] = ra + (rb - ra) * (b > a ? (q - a) / (b - a) : 0);
     for (let q = 1; q < B.N; q++) if (mp[q] < mp[q - 1]) mp[q] = mp[q - 1]; B.mp = mp; }
   const q = clamp(j, 0, B.N - 1), q2 = clamp(j + (along >= 0 ? 1 : -1), 0, B.N - 1), f = Math.min(1, Math.abs(along) / B.seg);
@@ -2592,12 +2594,12 @@ const Gate = { el: null };
 function gateText(exp) { return 'Code valable jusqu\'au ' + new Date(exp).toLocaleString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' }) + '.'; }
 function gateShow(why) {
   if (!Gate.el) { const d = document.createElement('div'); d.id = 'gate';
-    d.innerHTML = '<div class="gate-box"><h2>Wild Kart</h2><p>Entre le code d\'accès donné par le chef de partie.</p><textarea id="gate-in" rows="3" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="WK…"></textarea><p class="gate-msg" id="gate-msg"></p><p class="gate-fid">Ton identifiant ami : <b id="gate-fid"></b><br>Un ami qui a déjà le code peut te l\'envoyer depuis l\'écran Amis.</p><button class="btn ghost" id="gate-close"><span>Fermer</span></button> <button class="btn red" id="gate-ok"><span>Valider</span></button></div>';
+    d.innerHTML = '<div class="gate-box"><h2>Wild Kart</h2><p>Entre le code d\'accès donné par le chef de partie.</p><textarea id="gate-in" rows="3" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="WK…"></textarea><p class="gate-msg" id="gate-msg"></p><p class="gate-fid">Ton nom : <b id="gate-fid"></b><br>Un ami qui a déjà le code peut te l\'envoyer depuis l\'écran Amis.</p><button class="btn ghost" id="gate-close"><span>Fermer</span></button> <button class="btn red" id="gate-ok"><span>Valider</span></button></div>';
     document.body.appendChild(d); Gate.el = d;
     const go = () => { const v = $('#gate-in').value; const ca = chefActivate(v); if (ca === true) { gateHide(); chefButtons(); toast('Mode chef activé 👑 (bouton « Mode chef » dans le menu).', 4500); return; } if (typeof ca === 'string') { $('#gate-msg').textContent = ca; return; } const gotList = chefListApply(v, true); if (gotList && !/WK[0-9A-Z\s-]{100,}/i.test(v.replace(/WKL\.[A-Za-z0-9_.-]+/g, ''))) { $('#gate-msg').textContent = 'Liste du chef mise à jour.'; if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); return; } const r = accessCheck(v); if (r.ok) { SAVE.access = v.trim(); SAVE.accSeen = Math.max(Date.now(), SAVE.accSeen || 0); store(); gateHide(); toast(gateText(r.exp), 4000); } else { $('#gate-msg').textContent = r.why; } };
     $('#gate-ok').onclick = go; $('#gate-close').onclick = () => { if (SAVE.access && accessCheck(SAVE.access).ok) gateHide(); }; $('#gate-in').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }); }
   { const cl = $('#gate-close'); if (cl) cl.hidden = !(SAVE.access && accessCheck(SAVE.access).ok); }
-  $('#gate-msg').textContent = why || ''; { const f = $('#gate-fid'); if (f && typeof frMyId === 'function') f.textContent = frMyId(); } Gate.el.hidden = false; G.locked = true; }
+  $('#gate-msg').textContent = why || ''; { const f = $('#gate-fid'); if (f) f.textContent = SAVE.name || 'Joueur'; } Gate.el.hidden = false; G.locked = true; }
 function gateHide() { if (Gate.el) Gate.el.hidden = true; G.locked = false; accessInfo(); }
 function accessInfo() { const el = $('#set-acc'); if (!el) return; const r = SAVE.access ? accessCheck(SAVE.access) : null; el.textContent = (r && r.ok ? gateText(r.exp) : 'Pas de code valide.') + (CHEF.s ? ' Liste du chef du ' + new Date(CHEF.s).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) + '.' : ''); }
 function accessTick() { // vérifie le code au démarrage, puis chaque minute (jamais en pleine course)
@@ -2627,7 +2629,7 @@ function frNorm(id) { const m = /^\s*([^\d\s-][^-]*?)\s*[-#\s]\s*(\d{4})\s*$/.ex
 const frPeerId = (fid) => 'wkf-' + fid.toLowerCase();
 const frList = () => (SAVE.friends = Array.isArray(SAVE.friends) ? SAVE.friends : []);
 const grList = () => (SAVE.groups = Array.isArray(SAVE.groups) ? SAVE.groups : []);
-function frMe() { return { id: frMyId(), name: String(SAVE.name || 'Joueur').slice(0, 12) }; }
+function frMe() { return { id: frMyId(), name: String(SAVE.name || 'Joueur').slice(0, 24) }; }
 // ce que fait le joueur (vu par le chef dans « En direct »)
 function frStatus() { try { const R = G.race, live = R && R.state !== 'attract', P = R && R.player, tr = live && TRACKS[R.ti] ? TRACKS[R.ti].name : '';
   const race = live ? { tr, lap: P ? Math.max(1, Math.min(P.lap, LAPS)) : 0, laps: LAPS, pl: P ? P.place || 0 : 0, fin: R.state === 'finished' || !!R.resultsShown } : null;
@@ -2654,6 +2656,7 @@ async function frPoll() { if (FR.busy || typeof acctCall !== 'function') return;
     for (const [id, t] of Object.entries(r.online || {})) FR.status.set(id, !!t && r.now - t < 90e3);
     for (const [code, g] of Object.entries(r.groups || {})) { if (g) grMerge(g, true); else { const lg = grFind(code); if (lg && lg.owner === frMyId()) acctCall('gsave', { group: lg, me: frMe() }); } }   // ancien groupe (d'avant le serveur) : son créateur le remet en ligne
     for (const m of r.msgs || []) { FR.since = Math.max(FR.since || 0, m.at); try { frOnData(null, m); } catch (e) { /* rien */ } }
+    let namesChanged = false; for (const f of frList()) if (r.names && r.names[f.id] && f.name !== r.names[f.id]) { f.name = r.names[f.id]; namesChanged = true; } if (namesChanged) store();
     frRender(); } finally { FR.busy = false; FR.ac = null; if ((again && frHot() && (FR.lpFail || 0) < 3) || FR.quick) setTimeout(frPoll, FR.quick ? 0 : 150); } }
 // ---------- changer son identifiant ami (s'il est libre) ----------
 function frRename(name, num, cb) {
@@ -2667,18 +2670,14 @@ function frRename(name, num, cb) {
     for (const g of grList()) { for (const m of g.members) if (m.id === old) m.id = nid; if (g.owner === old) g.owner = nid; acctCall('gren', { code: g.code, old, me: frMe() }); } store();
     frSendMany(ids, { t: 'rename', old }); frPoll(); cb(null, nid); });
 }
-// l'identifiant ami suit le nom du compte (PSEUDO-1234, même numéro) ; amis et groupes sont prévenus par frRename
-function frSyncName() { if (!SAVE.acct || FR.syncing) return; const base = frSlug(SAVE.acct.u), cur = frMyId(); if (base.length < 2 || cur.split('-')[0] === base) return;
-  if (SAVE.fidSyncAt && Date.now() - SAVE.fidSyncAt < 6 * 3600e3) return; FR.syncing = true; let n = 0;
-  const tryNum = (num) => frRename(base, num, (e, nid) => { if (!e) { FR.syncing = false; SAVE.fidSyncAt = 0; store(); frRender(); toast('Ton identifiant ami suit ton nom : ' + nid + ' (tes amis sont prévenus).', 4000); return; }
-    if (/pris/i.test(e) && ++n < 6) return tryNum(String(Math.floor(1000 + Math.random() * 9000))); FR.syncing = false; SAVE.fidSyncAt = Date.now(); store(); });
-  tryNum(cur.split('-')[1]); }
+// Le nom peut changer ; l'identité des amis et des groupes reste stable.
+function frSyncName() { frKick(); }
 // envoi d'un message (gardé sur le serveur jusqu'à ce que l'ami ouvre le jeu) ; cb(ok, enLigne)
 function frSendMany(ids, msg, cb) { ids = ids.filter((x) => x && x !== frMyId()); const grp = msg._g || ''; msg = Object.assign({}, msg); delete msg._g; if (!ids.length && !grp) { cb && cb(false, {}); return; }   // _g : le serveur ajoute aussi tous les membres actuels du groupe
   acctCall('fsend', { from: frMe(), to: ids, group: grp, msg: Object.assign({ cl: SAVE.chefList || '' }, msg) }).then((r) => { if (r.ok) for (const [id, on] of Object.entries(r.online || {})) FR.status.set(id, on); cb && cb(!!r.ok, r.online || {}); frRender(); }); }
 function frSend(fid, msg, cb) { if (msg && msg.t === 'ping') { cb && cb(true); return; } frSendMany([fid], msg, (ok, on) => cb && cb(ok, !!on[fid])); }
 function frOnData(c, d) {
-  if (!d || typeof d !== 'object' || !d.from || typeof d.from.id !== 'string') return; const who = String(d.from.name || d.from.id).slice(0, 12), fid = frNorm(d.from.id) || d.from.id;
+  if (!d || typeof d !== 'object' || !d.from || typeof d.from.id !== 'string') return; const who = String(d.from.name || d.from.id).slice(0, 24), fid = frNorm(d.from.id) || d.from.id;
   if (d.cl) chefListApply(d.cl, true);
   FR.status.set(fid, true); { const f = frList().find((x) => x.id === fid); if (f && who && f.name !== who) { f.name = who; store(); } }
   // le chef demande « que fais-tu ? » (demande signée par sa clé) : on répond avec ce qu'on fait
@@ -2707,7 +2706,7 @@ function grCode() { const A = '23456789ABCDEFGHJKMNPQRSTUVWXYZ'; let s = 'G-'; f
 function grFind(code) { return grList().find((g) => g.code === code); }
 function grMerge(g0, fromServer) { if (!g0 || !/^G-[A-Z0-9]{6}$/.test(g0.code)) return; let g = grFind(g0.code); const me = frMyId();
   if (!g) { if (!(g0.members || []).some((m) => m.id === me)) return; g = { code: g0.code, name: String(g0.name || 'Groupe').slice(0, 24), public: !!g0.public, pass: '', owner: g0.owner, members: [] }; grList().push(g); toast('Tu fais partie du groupe « ' + g.name + ' ».', 3500); }
-  const before = g.members.map((m) => m.id).join(','); g.members = (g0.members || []).filter((m) => m && typeof m.id === 'string').map((m) => ({ id: m.id, name: String(m.name || m.id).slice(0, 12) }));
+  const before = g.members.map((m) => m.id).join(','); g.members = (g0.members || []).filter((m) => m && typeof m.id === 'string').map((m) => ({ id: m.id, name: String(m.name || m.id).slice(0, 24) }));
   g.name = String(g0.name || g.name).slice(0, 24); g.public = !!g0.public; g.owner = g0.owner;
   if (fromServer && before && before !== g.members.map((m) => m.id).join(',')) { const nw = g.members.filter((m) => !before.split(',').includes(m.id) && m.id !== me); for (const m of nw) toast(m.name + ' a rejoint « ' + g.name + ' ».', 3000); }
   store(); frRender(); }
@@ -2730,13 +2729,13 @@ const FRU = { tab: 'amis', open: null };
 function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'friends') return; const me = frMyId(), L = frList(), Gs = grList(), inParty = !!(Net.peer && Net.code), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
   const st = (id) => FR.status.has(id) ? (FR.status.get(id) ? '<b class="on">en ligne</b>' : '<b class="off">hors ligne</b>') : '<b class="off">…</b>';
   let h = '<header class="sh-head"><button class="back" data-go="frback" aria-label="Retour">←</button><h2>Amis et groupes</h2></header>';
-  h += '<div class="group"><h3>Ton identifiant ami</h3><div class="set-row"><span><b class="fr-me">' + esc(me) + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Il suit ton nom de compte. ' + (FR.open ? 'Connecté.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
+  h += '<div class="group"><h3>Ton nom</h3><div class="set-row"><span><b class="fr-me">' + esc(SAVE.name || SAVE.acct && SAVE.acct.u || 'Joueur') + '</b><small>Donne-le à tes amis pour qu\'ils t\'ajoutent. Tu peux le changer dans Mon compte. ' + (FR.open ? 'Connecté.' : 'Connexion au serveur…') + '</small></span><button class="btn sm" id="fr-copy"><span>Copier</span></button></div>'
      + '<div class="set-row"><small>' + (SAVE.acct ? 'Compte : ' + esc(SAVE.acct.u) : 'Pas de compte : crée-le pour tout retrouver sur un autre téléphone.') + '</small><button class="btn sm ghost" id="fr-acct"><span>' + (SAVE.acct ? 'Mon compte' : 'Créer un compte') + '</span></button></div></div>';
   h += '<div class="seg fr-tabs"><button data-t="amis" aria-pressed="' + (FRU.tab === 'amis') + '">Amis (' + L.length + ')</button><button data-t="groupes" aria-pressed="' + (FRU.tab === 'groupes') + '">Groupes (' + Gs.length + ')</button></div>';
   if (FRU.tab === 'amis') {
-    h += '<div class="group"><h3>Ajouter un ami</h3><div class="fr-add"><input id="fr-new" placeholder="Identifiant (ex. LEA-4821)" autocomplete="off" autocapitalize="characters"><button class="btn sm red" id="fr-add"><span>Ajouter</span></button></div><p class="hint" id="fr-msg"></p></div>';
+    h += '<div class="group"><h3>Ajouter un ami</h3><div class="fr-add"><input id="fr-new" placeholder="Nom de ton ami" autocomplete="off" autocapitalize="off"><button class="btn sm red" id="fr-add"><span>Ajouter</span></button></div><p class="hint" id="fr-msg"></p></div>';
     h += '<div class="group"><h3>Mes amis</h3>' + (L.length ? '' : '<p class="hint">Aucun ami pour l\'instant.</p>');
-    for (const f of L) h += '<div class="fr-row"><span><b>' + esc(f.name) + '</b> <small>' + esc(f.id) + ' · ' + st(f.id) + '</small></span><span class="fr-acts"><button class="btn sm" data-inv="' + esc(f.id) + '"' + (inParty ? '' : ' disabled') + '><span>Inviter</span></button><button class="btn sm ghost" data-acc="' + esc(f.id) + '"><span>Envoyer le code</span></button><button class="link" data-del="' + esc(f.id) + '">Retirer</button></span></div>';
+    for (const f of L) h += '<div class="fr-row"><span><b>' + esc(f.name) + '</b> <small>' + st(f.id) + '</small></span><span class="fr-acts"><button class="btn sm" data-inv="' + esc(f.id) + '"' + (inParty ? '' : ' disabled') + '><span>Inviter</span></button><button class="btn sm ghost" data-acc="' + esc(f.id) + '"><span>Envoyer le code</span></button><button class="link" data-del="' + esc(f.id) + '">Retirer</button></span></div>';
     h += (inParty ? '' : '<p class="hint">« Inviter » marche quand tu as créé une partie en ligne.</p>') + '</div>';
   } else {
     h += '<div class="group"><h3>Créer un groupe</h3><div class="fr-add"><input id="gr-name" placeholder="Nom du groupe" maxlength="24"><button class="btn sm red" id="gr-make"><span>Créer</span></button></div><div class="seg" id="gr-kind"><button data-k="pub" aria-pressed="' + (FRU.kind !== 'priv') + '">Public</button><button data-k="priv" aria-pressed="' + (FRU.kind === 'priv') + '">Privé (mot de passe)</button></div>' + (FRU.kind === 'priv' ? '<input id="gr-pass" placeholder="Mot de passe du groupe" maxlength="20">' : '') + '<p class="hint">Public : n\'importe qui ayant le code rejoint. Privé : il faut aussi le mot de passe.</p></div>';
@@ -2747,7 +2746,7 @@ function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'fr
         for (const m of g.members) h += '<div class="fr-row"><span>' + esc(m.name) + ' <small>' + esc(m.id) + (m.id === me ? ' · toi' : ' · ' + st(m.id)) + '</small></span></div>';
         const out2 = L.filter((f) => !g.members.some((m) => m.id === f.id));
         h += '<p class="hint"><b>Inviter des amis dans le groupe</b>' + (out2.length ? '' : ' : tous tes amis y sont déjà (ajoute des amis dans l\'onglet Amis).') + '</p>';
-        for (const f of out2) h += '<div class="fr-row"><span>' + esc(f.name) + ' <small>' + esc(f.id) + ' · ' + st(f.id) + '</small></span><span class="fr-acts"><button class="btn sm" data-ginvf="' + esc(g.code) + '|' + esc(f.id) + '"><span>Inviter</span></button></span></div>';
+        for (const f of out2) h += '<div class="fr-row"><span>' + esc(f.name) + ' <small>' + st(f.id) + '</small></span><span class="fr-acts"><button class="btn sm" data-ginvf="' + esc(g.code) + '|' + esc(f.id) + '"><span>Inviter</span></button></span></div>';
         h += g.owner === me ? '<div class="row"><button class="btn red" data-gplay="' + esc(g.code) + '"><span>Lancer une partie du groupe</span></button></div><p class="hint">Tous les membres rejoignent ta partie ; tu choisis le circuit et les réglages.</p>' : '<p class="hint">Quand le chef du groupe lance une partie, tu la rejoins tout seul.</p>';
         h += '<div class="row"><button class="btn sm" data-ginv="' + esc(g.code) + '"' + (inParty ? '' : ' disabled') + '><span>Inviter le groupe à ma partie</span></button><button class="btn sm ghost" data-gacc="' + esc(g.code) + '"><span>Envoyer le code d\'accès au groupe</span></button><button class="link" data-gquit="' + esc(g.code) + '">Quitter le groupe</button></div>'; }
       h += '</div>'; }
@@ -2755,14 +2754,17 @@ function frRender() { const root = $('#fr-root'); if (!root || UI.screen !== 'fr
   root.innerHTML = h; frWire(); }
 function frCheckAll() { frPoll(); }
 function frWire() { const q = (s) => $('#fr-root ' + s), qa = (s) => [...document.querySelectorAll('#fr-root ' + s)];
-  const cp = q('#fr-copy'); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(frMyId()); toast('Identifiant copié.', 1500); } catch (e) { toast(frMyId(), 3000); } };
+  const cp = q('#fr-copy'); if (cp) cp.onclick = async () => { try { await navigator.clipboard.writeText(SAVE.name); toast('Nom copié.', 1500); } catch (e) { toast(SAVE.name, 3000); } };
   const rn = q('#fr-ren'); if (rn) rn.onclick = () => { FRU.ren = !FRU.ren; frRender(); };
   const ac = q('#fr-acct'); if (ac) ac.onclick = () => acctOpen();
   const rok = q('#fr-rok'); if (rok) rok.onclick = () => { const m = q('#fr-rmsg'); m.textContent = 'Vérification…'; rok.disabled = true;
     frRename(q('#fr-rn').value, q('#fr-rd').value, (e, nid) => { if (e) { const mm = $('#fr-rmsg'); if (mm) mm.textContent = e; const b = $('#fr-rok'); if (b) b.disabled = false; return; } FRU.ren = false; frRender(); toast('Nouvel identifiant : ' + nid, 3000); }); };
   qa('.fr-tabs button').forEach((b) => (b.onclick = () => { FRU.tab = b.dataset.t; frRender(); }));
-  const add = q('#fr-add'); if (add) add.onclick = () => { const id = frNorm(q('#fr-new').value), msg = q('#fr-msg'); if (!id) { msg.textContent = 'L\'identifiant ressemble à LEA-4821.'; return; } if (id === frMyId()) { msg.textContent = 'C\'est ton propre identifiant.'; return; }
-    frAddFriend(id, id.split('-')[0]); msg.textContent = 'Ajouté ! On le prévient…'; frSend(id, { t: 'hi' }, (ok) => { frRender(); toast(ok ? 'Ami ajouté, il est prévenu (dès qu\'il ouvre le jeu).' : 'Ami ajouté, mais pas de connexion au serveur.', 4000); }); };
+  const add = q('#fr-add'); if (add) add.onclick = async () => { const value = q('#fr-new').value.trim(), legacy = frNorm(value); add.disabled = true;
+    let r = await acctCall('find', { name: value }); if (!r.ok && legacy && r.status === 200) r = { ok: true, fid: legacy, name: legacy.split('-')[0] };
+    const msg = q('#fr-msg'); if (!r.ok) { if (msg) msg.textContent = r.e || 'Serveur indisponible.'; add.disabled = false; return; }
+    if (r.fid === frMyId()) { if (msg) msg.textContent = 'C’est toi !'; add.disabled = false; return; }
+    frAddFriend(r.fid, r.name); if (msg) msg.textContent = 'Ajouté ! On le prévient…'; frSend(r.fid, { t: 'hi' }, (ok) => { frRender(); toast(ok ? 'Ami ajouté, il est prévenu (dès qu’il ouvre le jeu).' : 'Ami ajouté, mais pas de connexion au serveur.', 4000); }); };
   qa('[data-del]').forEach((b) => (b.onclick = () => { SAVE.friends = frList().filter((f) => f.id !== b.dataset.del); store(); frRender(); }));
   const accCode = () => SAVE.access && accessCheck(SAVE.access).ok ? SAVE.access : null;
   const codeFor = () => (typeof isChef === 'function' && isChef() ? chefMakeCode(Date.now() + 365 * 86400e3) : accCode());   // chef : un code à part pour chaque joueur
@@ -2783,7 +2785,7 @@ function frWire() { const q = (s) => $('#fr-root ' + s), qa = (s) => [...documen
     frSendMany(ids, { t: 'acc', code: accCode() }, (ok) => toast(ok ? 'Code envoyé aux ' + ids.length + ' membres.' : 'Pas de connexion au serveur.', 3000)); }));
   qa('[data-gquit]').forEach((b) => (b.onclick = () => { acctCall('gleave', { code: b.dataset.gquit, me: frMe() }); SAVE.groups = grList().filter((g) => g.code !== b.dataset.gquit); store(); FRU.open = null; frRender(); }));
 }
-setTimeout(() => { frMyId(); frStart(); const gi = $('#gate-fid'); if (gi) gi.textContent = frMyId(); }, 0);
+setTimeout(() => { frMyId(); frStart(); const gi = $('#gate-fid'); if (gi) gi.textContent = SAVE.name || 'Joueur'; }, 0);
 
 /* ================= v13 : mode chef dans le jeu (seulement sur le téléphone du chef) ================= */
 // Le chef colle une fois sa « clé du chef » (WKCHEF…, dans le zip du chef). Son jeu peut alors créer des codes,
@@ -2974,8 +2976,11 @@ async function acctCall(a, body, ext) {
   try { const r = await fetch(WK_API, { method: 'POST', headers: { 'content-type': 'text/plain;charset=UTF-8' }, body: JSON.stringify(Object.assign({ a }, body)), signal: ctl ? ctl.signal : undefined, keepalive: a === 'save' });
     let j = {}; try { j = await r.json(); } catch (e) { /* rien */ } if (!r.ok && !j.e) j.e = 'Serveur des comptes indisponible (' + r.status + ').'; j.status = r.status; return j; }
   catch (e) { return { e: 'Pas de connexion au serveur des comptes (' + (e && e.name === 'AbortError' ? 'trop lent' : 'réseau') + ').' }; } finally { clearTimeout(tm); } }
-// un seul nom partout (jeu, amis, compte) : le pseudo du compte
-function acctName() { if (!SAVE.acct || !SAVE.acct.u) return; if (SAVE.name !== SAVE.acct.u) { SAVE.name = SAVE.acct.u; store(); } }
+// Le nom public est modifiable ; le pseudo de connexion et les liens d'amitié restent stables.
+function acctName() { if (!SAVE.name && SAVE.acct) { SAVE.name = SAVE.acct.u; store(); } }
+async function acctSetName(name) { if (!SAVE.acct) return { e: 'Connecte-toi à ton compte.' };
+  const r = await acctCall('name', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, name: String(name || '').trim() });
+  if (r.ok) { SAVE.name = r.name; SAVE.acct.at = r.at; store(); acctRefreshUI(); frSendMany(frIds(), { t: 'profile' }); frKick(); frRender(); acctInfo(); } return r; }
 function acctPack() { const o = {}; for (const k in SAVE) if (!ACC_SKIP.has(k)) o[k] = SAVE[k]; return o; }
 // date du dernier changement de chaque réglage (pour garder le plus récent entre deux appareils)
 const ACT = { snap: null };
@@ -2995,7 +3000,7 @@ function acctMerge(sv, lo) { sv = sv || {}; const st = sv._ts || {}, lt = lo._ts
 function acctApply(r) { const before = JSON.stringify(acctPack()), m = acctMerge(r.save, SAVE); ACU.applying = true;
   for (const k of Object.keys(SAVE)) if (!ACC_SKIP.has(k)) delete SAVE[k]; for (const k in DEFAULT_SAVE) if (!ACC_SKIP.has(k) && !(k in m)) SAVE[k] = DEFAULT_SAVE[k];
   Object.assign(SAVE, m); if (r.fid) SAVE.fid = r.fid; SAVE.friends = (SAVE.friends || []).filter((f) => f.id !== SAVE.fid);
-  SAVE.acct = { u: r.pseudo || (SAVE.acct && SAVE.acct.u), tok: r.tok || (SAVE.acct && SAVE.acct.tok), at: r.at || Date.now() }; if (SAVE.acct.u) SAVE.name = SAVE.acct.u; store(); ACT.snap = null; acctTrack(); ACU.applying = false;
+  SAVE.acct = { u: r.pseudo || (SAVE.acct && SAVE.acct.u), tok: r.tok || (SAVE.acct && SAVE.acct.tok), at: r.at || Date.now() }; SAVE.name = r.name || SAVE.acct.u || SAVE.name; store(); ACT.snap = null; acctTrack(); ACU.applying = false;
   const changed = before !== JSON.stringify(acctPack()); if (changed) acctRefreshUI();
   if (JSON.stringify(acctPack()) !== JSON.stringify(Object.assign({}, r.save || {}, { fid: SAVE.fid }))) { ACU.timer = 0; setTimeout(() => { if (SAVE.acct) acctUpload(); }, 2500); }
   return changed; }
@@ -3012,9 +3017,9 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // sauvegarde automatique (quelques secondes après un changement)
 function acctDirty() { if (!SAVE.acct || ACU.applying) return; clearTimeout(ACU.timer); ACU.timer = setTimeout(acctUpload, Math.max(4000, 20000 - (Date.now() - ACU.lastUp))); }
 async function acctUpload() { if (!SAVE.acct) return; clearTimeout(ACU.timer); ACU.lastUp = Date.now(); const r = await acctCall('save', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, save: acctPack() });
-  if (r.ok) { SAVE.acct.at = r.at; ACU.applying = true; store(); ACU.applying = false; acctInfo(); } else if (r.status === 401) { toast('Ton compte s\'est déconnecté : reconnecte-toi.', 5000); SAVE.acct = null; store(); acctInfo(); accessTick(); } return r; }
+  if (r.ok) { SAVE.acct.at = r.at; if (r.name && SAVE.name !== r.name) { SAVE.name = r.name; acctRefreshUI(); frKick(); } ACU.applying = true; store(); ACU.applying = false; acctInfo(); } else if (r.status === 401) { toast('Ton compte s\'est déconnecté : reconnecte-toi.', 5000); SAVE.acct = null; store(); acctInfo(); accessTick(); } return r; }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && SAVE.acct && ACU.timer) acctUpload(); });
-function acctInfo() { const nm = $('#set-name'); if (nm) nm.textContent = SAVE.acct ? SAVE.acct.u : '—'; const t = SAVE.acct ? 'Connecté : ' + SAVE.acct.u + (SAVE.acct.at ? ' · sauvegardé ' + new Date(SAVE.acct.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '') : 'Pas de compte sur ce téléphone.';
+function acctInfo() { const nm = $('#set-name'); if (nm) nm.textContent = SAVE.name || '—'; const t = SAVE.acct ? 'Connecté : ' + SAVE.acct.u + (SAVE.acct.at ? ' · sauvegardé ' + new Date(SAVE.acct.at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '') : 'Pas de compte sur ce téléphone.';
   const el = $('#set-acct'); if (el) el.textContent = t; }
 // ---------- fenêtre du compte (par-dessus tout, même l'écran du code) ----------
 // pas de compte sur ce téléphone : on ne peut pas jouer sans (Créer un compte ou Se connecter)
@@ -3025,13 +3030,13 @@ function acctRender() { const d = $('#acct'); if (!d || !ACU.open) return; const
   const inp = (id, ph, type) => '<input id="' + id + '" type="' + (type || 'text') + '" placeholder="' + ph + '" autocomplete="off" autocapitalize="off" spellcheck="false">';
   let h = '<div class="gate-box acct-box"><h2>Mon compte</h2>';
   if (ACU.rec) h += '<p><b>Compte prêt !</b> Garde ce code de secours (fais une capture d\'écran). Il sert si tu oublies ton mot de passe :</p><p class="acct-rec">' + esc(ACU.rec) + '</p><button class="btn red" id="ac-ok"><span>C\'est noté</span></button>';
-  else if (SAVE.acct) h += '<p>Connecté : <b>' + esc(SAVE.acct.u) + '</b><br><small>Identifiant ami ' + esc(frMyId()) + '. Tout se sauvegarde tout seul.</small></p><div class="acct-row"><button class="btn sm" id="ac-save"><span>Sauvegarder maintenant</span></button><button class="btn sm ghost" id="ac-out"><span>Se déconnecter</span></button></div>'
+  else if (SAVE.acct) h += '<p>Nom : <b>' + esc(SAVE.name) + '</b><br><small>Connexion : ' + esc(SAVE.acct.u) + '. Tout se sauvegarde tout seul.</small></p><label for="ac-name">Changer de nom</label><input id="ac-name" value="' + esc(SAVE.name) + '" maxlength="24" autocomplete="off"><button class="btn sm" id="ac-rename"><span>Enregistrer le nom</span></button><div class="acct-row"><button class="btn sm" id="ac-save"><span>Sauvegarder maintenant</span></button><button class="btn sm ghost" id="ac-out"><span>Se déconnecter</span></button></div>'
     + '<details><summary>Changer de mot de passe</summary>' + inp('ac-old', 'Mot de passe actuel', 'password') + inp('ac-new', 'Nouveau mot de passe', 'password') + '<button class="btn sm" id="ac-pass"><span>Changer</span></button></details>';
   else {
     if (!['creer', 'co', 'perdu'].includes(ACU.tab)) ACU.tab = 'choix';
     if (ACU.tab === 'choix') h += '<p>Un compte est nécessaire pour jouer.<br><small>Il garde tes amis, ton code d\'accès, ton kart et tes records, même si tu changes de téléphone.</small></p><div class="acct-choice"><button class="btn red" data-t="creer"><span>Créer un compte</span></button><button class="btn" data-t="co"><span>Se connecter</span></button></div>';
     else h += '<button class="btn sm ghost acct-back" data-t="choix"><span>← Retour</span></button>';
-    if (ACU.tab === 'creer') h += '<p><small>Ton pseudo sera ton nom partout : dans les courses, pour tes amis et pour ton compte.</small></p>' + inp('ac-u', 'Pseudo (ex. Lea_92)') + inp('ac-p', 'Mot de passe (4 caractères ou plus)', 'password') + '<button class="btn red" id="ac-go"><span>Créer mon compte</span></button>';
+    if (ACU.tab === 'creer') h += '<p><small>Ton pseudo sera ton premier nom de joueur. Tu pourras ensuite changer de nom dans Mon compte.</small></p>' + inp('ac-u', 'Pseudo (ex. Lea_92)') + inp('ac-p', 'Mot de passe (4 caractères ou plus)', 'password') + '<button class="btn red" id="ac-go"><span>Créer mon compte</span></button>';
     else if (ACU.tab === 'co') h += '<p><small>Les données de ce téléphone seront remplacées par celles de ton compte.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-p', 'Mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Se connecter</span></button><p><button class="btn sm ghost" data-t="perdu"><span>Mot de passe oublié ?</span></button></p>';
     else if (ACU.tab === 'perdu') h += '<p><small>Mets ton code de secours, ou un code de réinitialisation demandé au chef.</small></p>' + inp('ac-u', 'Pseudo') + inp('ac-c', 'Code de secours ou code du chef') + inp('ac-p', 'Nouveau mot de passe', 'password') + '<button class="btn red" id="ac-go"><span>Réinitialiser</span></button>';
   }
@@ -3046,6 +3051,7 @@ function acctWire() { const q = (s) => $('#acct ' + s), v = (s) => (q(s) ? q(s).
     if (ACU.tab === 'creer') { const r = await acctCall('create', { pseudo: u, pass: p, fid: frMyId(), save: acctPack() }); if (r.ok) { const old = SAVE.fid; acctApply(r); ACU.rec = r.rec; if (old !== r.fid) frRestart(); frSyncName(); toast('Compte créé.', 2500); acctRender(); } return r; }
     if (ACU.tab === 'co') { const r = await acctCall('login', { pseudo: u, pass: p }); if (r.ok) { const fidWas = SAVE.fid; acctApply(r); if (fidWas !== SAVE.fid) frRestart(); acctUpload(); frSyncName(); toast('Connecté ! Tout est récupéré.', 2500); acctClose(); G.locked = false; accessTick(); } return r; }
     const r = await acctCall('reset', { pseudo: u, code: cd, pass: p }); if (r.ok) { acctApply(r); frSyncName(); ACU.rec = r.rec; acctRender(); } return r; }); };
+  const rn = q('#ac-rename'); if (rn) rn.onclick = () => { const name = v('#ac-name'); busy(async () => { const r = await acctSetName(name); if (r.ok) ACU.msg = 'Nom modifié. Tes amis et groupes sont conservés.'; return r; }); };
   const sv = q('#ac-save'); if (sv) sv.onclick = () => busy(async () => { const r = await acctUpload(); if (r && r.ok) { ACU.msg = 'Sauvegardé.'; acctRender(); } return r; });
   const out = q('#ac-out'); if (out) out.onclick = () => busy(async () => { await acctUpload(); await acctCall('logout', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok }); SAVE.acct = null; store(); ACU.tab = 'choix'; ACU.msg = 'Déconnecté. Tes données restent sur ce téléphone.'; G.locked = true; acctRender(); });
   const pw = q('#ac-pass'); if (pw) pw.onclick = () => { const po = q('#ac-old').value, pn = q('#ac-new').value; busy(async () => { const r = await acctCall('pass', { pseudo: SAVE.acct.u, tok: SAVE.acct.tok, old: po, pass: pn }); if (r.ok) { SAVE.acct.tok = r.tok; store(); ACU.msg = 'Mot de passe changé.'; acctRender(); } return r; }); };
@@ -3800,7 +3806,7 @@ const arenaLeft = (R) => Math.max(0, ARENA_T - R.t);
 function finishKart(k) {
   const R = G.race; k.finished = true; k.finishTime = R.t; R.order.push(k);
     if (R.online && !k.isRemote) netEmit({ t: 'fin', id: k.netId, time: k.finishTime, best: isFinite(k.bestLap) ? k.bestLap : 0, hits: k.isPlayer && R.pt ? R.pt.hits : 0 });
-    if (k.isPlayer) playerFinished();
+    if (k.isPlayer) { updateRaceOrder(); playerFinished(); }
 }
 
 /* ---- physique ---- */
@@ -6064,8 +6070,7 @@ function simStep(dt) {
   W.clock = (W.clock || 0) + dt; updateObstacles(W.clock); updateGates(W, W.clock); updateWeather(W, W.clock, dt); updateChameleon(W, W.clock, dt); updateZones(W, dt); policeUpdate(dt);
   if (racing) { collideKarts(); updateItems(dt); updateBoxes(dt); }
   // classement
-  const live = G.karts.filter((k) => !k.finished).sort((a, b) => b.prog - a.prog);
-  const order = (R.order || []).concat(live); order.forEach((k, i) => (k.place = i + 1));
+  updateRaceOrder();
   if (R.state === 'race') {
     const P = R.player;
     const PP = P.P || W.S, pj = clamp(P.idx, 0, PP.N - 1); const dot = Math.sin(P.vh) * PP.fx[pj] + Math.cos(P.vh) * PP.fz[pj];
@@ -6075,6 +6080,21 @@ function simStep(dt) {
   }
   if (R.state === 'finished') { R.timer2 = (R.timer2 || 0) + dt; if (R.timer2 > 3.5 && !R.resultsShown) { if (REC.best && !R.autoRep && !REC.on) { R.autoRep = true; replayStart(); } else if (!REPLAY.on && (!REC.on || R.timer2 > 6)) showResults(); } }
   if (R.spec) specTick(dt);
+}
+// Le classement et les statistiques appartiennent à la simulation, indépendamment des ralentis.
+function updateRaceOrder() {
+  const R = G.race, P = R && R.player; if (!R) return;
+  const live = G.karts.filter((k) => !k.finished && !k.spect).sort((a, b) => b.prog - a.prog);
+  const order = (R.order || []).filter((k) => !k.spect).concat(live);
+  order.forEach((k, i) => (k.place = i + 1));
+  if (!P || P.spect || R.awarded) return;
+  const ranks = R.passRanks || (R.passRanks = new Map()), active = R.state === 'race';
+  const ps = racePS(); if (active) ps.worst = Math.max(ps.worst, P.place);
+  for (const o of order) { if (o === P) continue;
+    const ahead = o.place < P.place, was = ranks.get(o);
+    if (active && was === true && !ahead) { ps.passes++; if (P.place === 1 && P.lap >= LAPS) ps.lastLap1 = true; }
+    ranks.set(o, ahead);
+  }
 }
 // départ turbo : DRIFT pressé dans la dernière seconde du compte à rebours
 function goBoosts(R) {
@@ -6487,7 +6507,10 @@ function recTick(dt) { const R = G.race, P = R && R.player; if (!P || P.spect ||
   if (R.state === 'race' && !P.finished) REC.on = true; if (!REC.on) return;
   REC.t += dt; REC.acc += dt; if (REC.acc >= 1 / 30) { REC.acc = 0;
     if (!REC.base) REC.base = new Set(G.W.scene.children); const ns = recNodes(), d = new Float32Array(ns.length * 11);
-    ns.forEach((o, i) => { d.set([o.position.x, o.position.y, o.position.z, o.quaternion.x, o.quaternion.y, o.quaternion.z, o.quaternion.w, o.scale.x, o.scale.y, o.scale.z, (o.userData.recK ? !o.userData.recK.spect : o.visible) ? 1 : 0], i * 11); });
+    for (let i = 0; i < ns.length; i++) { const o = ns[i], j = i * 11;
+      d[j] = o.position.x; d[j + 1] = o.position.y; d[j + 2] = o.position.z;
+      d[j + 3] = o.quaternion.x; d[j + 4] = o.quaternion.y; d[j + 5] = o.quaternion.z; d[j + 6] = o.quaternion.w;
+      d[j + 7] = o.scale.x; d[j + 8] = o.scale.y; d[j + 9] = o.scale.z; d[j + 10] = (o.userData.recK ? !o.userData.recK.spect : o.visible) ? 1 : 0; }
     const F = { t: REC.t, ns, d }; REC.fr.push(F); while (REC.fr.length && REC.t - REC.fr[0].t > 8) REC.fr.shift();
     if (!REC.full.length || REC.t - REC.full[REC.full.length - 1].t >= .1) REC.full.push(F);   // toute la course, pour « Revoir la course »
     let c = 0; while (c < REC.pe.length && REC.t - REC.pe[c][0] > 8) c++; if (c) REC.pe.splice(0, c); }
@@ -6496,7 +6519,7 @@ function recTick(dt) { const R = G.race, P = R && R.player; if (!P || P.spect ||
     const o = G.karts.find((x) => x.place === k.place + 1), d = o ? Math.hypot(o.x - k.x, o.z - k.z) : 99; if (d > 22) continue; const last = k.lap >= LAPS, me = k.isPlayer;
     REC.passes.set(k, { t: REC.t, place: k.place, o, pts: ((k.place === 1 ? 5 : 2.5) * (last ? 1.6 : 1) + (d < 6 ? 1.5 : 0)) * (me ? 1.2 : 1),
       label: (me ? 'Tu ' : k.name + ' ') + (k.place === 1 ? 'prend' + (me ? 's' : '') + ' la 1re place' + (last ? ' au dernier tour' : '') : 'double' + (me ? 's ' : ' ') + o.name) }); }
-  for (const [k, q] of REC.passes) if (REC.t - q.t > 1.5) { REC.passes.delete(k); if (k.place <= q.place) { recEvent(q.pts, q.label, q.o, q.t, k); emoOnPass(k, q.o); if (k.isPlayer) { const ps = racePS(); ps.passes++; if (q.place === 1 && k.lap >= LAPS) ps.lastLap1 = true; } } }
+  for (const [k, q] of REC.passes) if (REC.t - q.t > 1.5) { REC.passes.delete(k); if (k.place <= q.place) { recEvent(q.pts, q.label, q.o, q.t, k); emoOnPass(k, q.o); } }
   REC.place = P.place;
   // gros saut (avec figure en l'air : bonus)
   if (P.trickT > 0 && !REC.trick) REC.trick = true;
@@ -6558,17 +6581,72 @@ const fullClip = () => REC.full.length > 30 ? { full: true, fr: REC.full, ev: [{
 const fullReplay = () => { const c = fullClip(); if (c) replayStart(() => show('results'), c); };
 function topAdd(R) { const c = REC.best; if (!R || R.topDone || !c || !R.player) return; R.topDone = true; const e = c.ev && c.ev[0]; if (!e || e.a !== R.player.mesh.g) return;
   const L = Array.isArray(SAVE.topActs) ? SAVE.topActs : []; L.push({ l: c.label.replace(/^Tu /, ''), s: Math.round(c.sc * 10) / 10, tr: TRACKS[R.ti].name, t: Date.now() }); L.sort((a, b) => b.s - a.s); SAVE.topActs = L.slice(0, 10); store(); }
-// partager la meilleure action en vidéo : le ralenti est filmé puis envoyé (ou enregistré)
-const canRecord = () => typeof MediaRecorder !== 'undefined' && !!(renderer.domElement.captureStream);
-function replayShare() { if (!REC.best || !canRecord()) return; let st; try { st = renderer.domElement.captureStream(30); } catch (e) { toast('Vidéo impossible sur ce téléphone.', 2500); return; }
-  const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm']; const type = types.find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) || '';
-  let rec; try { rec = new MediaRecorder(st, type ? { mimeType: type, videoBitsPerSecond: 4e6 } : undefined); } catch (e) { toast('Vidéo impossible sur ce téléphone.', 2500); return; }
-  const chunks = []; rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  rec.onstop = async () => { st.getTracks().forEach((t) => t.stop()); const mt = rec.mimeType || type || 'video/webm', ext = /mp4/.test(mt) ? 'mp4' : 'webm', blob = new Blob(chunks, { type: mt }); if (!blob.size) { toast('Vidéo vide.', 2000); return; }
-    const file = new File([blob], 'wild-kart-meilleure-action.' + ext, { type: mt }), txt = 'Ma meilleure action sur Wild Kart : ' + REC.best.label;
-    try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text: txt }); return; } } catch (e) { if (e && e.name === 'AbortError') return; }
-    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000); toast('Vidéo enregistrée.', 2500); };
-  rec.start(250); toast('🎬 On filme la meilleure action…', 1800); replayStart(() => { try { rec.stop(); } catch (e) { /* rien */ } show('results'); }); }
+// Préparer le fichier puis demander un nouveau clic : Web Share exige une activation utilisateur.
+const canRecord = () => typeof MediaRecorder !== 'undefined' && !!renderer.domElement.captureStream;
+let videoRecording = false;
+function videoNative() {
+  const c = window.Capacitor;
+  if (!c || !c.isNativePlatform || !c.isNativePlatform() || !c.isPluginAvailable('Share') || !c.isPluginAvailable('Filesystem')) return null;
+  return { share: c.registerPlugin('Share'), fs: c.registerPlugin('Filesystem') };
+}
+async function videoReady(blob, label) {
+  const ext = /mp4/.test(blob.type) ? 'mp4' : 'webm', name = 'wild-kart-' + Date.now() + '.' + ext;
+  const file = new File([blob], name, { type: blob.type }), native = videoNative();
+  let cached = null;
+  if (native) {
+    try {
+      const data = await new Promise((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(r.result.split(',')[1]); r.onerror = reject; r.readAsDataURL(blob); });
+      cached = await native.fs.writeFile({ path: name, data, directory: 'CACHE' });
+    } catch (e) { toast('Impossible de préparer la vidéo sur cet appareil.', 3000); return; }
+  }
+  const url = URL.createObjectURL(blob), panel = document.createElement('div');
+  panel.style.cssText = 'position:fixed;inset:0;z-index:2000;background:#17143aeb;display:flex;align-items:center;justify-content:center;padding:20px';
+  panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true'); panel.setAttribute('aria-label', 'Vidéo prête');
+  panel.innerHTML = '<div class="group" style="max-width:420px;text-align:center"><h3>Ta vidéo est prête 🎬</h3><p>Partage ta meilleure action ou enregistre le fichier.</p><div class="row"><button class="btn" data-video-share><span>Partager</span></button><a class="btn ghost" data-video-save><span>Télécharger</span></a><button class="btn ghost" data-video-close><span>Fermer</span></button></div></div>';
+  const share = panel.querySelector('[data-video-share]'), save = panel.querySelector('[data-video-save]');
+  save.href = url; save.download = name; save.hidden = !!native;
+  let webShare = false; try { webShare = !!(navigator.share && navigator.canShare && navigator.canShare({ files: [file] })); } catch (e) { /* téléchargement disponible */ }
+  share.hidden = !native && !webShare;
+  share.onclick = async () => {
+    share.disabled = true;
+    try {
+      const text = 'Ma meilleure action sur Wild Kart : ' + label;
+      if (native) await native.share.share({ files: [cached.uri], text, dialogTitle: 'Partager la vidéo Wild Kart' });
+      else await navigator.share({ files: [file], text });
+    } catch (e) { if (!e || e.name !== 'AbortError') toast('Partage interrompu. Tu peux réessayer.', 2500); }
+    finally { share.disabled = false; }
+  };
+  const focus = document.activeElement;
+  panel.querySelector('[data-video-close]').onclick = () => { panel.remove(); URL.revokeObjectURL(url); if (native && cached) native.fs.deleteFile({ path: name, directory: 'CACHE' }).catch(() => {}); if (focus && focus.isConnected) focus.focus(); };
+  document.body.appendChild(panel); (share.hidden ? save : share).focus();
+}
+function replayShare() {
+  if (videoRecording || !REC.best || !canRecord()) return;
+  const clip = REC.best, race = G.race;
+  let st, rec, watchdog;
+  const release = () => { clearInterval(watchdog); if (st) st.getTracks().forEach((t) => t.stop()); videoRecording = false; };
+  try {
+    st = renderer.domElement.captureStream(30);
+    const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp8', 'video/webm'];
+    const type = types.find((t) => MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t));
+    rec = new MediaRecorder(st, type ? { mimeType: type, videoBitsPerSecond: 4e6 } : undefined);
+    const chunks = []; let failed = false;
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onerror = () => { failed = true; release(); toast('Enregistrement vidéo interrompu.', 2500); };
+    rec.onstop = async () => {
+      release(); if (failed || G.race !== race) return;
+      const mt = rec.mimeType || type || 'video/webm', blob = new Blob(chunks, { type: mt });
+      if (!blob.size) { toast('Vidéo vide. Réessaie après une action complète.', 2500); return; }
+      await videoReady(blob, clip.label);
+    };
+    videoRecording = true; rec.start(250);
+    const stop = () => { if (rec.state !== 'inactive') rec.stop(); };
+    replayStart(() => { stop(); show('results'); }, clip);
+    // Nettoyage aussi si le joueur quitte la course pendant la capture.
+    watchdog = setInterval(() => { if (!REPLAY.on || G.race !== race) stop(); }, 500);
+    toast('🎬 On filme la meilleure action…', 1800);
+  } catch (e) { release(); toast('Vidéo impossible sur cet appareil.', 2500); }
+}
 function showResults() {
   $('#r-big').hidden = true; $('#r-table').className = '';
   if (G.race && G.race.online) return onlineResults();
@@ -7334,7 +7412,7 @@ const r2 = (v) => Math.round(v * 100) / 100, r3 = (v) => Math.round(v * 1000) / 
 function packState(k) { return [k.netId, r2(k.x), r2(k.z), r2(k.y), r3(k.h), r3(k.vh), r2(k.speed), k.idx, k.lap, r2(k.prog), k.drift, k.boost > 0 ? 1 : 0, k.spin > 0 ? 1 : 0, k.shield > 0 ? 1 : 0, k.air ? (k.air === 'glide' ? 1 : k.air === 'hop' ? 2 : 3) : 0, k.star > 0 ? 1 : 0, k.ghost > 0 ? 1 : 0, k.shrink > 0 ? 1 : 0, k.P && k.P !== G.W.S ? k.P.id : -1, k.driftTier || 0, k.trickT > 0 ? 1 : 0, (k.netSeqOut = ((k.netSeqOut || 0) + 1) % 1e9), Math.round(performance.now()), k.ram > 0 ? 1 : 0, k.mirror > 0 ? 1 : 0]; }
 function applyRemote(s) {
   const k = G.netKarts && G.netKarts.get(s[0]); if (!k || !k.isRemote || !G.W) return;
-  { const q = s[21]; if (q != null) { if (k.netSeq != null && q <= k.netSeq && q > k.netSeq - 600) return; k.netSeq = q; } }
+  { const q = s[21]; if (q != null) { if (!Number.isInteger(q) || q < 0 || q >= 1e9) return; const d = k.netSeq == null ? 1 : (q - k.netSeq + 1e9) % 1e9; if (!d || d >= 5e8) return; k.netSeq = q; } }
   k.net = { x: +s[1], z: +s[2], y: +s[3], h: +s[4], vh: +s[5], sp: +s[6], t: performance.now() }; netBuf(k, s);
   { const pid = s[18] == null ? -1 : s[18] | 0; k.P = pid >= 0 && G.W.branches[pid] ? G.W.branches[pid] : G.W.S; }
   k.idx = clamp(s[7] | 0, 0, k.P.N - 1); k.lap = s[8] | 0; k.prog = +s[9]; k.drift = s[10] | 0; k.boost = s[11] ? .2 : 0; k.spinNet = !!s[12]; k.shield = s[13] ? 1 : 0; k.air = [false, 'glide', 'hop', 'jump'][s[14] | 0] || false; k.driftTier = s[19] | 0; if (s[20] && !(k.trickT > 0)) { k.trickT = .45; k.trickDir = 1; } k.star = s[15] ? 1 : 0; k.ghost = s[16] ? 1 : 0; k.shrink = s[17] ? 1 : 0; k.ram = s[23] ? 1 : 0; k.mirror = s[24] ? 1 : 0;
@@ -8049,7 +8127,7 @@ function applyControlMode() {
   else { Input.useTilt = false; done(); }
 }
 $$('#set-ctrl button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.control = b.dataset.v; store(); applyControlMode(); }));
-$$('#set-fps button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.fps = +b.dataset.v; store(); syncSettings(); toast(SAVE.fps === 30 ? '30 images/s : le téléphone chauffe moins et la batterie dure plus.' : '60 images/s : le plus fluide.'); }));
+$$('#set-fps button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.fps = +b.dataset.v; store(); syncSettings(); toast(SAVE.fps === 30 ? '30 images/s : le téléphone chauffe moins et la batterie dure plus.' : SAVE.fps === 60 ? 'Limite à 60 images/s.' : 'Fluidité maximale selon ton écran et ton appareil.'); }));
 $$('#set-gas button').forEach((b) => (b.onclick = () => { AudioSys.sfx('click'); SAVE.throttle = b.dataset.v; SAVE.hintsN = 0; store(); syncSettings(); const pad = $('#pad'); if (pad && !pad.hidden) pad.className = padClass(); toast(SAVE.throttle === 'manual' ? 'Manuelle : garde GAZ appuyé pour avancer. DRIFT accélère aussi : glisse ton pouce de GAZ à DRIFT.' : 'Auto : le kart accélère tout seul.'); }));
 $('#set-back').onclick = () => { AudioSys.sfx('click'); const b = UI.settingsBack || 'title'; UI.settingsBack = null; show(b); };
 $('#p-settings').onclick = () => { AudioSys.sfx('click'); UI.settingsBack = 'pause'; show('settings'); };
@@ -8088,14 +8166,14 @@ function showHints() {
   el.innerHTML = ''; for (const t of lines) { const s = document.createElement('span'); s.textContent = t; el.appendChild(s); } el.hidden = false; clearTimeout(showHints.h); showHints.h = setTimeout(() => (el.hidden = true), 11000);
 }
 /* ---- limite d'images par seconde ---- */
-function fpsCap() { return SAVE.fps === 30 ? 30 : 60; }
+function fpsCap() { return SAVE.fps === 0 ? 0 : SAVE.fps === 30 ? 30 : 60; }
 
 /* ================= Boucle principale ================= */
-let last = performance.now(), acc = 0; const STEP = 1 / 60;
+let last = performance.now(), lastTick = last, acc = 0; const STEP = 1 / 60;
 function frame(now) {
   requestAnimationFrame(frame);
-  const iv = 1000 / fpsCap(), el = now - last; if (el < iv - 2.5) return;
-  let dt = el / 1000; { const r = el % iv; last = el < iv * 3 && r < iv - 2.5 ? now - r : now; } RFR.n++; if (!(dt > 0)) dt = 0; dt = Math.min(dt, .1);
+  const iv = fpsCap() ? 1000 / fpsCap() : 0, el = now - last; if (el < iv - 2.5) return;
+  let dt = (now - lastTick) / 1000; lastTick = now; last = iv ? now - (el % iv) : now; RFR.n++; if (!(dt > 0)) dt = 0; dt = Math.min(dt, .1);
   if (UI.screen === 'calib') updateCalibUI();
   if (UI.screen === 'garage' && GS.kart) { renderGarage(dt); return; }
   if (!G.W || !G.race) return;
@@ -8117,7 +8195,7 @@ function frame(now) {
 let frameN = 0; const PERF = { avg: 1 / 60, slowT: 0, fastT: 0, scale: 1, warned: false };
 function adaptPerf(dt) {
   PERF.avg += (dt - PERF.avg) * .05; const base = Math.min(window.devicePixelRatio || 1, qual().pr);
-  const cap = fpsCap(); if (PERF.avg > 1.33 / cap) { PERF.slowT += dt; PERF.fastT = 0; } else if (PERF.avg < 1.05 / cap) { PERF.fastT += dt; PERF.slowT = 0; } else { PERF.slowT = 0; PERF.fastT = 0; }
+  const cap = fpsCap() || 60; if (PERF.avg > 1.33 / cap) { PERF.slowT += dt; PERF.fastT = 0; } else if (PERF.avg < 1.05 / cap) { PERF.fastT += dt; PERF.slowT = 0; } else { PERF.slowT = 0; PERF.fastT = 0; }
   if (PERF.slowT > 1.5) {
     PERF.slowT = 0;
     if (PERF.scale > .62) { PERF.scale = Math.max(.6, PERF.scale - .12); renderer.setPixelRatio(Math.max(.75, base * PERF.scale)); }
@@ -8168,5 +8246,5 @@ if (window.TK_TEST) (function testPanel() {
 })();
 
 // accès pour les tests automatisés
-window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote };
+window.__TK = { netReset, sacOpen, updateHud, aiBranch, aheadOn, trackLocate, useItem, itemOdds13, ODDS13, store, acctPull, CHU, chefRender, musicSpec, wkStrHash, accessCheck, isChef, accessSync, updCheck, UPD, frPoll, FR, statsFor, BODIES, WHEELS, GLIDERS, policeStart, secretCheck,  gateState, OBST_THEME, rollItem: rollItem11, RARITY, AudioSys,  RACE_OPTS_REF: () => RACE_OPTS, ENVS, buildSamples, updateCamera,  openSide,  hostCupStart, hostCupVerdict, hostCupEnd, hostCupBet, RACE_OPTS,  specStart, specEnd, specShift, applyBotLevel, BOT_LV, camera, kartPhysics, trackLocate, RECENT: () => RECENT, SEEN: () => SEEN, launch, renderer, T, LEVELS7, freshPick, quizCount, buildBranches, padMode, G, UI, SAVE, Input, Net, hostMini, MINI, startWheel, PERF, useItem, applyQuality, netSendStates, startQuiz, netCreate, netJoin, hostStart, myCfg, kartMesh, TRACKS, startRace, show, simStep, updateVisuals, setAutopilot: (v) => (G.autopilot = v), render: () => renderer.render(G.W.scene, camera), showResults, REC, REPLAY, recTick, recEvent, replayStart, CHEF, chefMsgShow, BanSet, ghostTick, GH, progData, progLevel, dailyDef, dailyPlay, dailyOpen, replayShare, videoReady, fullReplay, spawnRocket, emoShow, isChef, chefState, chefBan, LEVEL_UNLOCKS, ACHS, netEmit, banner, progOpen, weekDefs, updateObstacles, bridgeAvoid, brAt, raftsAvoid, playerEmote, kartEmote };
 })();

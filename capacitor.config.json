@@ -2,7 +2,7 @@
   "appId": "fr.wildkart.jeu",
   "appName": "Wild Kart",
   "webDir": "www",
-  "backgroundColor": "#17143a",
+  "backgroundColor": "#01051a",
   "server": {
     "allowNavigation": [
       "wild-kart-moutmout.netlify.app",
@@ -12,11 +12,11 @@
   },
   "android": {
     "allowMixedContent": false,
-    "backgroundColor": "#17143a"
+    "backgroundColor": "#01051a"
   },
   "ios": {
     "contentInset": "never",
-    "backgroundColor": "#17143a",
+    "backgroundColor": "#01051a",
     "scrollEnabled": false
   }
 }

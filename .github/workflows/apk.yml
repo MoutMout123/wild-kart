@@ -30,7 +30,7 @@ jobs:
         run: |
           npx cap add android
           node scripts/patch-native.cjs
-          npx capacitor-assets generate --android --iconBackgroundColor "#17143a" --iconBackgroundColorDark "#17143a" --splashBackgroundColor "#17143a" --splashBackgroundColorDark "#17143a"
+          npx capacitor-assets generate --android --iconBackgroundColor "#01051a" --iconBackgroundColorDark "#01051a" --splashBackgroundColor "#01051a" --splashBackgroundColorDark "#01051a"
           npx cap sync android
 
       - name: Numéro de version

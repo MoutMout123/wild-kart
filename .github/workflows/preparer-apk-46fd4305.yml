@@ -1,0 +1,106 @@
+name: Préparer le lot Android Wild Kart 46fd4305
+
+on:
+  push:
+    branches: [codex/preparer-apk-46fd4305]
+
+permissions:
+  contents: write
+
+jobs:
+  emballer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 5bf6f1a18a3f50c74c493a9830610f72b00c09cb
+      - uses: actions/checkout@v4
+        with:
+          repository: MoutMout123/wild-kart-public
+          ref: 3583b479b2fb4ace89aa95fcefd00427f4093ec0
+          path: official-web
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Vérifier et intégrer le lot Web exact
+        run: |
+          cat > "$RUNNER_TEMP/prepare-apk.cjs" <<'WK_PREP'
+          'use strict';
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const crypto = require('node:crypto');
+          
+          const [web, android] = process.argv.slice(2).map(arg => path.resolve(arg));
+          const www = path.join(android, 'www');
+          const manifest = JSON.parse(fs.readFileSync(path.join(web, 'export-manifeste.json'), 'utf8'));
+          assert.equal(manifest.commit, '46fd4305ce48d702eb5b70d668b3c548f51c1ba4');
+          const version = manifest.version;
+          assert.equal(version, '46fd4305');
+          const androidBoot = fs.readFileSync(path.join(www, 'boot.js'), 'utf8');
+          const oldFallback = /^function wkJeuLocal\(\) \{[^\n]+\}$/m;
+          assert.match(androidBoot, oldFallback);
+          
+          for (const [name, hash] of Object.entries(manifest.fichiers)) {
+            assert(!path.isAbsolute(name) && !name.split('/').includes('..'), name);
+            const data = fs.readFileSync(path.join(web, name));
+            assert.equal(crypto.createHash('sha256').update(data).digest('hex'), hash, name);
+            const target = path.join(www, name);
+            fs.mkdirSync(path.dirname(target), { recursive: true });
+            fs.writeFileSync(target, data);
+          }
+          fs.copyFileSync(path.join(web, 'version.json'), path.join(www, 'version.json'));
+          const index = path.join(www, 'index.html');
+          const html = fs.readFileSync(index, 'utf8');
+          const scriptTag = /<script src="([^"]+)"( async)?><\/script>/g;
+          const tags = [...html.matchAll(scriptTag)];
+          assert(tags.length >= 15);
+          assert.equal(tags.filter(([, src]) => src === 'game.js?v=' + version).length, 1);
+          const scripts = tags.map(([, src, async]) => ({ src, async: !!async }));
+          for (const { src } of scripts) assert(fs.existsSync(path.join(www, src.split('?')[0])), src);
+          const first = tags[0].index;
+          const last = tags.at(-1).index + tags.at(-1)[0].length;
+          assert.equal(html.slice(first, last).replace(scriptTag, '').trim(), '');
+          fs.writeFileSync(index, html.slice(0, first) + '<script src="apk-boot.js?v=' + version + '"></script>' + html.slice(last));
+          
+          const fallback = `function wkJeuLocal() {
+            if (wkLocal) return;
+            wkLocal = true;
+            var scripts = ${JSON.stringify(scripts)};
+            function suivant() {
+              var fichier = scripts.shift();
+              if (!fichier) return;
+              var script = document.createElement('script');
+              script.src = fichier.src;
+              script.async = fichier.async;
+              if (!fichier.async) {
+                script.addEventListener('load', suivant, { once: true });
+                script.addEventListener('error', function () {
+                  console.error('Wild Kart : impossible de charger ' + fichier.src);
+                }, { once: true });
+              }
+              if (fichier.src.startsWith('boot.js?')) wkAttente(false);
+              document.body.appendChild(script);
+              if (fichier.async) suivant();
+            }
+            suivant();
+          }`;
+          fs.writeFileSync(path.join(www, 'apk-boot.js'), androidBoot.replace(oldFallback, () => fallback));
+          const boot = path.join(www, 'boot.js');
+          const webBoot = fs.readFileSync(boot, 'utf8');
+          const serviceWorkerCheck = "if ('serviceWorker' in navigator && location.protocol === 'https:')";
+          assert(webBoot.includes(serviceWorkerCheck));
+          fs.writeFileSync(boot, webBoot.replace(serviceWorkerCheck, "if (!window.TK_APP && 'serviceWorker' in navigator && location.protocol === 'https:')"));
+          console.log('Application Android préparée avec le lot Web ' + version);
+          WK_PREP
+          node "$RUNNER_TEMP/prepare-apk.cjs" official-web .
+          node --check www/apk-boot.js
+          node --check www/boot.js
+          git add -- www
+          git diff --cached --name-only | awk 'BEGIN { n = 0 } /^www\// { n++; next } { exit 1 } END { if (!n) exit 1 }'
+      - name: Préparer le commit Android sans le publier
+        run: |
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "Intégrer Wild Kart officiel 46fd4305 à l'application Android"
+          git push origin HEAD:refs/heads/codex/apk-46fd4305

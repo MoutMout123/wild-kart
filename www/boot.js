@@ -1,35 +1,46 @@
-/* Wild Kart (appli) : démarrage */
+/* Wild Kart : démarrage (fichier séparé pour la politique de sécurité) */
 window.TK_BUILD = 'pwa';
-window.TK_APP = true;
-document.documentElement.classList.add('app');
-// mises à jour sans réinstaller : si internet marche, l'appli ouvre le jeu à jour sur le site.
-// La première fois, les données de ce téléphone (amis, code, kart…) sont emportées avec.
-// Écran d'attente au logo officiel pendant la vérification du site : sans lui, l'ancienne version embarquée démarrait
-// (ancien écran de chargement) puis la page était remplacée par le site et sa propre animation (deux chargements enchaînés).
-var WKA = null;
-function wkAttente(on) {
-  try {
-    if (on && !WKA) { WKA = document.createElement('div'); WKA.id = 'wk-attente';
-      WKA.setAttribute('style', 'position:fixed;inset:0;z-index:99999;background:#01051a;display:flex;align-items:center;justify-content:center');
-      WKA.innerHTML = '<img src="icon-512.png" alt="Wild Kart" style="width:min(56vh,56vw);height:auto">'; (document.body || document.documentElement).appendChild(WKA); }
-    else if (!on && WKA) { WKA.parentNode.removeChild(WKA); WKA = null; }
-  } catch (e) { /* rien */ }
+window.TK_VER = '46fd4305';
+// ouvert depuis l'appli Android / iPhone (elle charge le site pour avoir les mises à jour)
+try { localStorage.removeItem('wk-app'); if (/[?&]app=1/.test(location.search)) sessionStorage.setItem('wk-app', '1'); if (sessionStorage.getItem('wk-app') || /; wv\)/.test(navigator.userAgent)) { window.TK_APP = true; document.documentElement.classList.add('app'); } } catch (e) { /* rien */ }
+if (!window.TK_APP && 'serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', function () { navigator.serviceWorker.register('sw.js').catch(function () {}); });
 }
-// Version embarquée (repli hors ligne) : chargée seulement si le site ne répond pas. Chargée d'office, son initialisation
-// (plusieurs secondes sur téléphone) bloquait la page : la réponse du site arrivait après le délai et l'appli restait sur l'ancienne version.
-var wkLocal = false;
-function wkJeuLocal() { if (wkLocal) return; wkLocal = true; wkAttente(false); var s = document.createElement('script'); s.src = 'game.js?v=da2663d0'; document.body.appendChild(s); }
-(function () {
-  var SITE = 'https://moutmout123.github.io/wild-kart-public/';
-  if (location.hostname !== 'localhost' || /[?&]local=1/.test(location.search)) return wkJeuLocal();
-  wkAttente(true);
-  var done = false, t = setTimeout(function () { done = true; wkJeuLocal(); }, 6000);
-  fetch(SITE + 'version.json?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (j) {
-    if (done || !j || !j.v) { wkJeuLocal(); return; } clearTimeout(t); var data = null, first = false;
-    try { data = localStorage.getItem('tiltkart.v1'); first = !localStorage.getItem('wk-migre3'); localStorage.setItem('wk-migre3', '1'); } catch (e) { /* rien */ }
-    var imp = data && first ? '#import=' + encodeURIComponent(btoa(unescape(encodeURIComponent(data)))) : '';
-    // Nouvelle adresse publique (même origine moutmout123.github.io que l'ancienne : les données déjà enregistrées sur le site sont conservées).
-    // L'ancienne page Netlify renvoyait vers l'adresse fermée : on n'y passe plus.
-    location.replace(SITE + '?app=1' + imp);
-  }).catch(function () { /* pas d'internet ou site indisponible : on joue avec la version de l'appli */ clearTimeout(t); done = true; wkJeuLocal(); });
+// Animation de démarrage officielle (demarrage.html, fin classique) au-dessus de l'écran « Chargement… », qui reste en repli.
+// game.js appelle WK_LOADER.done(fin) quand le jeu est prêt : fin de l'animation, puis fondu vers le menu. Jamais bloquant :
+// délai maximal de 7 s, toucher l'écran passe l'animation, et rien du tout dans un navigateur automatisé (tests).
+window.WK_LOADER = (function () {
+  var el = document.getElementById('loading'), frame = null, api = null, onDone = null, closed = false, real = -1;
+  function close() {
+    if (closed) return; closed = true;
+    if (el) el.classList.add('fini');
+    setTimeout(function () { if (frame && frame.parentNode) frame.parentNode.removeChild(frame); if (onDone) onDone(); }, frame ? 450 : 0);
+  }
+  function finish() { if (!api) return; api.onReady = close; api.finish(); }
+  if (el && !navigator.webdriver) {
+    frame = document.createElement('iframe');
+    frame.src = 'demarrage.html?production' + (/[?&]video=1/.test(location.search) ? '&video=1' : ''); /* ?video=1 : prototype C2-2 (intro en vidéo) */ frame.title = 'Chargement de Wild Kart'; frame.setAttribute('aria-hidden', 'true');
+    frame.addEventListener('load', function () {
+      try { api = frame.contentWindow.WildKartLoader; api.setEndingMode('classic'); api.setProductionMode(true); api.set(.1); } catch (e) { api = null; }
+      // Avancement réel transmis par le jeu (WK_LOADER.progress) ; en attendant la première valeur, estimation lente plafonnée à 20 %.
+      if (real >= 0) api.set(real);
+      var p = .1, tick = setInterval(function () { if (!api || onDone || real >= 0) return clearInterval(tick); p = Math.min(.2, p + .02); api.set(p); }, 250);
+      if (onDone) { if (api) finish(); else close(); }
+    });
+    el.appendChild(frame);
+    document.body.appendChild(el); // hors du conteneur du jeu : devant les fenêtres (compte, accès) pendant l'animation
+    el.addEventListener('click', function () { if (onDone) close(); });
+  }
+  return {
+    // Avancement réel du démarrage (0 à 1), envoyé par game.js à chaque étape.
+    progress: function (v) { real = Math.max(real, v); if (api) try { api.set(Math.min(.97, real)); } catch (e) { /* rien */ } },
+    // Vrai tant que l'animation couvre l'écran : le jeu ne rend pas le menu derrière elle.
+    couvre: function () { return !!frame && !closed; },
+    done: function (cb) {
+      onDone = cb;
+      if (!frame) return close();
+      setTimeout(close, 7000);
+      if (api) finish();
+    }
+  };
 })();

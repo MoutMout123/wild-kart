@@ -4,8 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Wild Kart</title>
+<meta http-equiv="Content-Security-Policy" content="script-src 'self'">
 <meta name="description" content="Jeu de kart pour soirées entre potes, en ligne sur téléphone.">
 <meta name="theme-color" content="#17143a">
+<link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-180.png">
 <meta name="mobile-web-app-capable" content="yes">
@@ -72,6 +74,8 @@ p{margin:0;line-height:1.4}
 .logo{font-family:var(--f-display);font-size:clamp(54px,11vw,112px);line-height:.86;transform:rotate(-6deg);transform-origin:left bottom;
   display:flex;flex-direction:column;letter-spacing:.01em}
 .logo span{-webkit-text-stroke:3px var(--ink);paint-order:stroke fill;text-shadow:6px 6px 0 var(--ink)}
+/* Lettrage « WILD KART » extrait du logo d'origine (icon-512.png, scripts/lettrage-logo.py) : affiché tel quel, sans rotation ni effet */
+.logo.logo-lettrage{transform:none;display:block;line-height:0}.logo-img{display:block;width:clamp(240px,34vw,440px);height:auto;max-width:100%}
 .logo .l1{color:var(--sun)}
 .logo .l2{color:var(--tomato);margin-left:.5em}
 .flag{width:min(300px,60vw);height:18px;border:3px solid var(--ink);border-radius:4px;transform:rotate(-6deg);margin:6px 0 0 18px;
@@ -93,6 +97,7 @@ p{margin:0;line-height:1.4}
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
 .card{text-align:left;padding:10px;display:flex;flex-direction:column;gap:6px;transition:transform .12s;position:relative}
 .card canvas{width:100%;aspect-ratio:16/9;max-width:100%;border-radius:10px;border:2px solid var(--ink);display:block}
+.card .thumb{position:relative}.card .apercu{width:100%;aspect-ratio:2/1;object-fit:cover;border-radius:10px;border:2px solid var(--ink);display:block;background:var(--ink2)}.card .thumb:not(.photo) .apercu{position:absolute;inset:0;opacity:0}.card .thumb.photo canvas{position:absolute;right:5px;bottom:5px;width:36%;border-width:1.5px;border-radius:7px;box-shadow:0 1px 4px rgba(0,0,0,.35)}
 .card h3{font-family:var(--f-display);font-weight:400;font-size:17px;margin:0;line-height:1.1}
 .card p{font-size:12.5px;color:var(--muted);line-height:1.3}
 .card .meta{display:flex;justify-content:space-between;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums}
@@ -311,11 +316,14 @@ p{margin:0;line-height:1.4}
 @keyframes rot{0%,30%{transform:rotate(0)}60%,100%{transform:rotate(-90deg)}}
 #toast{position:absolute;left:50%;bottom:max(18px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:30;max-width:min(92vw,520px);
   background:var(--ink);border:2px solid var(--sun);border-radius:12px;padding:10px 14px;font-weight:600;font-size:14px;text-align:center}
-#loading{position:absolute;inset:0;display:grid;place-items:center;background:var(--ink);font-family:var(--f-display);font-size:22px;color:var(--sun);z-index:40}
+#loading{position:fixed;inset:0;display:grid;place-items:center;background:var(--ink);font-family:var(--f-display);font-size:22px;color:var(--sun);z-index:130;transition:opacity .45s}
+#loading iframe{position:absolute;inset:0;width:100%;height:100%;border:0;background:#030b22}
+#loading.fini{opacity:0;pointer-events:none}
 
 /* ---------- petits écrans en paysage ---------- */
 @media (max-height:440px){
   .logo{font-size:clamp(46px,9vw,84px)}
+  .logo-img{width:clamp(200px,31vw,330px)}
   .tag{font-size:14px}
   .btn.big{font-size:18px;padding:12px 18px}
   .menu{gap:10px}
@@ -337,6 +345,8 @@ p{margin:0;line-height:1.4}
   .calib,.small,.results,.install{padding:14px;gap:9px}
   #r-table td{padding:3px 6px}
 }
+/* Téléphones bas en paysage (≤ 400 px de haut) : la mini-carte passe à gauche de la case objet, sinon les boutons de droite la recouvrent */
+@media (max-height:400px) and (orientation:landscape){.hud-right{flex-direction:row-reverse;align-items:flex-start}#h-map{width:88px;height:88px}}
 @media (max-width:640px) and (orientation:portrait){
   .title-wrap{flex-direction:column;align-items:stretch}
   .cards{grid-template-columns:1fr}
@@ -470,6 +480,21 @@ body{font-size:16px}
   #pad.manual.touch .p-item{right:calc(max(34px,env(safe-area-inset-right,0px)) + 124px);bottom:calc(max(20px,env(safe-area-inset-bottom,0px)) + 112px)!important;width:68px;height:68px}
   #pad.manual.touch .p-brake{bottom:calc(max(20px,env(safe-area-inset-bottom,0px)) + 130px)!important}
 }
+/* Visée arrière directe, accessible avec un seul doigt dans les trois modes. */
+.pbtn{-webkit-backdrop-filter:none;backdrop-filter:none;background:rgba(23,20,58,.78)}
+#pad .p-itemback{width:58px;height:58px;font-size:10px;right:calc(max(40px,env(safe-area-inset-right,0px)) + 151px);bottom:calc(max(26px,env(safe-area-inset-bottom,0px)) + 116px)}
+#pad .p-itemback:disabled{opacity:.4;cursor:default}
+#pad.tilt .p-itemback{right:calc(max(40px,env(safe-area-inset-right,0px)) + 26px);bottom:calc(max(26px,env(safe-area-inset-bottom,0px)) + 130px)}
+#pad.manual.stick .p-itemback{right:calc(max(34px,env(safe-area-inset-right,0px)) + 120px);bottom:calc(max(26px,env(safe-area-inset-bottom,0px)) + 163px)}
+#pad.manual.tilt .p-itemback{right:calc(max(34px,env(safe-area-inset-right,0px)) + 153px);bottom:calc(max(26px,env(safe-area-inset-bottom,0px)) + 112px)}
+#pad.manual.touch .p-itemback{right:calc(max(34px,env(safe-area-inset-right,0px)) + 232px);bottom:calc(max(26px,env(safe-area-inset-bottom,0px)) + 140px)}
+@media (max-height:440px){
+  #pad .p-itemback{right:calc(max(40px,env(safe-area-inset-right,0px)) + 128px);bottom:calc(max(20px,env(safe-area-inset-bottom,0px)) + 108px)}
+  #pad.tilt .p-itemback{right:calc(max(40px,env(safe-area-inset-right,0px)) + 19px);bottom:calc(max(20px,env(safe-area-inset-bottom,0px)) + 120px)}
+  #pad.manual.stick .p-itemback{right:calc(max(34px,env(safe-area-inset-right,0px)) + 106px);bottom:calc(max(20px,env(safe-area-inset-bottom,0px)) + 136px)}
+  #pad.manual.tilt .p-itemback{right:calc(max(34px,env(safe-area-inset-right,0px)) + 153px);bottom:calc(max(20px,env(safe-area-inset-bottom,0px)) + 116px)}
+  #pad.manual.touch .p-itemback{right:calc(max(34px,env(safe-area-inset-right,0px)) + 204px);bottom:calc(max(20px,env(safe-area-inset-bottom,0px)) + 122px)}
+}
 #spec{position:absolute;left:50%;bottom:max(16px,env(safe-area-inset-bottom,0px));transform:translateX(-50%);display:flex;align-items:center;gap:10px;
   background:rgba(23,20,58,.88);border:3px solid var(--paper);border-radius:18px;padding:8px 10px;color:var(--paper);box-shadow:4px 4px 0 var(--ink);z-index:5}
 #spec[hidden]{display:none}
@@ -518,6 +543,53 @@ body{font-size:16px}
 #upd-btn{position:fixed;right:12px;bottom:12px;z-index:105}
 .ch-code{width:100%;font:12px/1.3 monospace;word-break:break-all;border-radius:10px;padding:8px;margin:8px 0;border:2px solid #17143a}
 
+/* Menus : cibles tactiles et lecture claire, sans effet sur le rendu de course. */
+.screen .btn,.screen .back,.screen .link,.screen .tabs button,.screen .chips button{min-height:44px}
+.screen .btn{transition:transform .08s}
+.screen .back{width:44px;height:44px}
+.screen button:disabled{cursor:default}
+.screen button:focus-visible,.screen input:focus-visible,.screen select:focus-visible,.screen summary:focus-visible{
+  outline:3px solid var(--ink);outline-offset:3px;box-shadow:0 0 0 6px var(--paper)}
+.screen .seg button:focus-visible{outline:3px solid var(--ink);outline-offset:-5px;box-shadow:none}
+.screen .seg button[aria-pressed="true"]:focus-visible{outline-color:var(--sun)}
+.panel .hint,.panel .opt>span,.panel .set-row>span small,.panel .ctrl3 button small{color:#5c587f}
+.card p{font-size:14px;line-height:1.4;color:#5c587f}
+.card.sel p,.ctrl3 button[aria-pressed="true"] small{color:var(--ink2)}
+.card .meta{gap:8px;flex-wrap:wrap}
+.menu .mgrid .btn{min-width:0;white-space:normal;line-height:1.25}
+.settings .group,.settings .set-row,.ctrl3 button{min-width:0}
+.settings .set-row{row-gap:8px}
+.settings .set-row>span small{line-height:1.4;margin-top:3px}
+.settings .tog{height:44px;flex:none}
+.settings .tog::after{top:7px}
+.settings input[type="range"]{min-height:44px;touch-action:pan-y}
+.ctrl3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.ctrl3 button,.tcard{transition:transform .1s ease-out}
+.ctrl3 button:active,.tcard:active{transform:translateY(2px)}
+.tcard b{line-height:1.3;overflow-wrap:anywhere}
+.foot-opts{min-width:0;max-width:100%}
+.foot-opts .seg{max-width:100%;flex-wrap:wrap}
+.foot-opts .seg button{flex:1 1 auto}
+@media (hover:hover) and (pointer:fine){
+  .ctrl3 button:not([aria-pressed="true"]):hover,.tcard:not([aria-pressed="true"]):hover{transform:translateY(-2px)}
+}
+@media (max-width:700px){
+  #set-ctrl{grid-template-columns:1fr}
+  #set-ctrl button{padding:10px 12px;gap:3px}
+  #set-ctrl button b{font-size:16px}
+}
+@media (max-width:420px){
+  .screen .seg button{padding:11px 10px}
+  .settings{padding:12px}
+  .settings .group{padding:10px}
+  .settings .set-row>.seg{max-width:100%;flex-wrap:wrap}
+  .settings .set-row>.seg button{flex:1 1 auto}
+}
+@media (max-height:440px){#track-cards .card p{display:block;font-size:13px}}
+@media (prefers-reduced-motion:reduce){
+  .screen .btn,.screen .card,.screen .ctrl3 button,.screen .tcard,.screen .bar i,.screen .tog::after{transition:none}
+}
+
 </style>
 
 <div id="app">
@@ -549,9 +621,10 @@ body{font-size:16px}
     <div id="stick-zone" aria-label="Joystick : glisse ton pouce pour tourner"><div id="stick"><i></i></div></div>
     <button class="pbtn p-left" data-k="left" aria-label="Gauche"><svg viewBox="0 0 24 24"><path d="M16 4L6 12l10 8z" fill="currentColor"/></svg></button>
     <button class="pbtn p-right" data-k="right" aria-label="Droite"><svg viewBox="0 0 24 24"><path d="M8 4l10 8-10 8z" fill="currentColor"/></svg></button>
-    <button class="pbtn p-brake" data-k="brake"><span>FREIN</span></button>
+    <button class="pbtn p-brake" data-k="brake" aria-label="Freiner ; maintenir avec OBJET pour lancer derrière"><span>FREIN</span></button>
     <button class="pbtn p-drift" data-k="drift"><span>DRIFT</span></button>
     <button class="pbtn p-item" data-k="item"><span>OBJET</span></button>
+    <button class="pbtn p-itemback" data-k="itemBack" aria-label="Lancer l’objet derrière" title="Lancer derrière : boule, boomerang, chewing-gum ou pétard" disabled><span>OBJET ↓</span></button>
     <button class="pbtn p-gas" data-k="gas" aria-label="Accélérer"><span>GAZ</span></button>
   </div>
   <div id="spec" hidden>
@@ -564,7 +637,7 @@ body{font-size:16px}
   <section id="s-title" class="screen" hidden>
     <div class="title-wrap">
       <div class="brand">
-        <div class="logo" aria-label="Wild Kart"><span class="l1">WILD</span><span class="l2">KART</span></div>
+        <div class="logo logo-lettrage"><picture><source srcset="assets/logo/lettrage-wild-kart.webp" type="image/webp"><img class="logo-img" src="assets/logo/lettrage-wild-kart.png" alt="Wild Kart" width="382" height="232" decoding="async"></picture></div>
         <div class="flag"></div>
         <p class="tag">Le kart des soirées entre potes. Chacun sur son téléphone, tous en même temps.</p>
         <div id="ctrl-chip" class="status"><i></i><span>Commandes : joystick</span></div>
@@ -582,6 +655,7 @@ body{font-size:16px}
         <div class="row small-links">
           <button class="link" id="b-rejoin" data-go="rejoin" hidden>Revenir dans la partie</button>
           <button class="link" data-go="practice">S'entraîner seul</button>
+          <button class="link" data-go="studio">Wild Kart Studio</button>
           <button class="link" id="b-install" data-go="install">Installer le jeu</button>
         </div>
       </nav>
@@ -641,12 +715,16 @@ body{font-size:16px}
           <button data-v="tilt"><b>Inclinaison</b><small>Penche le téléphone comme un volant.</small></button>
           <button data-v="touch"><b>Boutons</b><small>Flèches gauche et droite.</small></button>
         </div>
-        <div class="set-row"><span>Sensibilité</span><input type="range" id="set-sens" min="0.5" max="2" step="0.1"><output id="set-sens-o">1.0</output></div>
+        <p class="hint">OBJET ↓ lance derrière : boule, boomerang, chewing-gum ou pétard. Tu peux aussi maintenir FREIN puis toucher OBJET, ou tirer le joystick vers le bas.</p>
+        <p class="hint">Avec un piège (flaque, mine, colle, leurre, verglas, trampoline), le même bouton devient OBJET ↑ et le lance devant, en cloche ; sinon, OBJET le pose derrière. Au clavier : R lance devant. Joystick : pousser vers le haut.</p>
+        <div class="set-row"><span>Sensibilité</span><input type="range" id="set-sens" min="0.5" max="2" step="0.1" aria-label="Sensibilité de la direction"><output id="set-sens-o" for="set-sens">1.0</output></div>
         <div class="set-row"><span>Accélération<small>Auto : le kart avance tout seul. Manuelle : tu gardes GAZ appuyé.</small></span><div class="seg" id="set-gas"><button data-v="auto">Auto</button><button data-v="manual">Manuelle</button></div></div>
+        <div class="set-row"><span>Braquage<small>Franc (essai) : rayon de virage garanti à grande vitesse.</small></span><div class="seg" id="set-steer"><button data-v="classique">Classique</button><button data-v="franc">Franc (essai)</button></div></div>
         <div class="set-row tilt-only"><span>Inverser l'inclinaison</span><button class="tog" id="set-inv" aria-label="Inverser l'inclinaison"></button></div>
         <div class="set-row tilt-only"><span>Volant</span><button class="btn sm" data-go="calib"><span>Calibrer</span></button></div>
       </div>
       <div class="group"><h3>Affichage</h3>
+        <div class="set-row"><span>Graphismes améliorés<small>Textures, matériaux et décors détaillés. Les effets s’adaptent à ton appareil.</small></span><button class="tog" id="set-enhanced" aria-label="Graphismes améliorés" aria-pressed="true"></button></div>
         <div class="set-row"><span>Fluidité<small>30 i/s chauffe moins le téléphone</small></span><div class="seg" id="set-fps"><button data-v="0">Max</button><button data-v="60">60 i/s</button><button data-v="30">30 i/s</button></div></div>
         <div class="set-row"><span>Afficher FPS et ping<small>En haut à gauche pendant la course</small></span><button class="tog" id="set-perf" aria-label="Afficher FPS et ping"></button></div>
         <div class="set-row"><span>Graphismes</span><div class="seg" id="set-q"><button data-v="low">Bas</button><button data-v="medium">Moyen</button><button data-v="high">Haut</button></div></div>
@@ -862,10 +940,7 @@ body{font-size:16px}
   <div id="loading">Chargement…</div>
 </div>
 
-<script src="three.min.js"></script>
-<script src="peerjs.min.js"></script>
-<script src="nacl.min.js"></script>
-<script src="boot.js?v=da2663d0"></script>
-<!-- game.js (version embarquée) est chargé par boot.js seulement si le site en ligne est indisponible -->
+<script src="apk-boot.js?v=46fd4305"></script>
 </body>
 </html>
+
